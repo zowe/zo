@@ -13,6 +13,7 @@ C_PATH = "../../c"
 chdsect = os.path.abspath(f"{C_PATH}/chdsect")
 ztype = os.path.abspath(C_PATH)
 build_out_path = f"{C_PATH}/build-out"
+GSKCMS_SIDEDECK = "/usr/lib/GSKCMS64.x"
 
 # These sources are shared with zo, which compiles them with the ibm-clang default EBCDIC
 # execution charset. The SWIG's default CFLAGS -fzos-le-char-mode=ascii flip the charset and 
@@ -87,6 +88,24 @@ zjb_py_module = Extension("_zjb_py",
                           extra_compile_args=["-D_EXT", "-D_OPEN_SYS_FILE_EXT=1"],
                           )
 
+zkr_py_module = Extension("_zkr_py",
+                          sources=["zkr_py_wrap.cxx", "zkr_py.cpp",
+                                   f"{C_PATH}/zkr.cpp", f"{C_PATH}/zkrio.cpp",
+                                   f"{C_PATH}/zds.cpp", f"{C_PATH}/zut.cpp"],
+                          language="c++",
+                          extra_objects=[
+                              f"{build_out_path}/zdsm.o",
+                              f"{build_out_path}/zutm.o",
+                              f"{build_out_path}/zam.o",
+                              f"{build_out_path}/zam24.o",
+                              f"{build_out_path}/zutm31.o",
+                              f"{build_out_path}/zutcall24.o",
+                              GSKCMS_SIDEDECK,
+                          ],
+                          include_dirs=[chdsect, ztype],
+                          extra_compile_args=["-D_EXT", "-D_OPEN_SYS_FILE_EXT=1"],
+                          )
+
 # Parse environment variable for selective building
 
 
@@ -100,7 +119,7 @@ def get_modules_to_build():
         modules_to_build = {m.strip() for m in modules_to_build if m.strip()}
     else:
         # If no specific modules requested, build all
-        modules_to_build = {'zusf', 'zds', 'zjb'}
+        modules_to_build = {'zusf', 'zds', 'zjb', 'zkr'}
 
     return modules_to_build
 
@@ -123,6 +142,10 @@ if 'zds' in modules_to_build:
 if 'zjb' in modules_to_build:
     ext_modules.append(zjb_py_module)
     py_modules.append("zjb_py")
+
+if 'zkr' in modules_to_build:
+    ext_modules.append(zkr_py_module)
+    py_modules.append("zkr_py")
 
 print(f"Building modules: {', '.join(modules_to_build)}")
 

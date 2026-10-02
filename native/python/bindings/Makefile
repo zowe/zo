@@ -34,6 +34,7 @@ swig-wrappers:
 	$(SWIG) -python -c++ zusf_py.i
 	$(SWIG) -python -c++ zjb_py.i
 	$(SWIG) -python -c++ zds_py.i
+	$(SWIG) -python -c++ zkr_py.i
 
 # Build Python extensions
 build: swig-wrappers
@@ -58,6 +59,12 @@ build-zjb:
 	@echo '\nBuilding zjb_py module only'
 	$(SWIG) -python -c++ zjb_py.i
 	$(_SWIG_ENV) ZBIND_MODULES=zjb python setup.py build_ext
+
+# build-zkr: swig-zkr
+build-zkr:
+	@echo '\nBuilding zkr_py module only'
+	$(SWIG) -python -c++ zkr_py.i
+	$(_SWIG_ENV) ZBIND_MODULES=zkr python setup.py build_ext
 
 # Run SWIG extenders in the C directory
 swig-extenders:
@@ -86,9 +93,11 @@ help:
 	@echo "  build-zusf    - Build zusf_py module only"
 	@echo "  build-zds     - Build zds_py module only"
 	@echo "  build-zjb     - Build zjb_py module only"
+	@echo "  build-zkr     - Build zkr_py module only"
 	@echo "  swig-zusf     - Build SWIG extenders for zusf_py module"
 	@echo "  swig-zds      - Build SWIG extenders for zds_py module"
 	@echo "  swig-zjb      - Build SWIG extenders for zjb_py module"
+	@echo "  swig-zkr      - Build SWIG extenders for zkr_py module"
 	@echo "  clean         - Clean generated files"
 	@echo "  help          - Show this help message"
 
@@ -103,4 +112,4 @@ clean:
 	rm -rf build/
 	rm -rf ../../c/build-out/swig
 
-.PHONY: all help swig-wrappers swig-extenders build clean build-zusf build-zds build-zjb swig-zusf swig-zds swig-zjb
+.PHONY: all help swig-wrappers swig-extenders build clean build-zusf build-zds build-zjb build-zkr swig-zusf swig-zds swig-zjb swig-zkr

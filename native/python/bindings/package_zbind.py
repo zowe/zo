@@ -25,6 +25,7 @@ bindings_files = [
     "zusf_py.cpp", "zusf_py.hpp", "zusf_py.py", "zusf_py_wrap.cxx",
     "zds_py.cpp", "zds_py.hpp", "zds_py.py", "zds_py_wrap.cxx",
     "zjb_py.cpp", "zjb_py.hpp", "zjb_py.py", "zjb_py_wrap.cxx",
+    "zkr_py.cpp", "zkr_py.hpp", "zkr_py.py", "zkr_py_wrap.cxx",
     "conversion.hpp"
 ]
 
@@ -60,7 +61,7 @@ for filename in bindings_files:
         print(f"Warning: bindings file not found: {filename}")
 
 # 3. Copy C++ core sources
-core_sources = ["zusf.cpp", "zds.cpp", "zjb.cpp", "zut.cpp"]
+core_sources = ["zusf.cpp", "zds.cpp", "zjb.cpp", "zut.cpp", "zkr.cpp", "zkrio.cpp"]
 for filename in core_sources:
     src = os.path.join(C_DIR, filename)
     if os.path.exists(src):
@@ -85,7 +86,7 @@ else:
     print("Error: chdsect directory not found!")
 
 # 6. Copy precompiled Metal C object files using native cp
-object_files = ["zdsm.o", "zutm.o", "zam.o", "zam24.o", "zutm31.o", "zjbm.o"]
+object_files = ["zdsm.o", "zutm.o", "zam.o", "zam24.o", "zutm31.o", "zjbm.o", "zutcall24.o"]
 build_out_dir = os.path.join(C_DIR, "build-out")
 for filename in object_files:
     src = os.path.join(build_out_dir, filename)
@@ -112,7 +113,8 @@ ztype = "."
 # and the Metal C routines it calls. Let's compile those translations in EBCDIC and leave the 
 # SWIG wrappers in ASCII. The conversion.hpp should bridge the two.
 EBCDIC_CHAR_MODE = "-fzos-le-char-mode=ebcdic"
-CORE_SOURCES = {"zusf.cpp", "zds.cpp", "zjb.cpp", "zut.cpp"}
+CORE_SOURCES = {"zusf.cpp", "zds.cpp", "zjb.cpp", "zut.cpp", "zkr.cpp", "zkrio.cpp"}
+GSKCMS_SIDEDECK = "/usr/lib/GSKCMS64.x"
 
 
 class BuildExtMixedCharMode(build_ext):
@@ -146,6 +148,7 @@ zusf_py_module = Extension("_zusf_py",
                                "zam.o",
                                "zam24.o",
                                "zutm31.o",
+                               "zutcall24.o",
                            ],
                            include_dirs=[chdsect, ztype],
                            extra_compile_args=["-D_EXT", "-D_OPEN_SYS_FILE_EXT=1"],
@@ -160,6 +163,7 @@ zds_py_module = Extension("_zds_py",
                               "zam.o",
                               "zam24.o",
                               "zutm31.o",
+                              "zutcall24.o",
                           ],
                           include_dirs=[chdsect, ztype],
                           extra_compile_args=["-D_EXT", "-D_OPEN_SYS_FILE_EXT=1"],
@@ -175,6 +179,23 @@ zjb_py_module = Extension("_zjb_py",
                               "zam.o",
                               "zdsm.o",
                               "zam24.o",
+                              "zutcall24.o",
+                          ],
+                          include_dirs=[chdsect, ztype],
+                          extra_compile_args=["-D_EXT", "-D_OPEN_SYS_FILE_EXT=1"],
+                          )
+
+zkr_py_module = Extension("_zkr_py",
+                          sources=["zkr_py_wrap.cxx", "zkr_py.cpp", "zkr.cpp", "zkrio.cpp", "zds.cpp", "zut.cpp"],
+                          language="c++",
+                          extra_objects=[
+                              "zdsm.o",
+                              "zutm.o",
+                              "zam.o",
+                              "zam24.o",
+                              "zutm31.o",
+                              "zutcall24.o",
+                              GSKCMS_SIDEDECK,
                           ],
                           include_dirs=[chdsect, ztype],
                           extra_compile_args=["-D_EXT", "-D_OPEN_SYS_FILE_EXT=1"],
@@ -184,8 +205,8 @@ setup(name="zbind",
       version="1.0.0",
       description="Zowe Remote SSH Python Bindings (Self-contained Bundle)",
       cmdclass={"build_ext": BuildExtMixedCharMode},
-      ext_modules=[zusf_py_module, zds_py_module, zjb_py_module],
-      py_modules=["zusf_py", "zds_py", "zjb_py"],
+      ext_modules=[zusf_py_module, zds_py_module, zjb_py_module, zkr_py_module],
+      py_modules=["zusf_py", "zds_py", "zjb_py", "zkr_py"],
       )
 """
 
@@ -232,8 +253,24 @@ print("Wrote README.md to bundle.")
 
 # 10. Correctly tag files inside the distribution directory
 print("Applying file tagging for z/OS compatibility...")
-# Tag Python files as ASCII
-subprocess.run("chtag -t -c ISO8859-1 zbind_src_dist/*.py zbind_src_dist/*.cfg zbind_src_dist/*.md", shell=True, check=True, cwd=BINDINGS_DIR)
+# The SWIG-generated *_py.py wrapper files were copied verbatim with the native `cp` in step 2,
+# so they're still EBCDIC (IBM-1047) bytes on disk, same as their originals in BINDINGS_DIR. A
+# bare `chtag -t` only relabels the tag without touching bytes, so it would leave these files
+# mislabeled as ISO8859-1 while still holding EBCDIC bytes -- corrupting every `import` of the
+# bundle. Convert the bytes for real before tagging them ASCII.
+py_wrapper_files = [f for f in bindings_files if f.endswith(".py")]
+for filename in py_wrapper_files:
+    dst_file = os.path.join(DIST_DIR, filename)
+    tmp_file = dst_file + ".ascii.tmp"
+    with open(tmp_file, "wb") as out:
+        subprocess.run(["iconv", "-f", "IBM-1047", "-t", "ISO8859-1", dst_file], stdout=out, check=True)
+    os.replace(tmp_file, dst_file)
+    print(f"Converted {filename} from IBM-1047 to ISO8859-1.")
+py_wrapper_glob = " ".join(f"zbind_src_dist/{f}" for f in py_wrapper_files)
+subprocess.run(f"chtag -t -c ISO8859-1 {py_wrapper_glob}", shell=True, check=True, cwd=BINDINGS_DIR)
+# setup.py/setup.cfg/README.md are freshly written by this script in ASCII -- tag only, no
+# byte conversion needed.
+subprocess.run("chtag -t -c ISO8859-1 zbind_src_dist/setup.py zbind_src_dist/*.cfg zbind_src_dist/*.md", shell=True, check=True, cwd=BINDINGS_DIR)
 # Tag C++ files as IBM-1047 (EBCDIC)
 subprocess.run("chtag -t -c IBM-1047 zbind_src_dist/*.cpp zbind_src_dist/*.hpp zbind_src_dist/*.h zbind_src_dist/*.cxx zbind_src_dist/chdsect/*.h", shell=True, check=True, cwd=BINDINGS_DIR)
 

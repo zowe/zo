@@ -36,7 +36,7 @@ os.makedirs(PRECOMPILED_DIR, exist_ok=True)
 
 # 3. Copy the compiled .so files and Python wrapper modules
 print("\n[Step 2] Packaging compiled binaries and Python files...")
-py_files = ["zusf_py.py", "zds_py.py", "zjb_py.py"]
+py_files = ["zusf_py.py", "zds_py.py", "zjb_py.py", "zkr_py.py"]
 
 for filename in os.listdir(BINDINGS_DIR):
     # Find compiled .so libraries
@@ -60,6 +60,7 @@ init_content = """# Zowe Remote SSH Python Bindings (Precompiled)
 from .zusf_py import *
 from .zds_py import *
 from .zjb_py import *
+from .zkr_py import *
 """
 with open(os.path.join(PRECOMPILED_DIR, "__init__.py"), "w") as f:
     f.write(init_content)

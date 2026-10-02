@@ -6,7 +6,7 @@ We provide two distinct packaging scripts, tailored for different deployment nee
 
 ## Available Functions
 
-The bindings are split across three modules, each generated from the corresponding `*_py.hpp` header. All functions raise a Python exception (`RuntimeError`) on failure instead of returning an error code.
+The bindings are split across four modules, each generated from the corresponding `*_py.hpp` header. All functions raise a Python exception (`RuntimeError`) on failure instead of returning an error code.
 
 ### `zds_py` — Data Sets
 
@@ -69,6 +69,44 @@ Unavailable execution fields are empty strings.
 
 - `ListOptions(all_files: bool = False, long_format: bool = False, max_depth: int = 1)`
 
+### `zkr_py` — Certificates and key rings
+
+| Function | Description |
+| --- | --- |
+| `create_keyring(owner: str, keyring: str) -> str` | Create a new key ring (R_datalib NEWRING). Returns a non-fatal SAF warning, or `""`. |
+| `delete_keyring(owner: str, keyring: str) -> str` | Delete a key ring (R_datalib DELRING). |
+| `list_rings(owner: str, keyring: str = "") -> ZkrRingList` | Enumerate a user's key rings and the certificates connected to each. `keyring=""` (or `"*"`) returns all of the owner's rings. |
+| `count_ring(owner: str, keyring: str) -> int` | Count the certificates connected to a key ring, or the owner's whole virtual key ring (`keyring="*"`). |
+| `refresh_digtcert() -> str` | Refresh the DIGTCERT class (R_datalib REFRESH). |
+| `list_certificates(owner: str, keyring: str, label: str = "", usage: str = "", max_entries: int = 10) -> ZkrCertList` | List the certificates connected to a key ring, with RACDCERT LABEL-style exact filtering. |
+| `show_certificate(owner: str, keyring: str, label: str) -> ZKRCertDetail` | Retrieve detailed information (subject, serial number, validity) for a single certificate. |
+| `set_default_certificate(owner: str, keyring: str, label: str) -> str` | Make a certificate the default certificate of a key ring. |
+| `connect_certificate(owner: str, keyring: str, label: str, from_ring: str = "", from_database: bool = False, usage: str = "", make_default: bool = False) -> str` | Connect a certificate that already exists in the ESM database to a key ring. |
+| `delete_certificate(owner: str, keyring: str, label: str, database: bool = False, skip_refresh: bool = False) -> str` | Remove/disconnect a certificate from a key ring or the ESM database (`database=True`). |
+| `trust_certificate(owner: str, label: str, status: str) -> str` | Change a certificate's trust status (`TRUST`, `HIGHTRUST`, or `NOTRUST`). |
+| `rename_certificate(owner: str, label: str, new_label: str) -> str` | Rename a certificate's label. |
+| `export_certificate(owner: str, keyring: str, label: str, format: str = "pem", password: str = "") -> bytes` | Export a certificate as bytes: PEM text (ISO8859-1) by default, or a PKCS#12 bundle (`format='p12'`, password required). |
+| `export_certificate_to_file(owner: str, keyring: str, label: str, file: str, format: str = "pem", password: str = "") -> int` | Export a certificate to a private (0600) file; returns the number of bytes written. |
+| `export_certificate_to_dsn(owner: str, keyring: str, label: str, dsn: str, format: str = "pem", password: str = "") -> int` | Export a certificate to a sequential data set or PDS/E member; returns the number of bytes written. |
+| `import_certificate(owner: str, keyring: str, label: str, usage: str, password: str, data: bytes, skip_refresh: bool = False) -> str` | Import a certificate (and private key, when present) from PKCS#12 `bytes` into a key ring. |
+| `import_certificate_from_file(owner: str, keyring: str, label: str, usage: str, password: str, file: str, skip_refresh: bool = False) -> str` | Import a certificate from a PKCS#12 file into a key ring. |
+| `import_certificate_from_dsn(owner: str, keyring: str, label: str, usage: str, password: str, dsn: str, skip_refresh: bool = False) -> str` | Import a certificate from a PKCS#12 data set or PDS/E member into a key ring. |
+
+**Supporting types:**
+
+- `ZKRCertInfo`: `label`, `owner`, `usage`, `status`, `is_default`
+- `ZKRCertDetail`: adds `subject`, `record_id`, `key_type`, `key_size`, `serial_number`, `not_before`, `not_after`, `has_validity`
+- `ZKRRingCert`: `owner`, `label`
+- `ZKRRingEntry`: `owner`, `name`, `certs: list[ZKRRingCert]`
+- `ZkrCertList`: `items: list[ZKRCertInfo]`, `more_available`
+- `ZkrRingList`: `items: list[ZKRRingEntry]`, `warning`
+- `ZkrError(RuntimeError)`: raised instead of the generic `RuntimeError` the other modules use, with `service`, `function_code`, `saf_rc`, `esm_rc`, `esm_rsn`, `gsk_rc` attributes carrying the same structured SAF/ESM/GSK codes the RPC layer exposes programmatically.
+
+Unlike the other three modules, functions here take a keyword argument by name where it makes the call
+readable (`export_certificate(owner, ring, label, format="p12", password=...)`) — see
+[`%feature("kwargs")` below](#why-calls-across-the-line-need-extern-c) for why that needed an extra
+directive the other `.i` files don't have.
+
 ## Architecture
 
 Each module is a CPython extension. Building one runs SWIG plus two different IBM compilers, and the
@@ -111,6 +149,13 @@ flowchart TB
 that second file is the module you `import`. That is why neither distribution below needs SWIG on the
 target machine. The source bundle ships the generated `.cxx` and only has to recompile it, and the
 precompiled bundle ships the finished `.so` next to the `*_py.py`.
+
+`zkr_py` follows the same two steps above, with one difference in Step 2's link: it adds
+`/usr/lib/GSKCMS64.x`, the System SSL side deck `native/c/zkr.cpp` calls into (`gsk_export_key` /
+`gsk_import_key`), to `extra_objects`. It has no Metal C object of its own — `zkr_py`'s
+`extra_objects` list is the same `zdsm.o` / `zutm.o` / `zam.o` / `zam24.o` / `zutm31.o` /
+`zutcall24.o` set `zds_py` and `zjb_py` already need for the `native/c/zds.cpp` it shares with them,
+plus that one side deck.
 
 ### Where the ASCII/EBCDIC line falls
 
@@ -186,8 +231,9 @@ sequenceDiagram
 IBM's libc++ gives each encoding mode its own namespace name, so an ASCII `std::string` and an EBCDIC
 `std::string` end up with different symbol names in the object files. As far as the linker is concerned
 they are two unrelated types. So anything the bindings call has to be declared inside an
-`#ifdef SWIG extern "C"` block in the shared header — `native/c/zds.hpp`, `native/c/zjb.hpp` and
-`native/c/zusf.hpp` each have one. Miss a declaration and the bind step fails with `IEW2456E`:
+`#ifdef SWIG extern "C"` block in the shared header — `native/c/zds.hpp`, `native/c/zjb.hpp`,
+`native/c/zusf.hpp` and `native/c/zkr.hpp` each have one. Miss a declaration and the bind step fails
+with `IEW2456E`:
 
 ```mermaid
 flowchart TB
@@ -215,21 +261,23 @@ with two limits:
 - **It cannot handle overloads,** since every C name has to be unique. `zjb_list_by_owner` has three
   overloads, so only the owner/prefix/status one is declared for SWIG; the two convenience forms sit
   behind `#ifndef SWIG`.
-- **It cannot return a C++ type.** `zusf_format_file_entry` returns a `std::string`, so it has to stay
-  outside the block.
+- **It cannot return a C++ type.** 
+  - `zusf_format_file_entry` returns a `std::string`
+  - `zkr_filter_certs` returns a `std::vector<ZKRCertInfo>` by value. 
+    - The workaround is `zkr_filter_certs_into` which appends to a caller-supplied `std::vector &`.
 
 ### Which strings get converted
 
 The rule is simple: **convert the text yourself only if the shared layer will not.** The two columns
 below differ because the shared layers disagree about who converts file content.
 
-| what crosses | `zds_py` / `zjb_py` | `zusf_py` |
-| --- | --- | --- |
-| DSN / path / jobid / owner / prefix / tag | `a2e` | `a2e` |
-| codepage name, etag going in | `a2e` | `a2e` |
-| etag coming back | `e2a` | `e2a` |
-| `diag.e_msg`, listing text, `ZJob` / `ZDSEntry` fields | `e2a` | `e2a` |
-| file or data set **content** | `a2e` / `e2a` | none |
+| what crosses | `zds_py` / `zjb_py` | `zusf_py` | `zkr_py` |
+| --- | --- | --- | --- |
+| DSN / path / jobid / owner / prefix / tag | `a2e` | `a2e` | `a2e` |
+| codepage name, etag going in | `a2e` | `a2e` | n/a |
+| etag coming back | `e2a` | `e2a` | n/a |
+| `diag.e_msg`, listing text, `ZJob` / `ZDSEntry` / `ZKRCertInfo` fields | `e2a` | `e2a` | `e2a` |
+| file or data set **content** | `a2e` / `e2a` | none | see below |
 
 `zusf` converts content in both directions on its own: it checks the requested codepage and the file
 tag together, so leaving the content untouched is what makes it round-trip whether the file is tagged or
@@ -245,13 +293,31 @@ binding to convert the content itself.
 > `test_write_dataset_etag_round_trip` in `test/test_zds.py`. They are `strict` xfails, so fixing
 > either one turns its test into an XPASS failure — the reminder to delete the marker and this note.
 
+**`zkr_py`'s `bytes` payloads: the one boundary with no conversion in either direction.** `export_certificate`,
+`export_certificate_to_file`/`_to_dsn`, and `import_certificate`/`_from_file`/`_from_dsn` all take or
+return PKCS#12 as Python `bytes` (typedef'd `ZkrBytes`, typemapped to `PyBytes_FromStringAndSize` /
+`PyBytes_AsStringAndSize` in `zkr_py.i` — `std_string.i`'s default `str` typemap would corrupt it, since
+PKCS#12 DER is not valid UTF-8). Those bytes are never run through `a2e`/`e2a`: RACDCERT's own
+`FORMAT(PKCS12DER)` output is binary, not text in either encoding, so converting it would corrupt it in
+both directions.
+
+PEM is different — it *is* text, and gets `e2a`'d for `export_certificate`'s return value (so the
+`bytes` you get back are portable ISO8859-1, decodable as ASCII) but deliberately **not** for
+`export_certificate_to_file`/`_to_dsn`: PEM written to a file or data set stays EBCDIC, byte-identical
+to what `RACDCERT EXPORT`/keyring-util already produce there. Converting on-disk PEM to ASCII would
+silently break that parity, so `native/python/bindings/test/test_zkr.py`'s
+`test_pem_export_to_file_stays_ebcdic_and_private` asserts the on-disk bytes do **not** start with the
+ASCII `-----BEGIN CERTIFICATE-----` banner, specifically so nobody "fixes" this later.
+
 ## Distribution Types
 
 ### 1. Precompiled Binary Distribution (`zbind_bin_dist.tar.gz`)
 *Designed for end-users who just want to use the Python bindings immediately without compiling anything.*
 
 - **Compiled on:** The build mainframe (e.g. `lpar.1`).
-- **Dependencies needed on target:** Only Python (e.g. Python 3.11, 3.12, etc.). **No compiler, SWIG, C++ sources, or headers are required.**
+- **Dependencies needed on target:** Only Python (e.g. Python 3.11, 3.12, etc.) and System SSL
+  (`/usr/lib/GSKCMS64.x`, which `zkr_py`'s `_zkr_py.so` links against — present on z/OS by default).
+  **No compiler, SWIG, C++ sources, or headers are required.**
 - **How to Build:**
   ```bash
   python package_precompiled.py
@@ -283,7 +349,8 @@ binding to convert the content itself.
 ### 2. Self-Contained Source Distribution (`zbind_src_dist.tar.gz`)
 *Designed for environments where you need to build and install the bindings locally from source (e.g. target machines with different or multiple Python versions), but without SWIG.*
 
-- **Dependencies needed on target:** Python and `ibm-clang`. **SWIG is NOT required.**
+- **Dependencies needed on target:** Python, `ibm-clang`, and System SSL (`/usr/lib/GSKCMS64.x`,
+  linked into `_zkr_py`'s extension — present on z/OS by default). **SWIG is NOT required.**
 - **How to Build:**
   ```bash
   python package_zbind.py
