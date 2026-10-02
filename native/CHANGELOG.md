@@ -48,6 +48,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `python`: Fixed `get_job_status` returning unconverted EBCDIC strings and `create_data_set` raising errors with an empty message. [#1121](https://github.com/zowe/zowex/pull/1121)
 - `python`: Fixed `list_jobs_by_owner` failing when no job name prefix is given. [#1121](https://github.com/zowe/zowex/pull/1121)
 - `python`: Fixed the USS bindings (`create_uss_file`, `create_uss_dir`, `move_uss_file_or_dir`, `list_uss_dir`, `chmod_uss_item`, `delete_uss_item`, `chown_uss_item`, `chtag_uss_item`) not converting paths, and `write_uss_file`/`write_uss_file_streamed` not converting etags, between ASCII and EBCDIC. [#1121](https://github.com/zowe/zowex/pull/1121)
+- `python`: Added the `zkr_py` module (certificate/key ring operations: `create_keyring`, `list_certificates`, `export_certificate`, `import_certificate`, and 14 others) — an in-process binding over the same `native/c/zkr.hpp`/`zkr.cpp` service layer `zowex system cert`/`system keyring` use. [#1127](https://github.com/zowe/zowex/pull/1127)
+- `python`: `zkr_py`'s PKCS#12/PEM payloads cross as Python `bytes`, not `str`, so binary certificate material round-trips byte-exact; PEM returned to Python is portable ASCII, but PEM written to a file or data set stays EBCDIC, byte-identical to `keyring-util`. [#1127](https://github.com/zowe/zowex/pull/1127)
+- `c`: Added `zkrio` (`native/c/zkrio.hpp`/`zkrio.cpp`), shared certificate-material data set/file I/O extracted from `commands/certificates.cpp` so `zkr_py` can reuse it without linking the CLI command layer. [#1127](https://github.com/zowe/zowex/pull/1127)
+- `c`: Added `--dsn` to `zowex system cert import`/`export`, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1127](https://github.com/zowe/zowex/pull/1127)
+- `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1127](https://github.com/zowe/zowex/pull/1127)
+- `c`: Guard against OPEN hanging on a password-protected data set (legacy MVS password protection issues a WTOR with no console to answer it) by failing fast, pre-OPEN, in the BPAM write path. [#1127](https://github.com/zowe/zowex/pull/1127)
 
 ## `1.0.1`
 
