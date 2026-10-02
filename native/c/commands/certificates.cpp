@@ -11,6 +11,7 @@
 
 #include "certificates.hpp"
 #include "../zkr.hpp"
+#include "../zkrio.hpp"
 #include "../zbase64.h"
 #include "../zds.hpp"
 #include "../ztype.h"
@@ -369,7 +370,7 @@ int handle_cert_export(InvocationContext &context)
     // the file is created (or truncated) owner-read/write only, independent of
     // the process umask.
     std::string err;
-    if (zut_write_file_private(file, data, err) != RTNCD_SUCCESS)
+    if (zkrio_write_file(file, data, err) != RTNCD_SUCCESS)
     {
       context.error_stream() << "Error: could not write output file: " << file << " (" << err << ")" << std::endl;
       return RTNCD_FAILURE;
@@ -382,7 +383,7 @@ int handle_cert_export(InvocationContext &context)
   else if (!dsn.empty())
   {
     std::string err;
-    if (write_cert_dsn(dsn, data, is_p12, err) != RTNCD_SUCCESS)
+    if (zkrio_write_dsn(dsn, data, is_p12, err) != RTNCD_SUCCESS)
     {
       context.error_stream() << "Error: could not write output data set: " << dsn << " (" << err << ")" << std::endl;
       return RTNCD_FAILURE;
@@ -459,7 +460,7 @@ int handle_cert_import(InvocationContext &context)
   if (!dsn.empty())
   {
     std::string err;
-    if (read_cert_dsn(dsn, opts.p12_data, err) != RTNCD_SUCCESS)
+    if (zkrio_read_dsn(dsn, opts.p12_data, err) != RTNCD_SUCCESS)
     {
       context.error_stream() << "Error: could not read source data set: " << dsn << " (" << err << ")" << std::endl;
       return RTNCD_FAILURE;
