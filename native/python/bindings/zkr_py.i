@@ -31,7 +31,18 @@
 // ZkrBytes -- PKCS#12/PEM payloads as Python `bytes`, not `str`. Must be declared before
 // %include "zkr_py.hpp" so it wins the typemap match over std_string.i's std::string
 // typemaps (SWIG matches on the type as written, before reducing typedefs).
-%{ static PyObject *g_zkr_error = nullptr; %}
+%{
+static PyObject *g_zkr_error = nullptr;
+
+static bool zkr_set_owned_attr(PyObject *exc, const char *name, PyObject *value)
+{
+  if (!value)
+    return false;
+  const int rc = PyObject_SetAttrString(exc, name, value);
+  Py_DECREF(value);
+  return rc == 0;
+}
+%}
 
 %typemap(out) ZkrBytes {
   $result = PyBytes_FromStringAndSize($1.data(), static_cast<Py_ssize_t>($1.size()));
@@ -75,13 +86,14 @@ ZkrError = _zkr_py.ZkrError
   } catch (const ZkrError &e) {
     PyObject *exc = PyObject_CallFunction(g_zkr_error, "s", e.what());
     if (exc) {
-      PyObject_SetAttrString(exc, "service", PyUnicode_FromString(e.service.c_str()));
-      PyObject_SetAttrString(exc, "function_code", PyLong_FromLong(e.function_code));
-      PyObject_SetAttrString(exc, "saf_rc", PyLong_FromLong(e.saf_rc));
-      PyObject_SetAttrString(exc, "esm_rc", PyLong_FromLong(e.esm_rc));
-      PyObject_SetAttrString(exc, "esm_rsn", PyLong_FromLong(e.esm_rsn));
-      PyObject_SetAttrString(exc, "gsk_rc", PyLong_FromLong(e.gsk_rc));
-      PyErr_SetObject(g_zkr_error, exc);
+      if (zkr_set_owned_attr(exc, "service", PyUnicode_FromString(e.service.c_str())) &&
+          zkr_set_owned_attr(exc, "function_code", PyLong_FromLong(e.function_code)) &&
+          zkr_set_owned_attr(exc, "saf_rc", PyLong_FromLong(e.saf_rc)) &&
+          zkr_set_owned_attr(exc, "esm_rc", PyLong_FromLong(e.esm_rc)) &&
+          zkr_set_owned_attr(exc, "esm_rsn", PyLong_FromLong(e.esm_rsn)) &&
+          zkr_set_owned_attr(exc, "gsk_rc", PyLong_FromLong(e.gsk_rc))) {
+        PyErr_SetObject(g_zkr_error, exc);
+      }
       Py_DECREF(exc);
     }
     SWIG_fail;

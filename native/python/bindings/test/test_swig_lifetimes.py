@@ -45,3 +45,51 @@ def test_member_vector_retains_parent(parent_type, field, vector_type, item_type
     assert [getattr(entry, item_field) for entry in vector] == ["SAMPLE"]
     vector.push_back(item)
     assert len(getattr(vector._zkr_owner, field)) == 2
+
+
+@pytest.mark.parametrize("keep_element", [False, True])
+def test_nested_ring_result_retains_storage(keep_element):
+    def make_result():
+        result = certs.ZkrRingList()
+        ring = certs.ZKRRingEntry()
+        ring.name = "TESTRING"
+        certificate = certs.ZKRRingCert()
+        certificate.label = "SAMPLE"
+        ring.certs.push_back(certificate)
+        result.items.push_back(ring)
+        return result
+
+    nested = make_result().items[0].certs
+    if keep_element:
+        nested = nested[0]
+    gc.collect()
+    if keep_element:
+        assert nested.label == "SAMPLE"
+    else:
+        assert [entry.label for entry in nested] == ["SAMPLE"]
+
+
+def test_error_diagnostic_releases_temporary_reference(tmp_path):
+    empty_file = tmp_path / "empty.p12"
+    empty_file.write_bytes(b"")
+    with pytest.raises(certs.ZkrError, match="(?i)empty") as exc_info:
+        certs.import_certificate_from_file("", "RING01", "LBL", "PERSONAL", "x", str(empty_file))
+    error = exc_info.value
+    assert isinstance(error.service, str)
+    assert error.service
+    for field in ("function_code", "saf_rc", "esm_rc", "esm_rsn", "gsk_rc"):
+        assert isinstance(getattr(error, field), int)
+    # Only the exception attribute and getrefcount's argument should own the string.
+    reference_count = sys.getrefcount(error.service)
+    assert reference_count == 2
+
+
+def test_error_diagnostic_preserves_assignment_failure(tmp_path, monkeypatch):
+    def reject_attribute(self, name, value):
+        raise MemoryError("diagnostic assignment failed")
+
+    monkeypatch.setattr(certs.ZkrError, "__setattr__", reject_attribute)
+    empty_file = tmp_path / "empty.p12"
+    empty_file.write_bytes(b"")
+    with pytest.raises(MemoryError, match="diagnostic assignment failed"):
+        certs.import_certificate_from_file("", "RING01", "LBL", "PERSONAL", "x", str(empty_file))
