@@ -42,13 +42,17 @@ for filename in os.listdir(BINDINGS_DIR):
     # Find compiled .so libraries
     if filename.startswith("_") and filename.endswith(".so"):
         src = os.path.join(BINDINGS_DIR, filename)
-        shutil.copy2(src, PRECOMPILED_DIR)
+        subprocess.run(["cp", src, PRECOMPILED_DIR], check=True)
         print(f"Packaged precompiled library: {filename}")
 
 for filename in py_files:
     src = os.path.join(BINDINGS_DIR, filename)
     if os.path.exists(src):
-        shutil.copy2(src, PRECOMPILED_DIR)
+        # Native SWIG emits EBCDIC source. Convert
+        # the bytes before applying a UTF-8 tag so compiler-free imports work.
+        dst = os.path.join(PRECOMPILED_DIR, filename)
+        with open(dst, "wb") as target:
+            subprocess.run(["iconv", "-f", "IBM-1047", "-t", "UTF-8", src], stdout=target, check=True)
         print(f"Packaged Python wrapper: {filename}")
     else:
         print(f"Error: Python wrapper not found: {filename}")
@@ -106,8 +110,8 @@ print("Created README.md inside precompiled package.")
 
 # 6. Apply precise file tagging for z/OS compatibility
 print("\n[Step 3] Applying precise file tagging for z/OS...")
-# Tag Python files as ASCII
-subprocess.run("chtag -t -c ISO8859-1 zbind_bin_dist/*.py zbind_bin_dist/*.md", shell=True, check=True, cwd=BINDINGS_DIR)
+# Tag Python files as UTF-8
+subprocess.run("chtag -t -c UTF-8 zbind_bin_dist/*.py zbind_bin_dist/*.md", shell=True, check=True, cwd=BINDINGS_DIR)
 # Tag .so binary files as binary
 subprocess.run("chtag -b zbind_bin_dist/*.so", shell=True, check=True, cwd=BINDINGS_DIR)
 
