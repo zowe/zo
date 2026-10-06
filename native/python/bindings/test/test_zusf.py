@@ -2,6 +2,8 @@ import pytest
 import sys
 import os
 import yaml
+import base64
+import subprocess
 
 # Add parent directory to path for importing USS module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -334,20 +336,16 @@ class TestUSSFunctions:
         uss.create_uss_file(target_file, "644")
         self.created_items.append(target_file)
         
-        # Test streamed operations (if supported)
-        try:
-            # Write streamed
-            etag = uss.write_uss_file_streamed(target_file, pipe_name, "", "")
-            assert isinstance(etag, str)
-            
-            # Read streamed
-            uss.read_uss_file_streamed(source_file, pipe_name, "")
-            
-            # Operations completed without exception
-            assert True
-        except RuntimeError as e:
-            print(f"Streamed operations not fully supported: {e}")
-            assert True
+        # A regular EBCDIC base64 transport file permits synchronous streaming calls.
+        uss.create_uss_file(pipe_name, "600")
+        self.created_items.append(pipe_name)
+        subprocess.run(["chtag", "-b", pipe_name], check=True)
+        uss.read_uss_file_streamed(source_file, pipe_name)
+        with open(pipe_name, "rb") as transport:
+            assert base64.b64decode(transport.read().decode("cp1047")) == test_data.encode()
+        etag = uss.write_uss_file_streamed(target_file, pipe_name)
+        assert isinstance(etag, str) and etag
+        assert uss.read_uss_file(target_file) == test_data
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
