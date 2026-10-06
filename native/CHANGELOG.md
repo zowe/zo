@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `python`: Fixed data set codepage and etag round trips, USS streaming defaults and listing options, and cross-module iterator and certificate result lifetimes. [#1127](https://github.com/zowe/zowex/pull/1127)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)

@@ -149,6 +149,11 @@ if 'zkr' in modules_to_build:
 
 print(f"Building modules: {', '.join(modules_to_build)}")
 
+# Each DLL must use its own SWIG iterator proxy. On z/OS, routing an iterator
+# through another DLL's proxy can leave its C++ stop_iteration exception uncaught.
+for extension in ext_modules:
+    extension.define_macros.append(("SWIG_TYPE_TABLE", extension.name))
+
 setup(name="zbind",
       description="""Simple swig example""",
       cmdclass={"build_ext": BuildExtMixedCharMode},

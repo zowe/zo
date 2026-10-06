@@ -277,21 +277,17 @@ below differ because the shared layers disagree about who converts file content.
 | codepage name, etag going in | `a2e` | `a2e` | n/a |
 | etag coming back | `e2a` | `e2a` | n/a |
 | `diag.e_msg`, listing text, `ZJob` / `ZDSEntry` / `ZKRCertInfo` fields | `e2a` | `e2a` | `e2a` |
-| file or data set **content** | `a2e` / `e2a` | none | see below |
+| file or data set **content** | `a2e` / `e2a` for the default codepage; none for an explicit codepage | none | see below |
 
 `zusf` converts content in both directions on its own: it checks the requested codepage and the file
 tag together, so leaving the content untouched is what makes it round-trip whether the file is tagged or
-not. Data sets have no tag, so `zds` converts only when you pass an explicit codepage — which leaves the
-binding to convert the content itself.
+not. Data sets have no tag, so `zds` converts only when you pass an explicit codepage. The
+binding converts default-codepage content itself and leaves explicitly encoded content for
+`zds` to convert. Incoming etags and codepage names are converted to EBCDIC in both cases.
 
-> **Known limitation:** because of that split, passing an explicit codepage to `read_data_set` or
-> `write_data_set` (anything other than `""` or `"binary"`) converts the content twice and hands back an
-> empty string. Etags have a matching gap: they are converted on the way out but not on the way in, so
-> an etag you pass back in will never match. Stick to the default codepage until both are fixed.
->
-> Both gaps are tracked in code by `test_read_write_dataset_with_explicit_codepage` and
-> `test_write_dataset_etag_round_trip` in `test/test_zds.py`. They are `strict` xfails, so fixing
-> either one turns its test into an XPASS failure — the reminder to delete the marker and this note.
+Each extension uses a distinct `SWIG_TYPE_TABLE` so loading all four modules does not route
+an iterator through another DLL's proxy. Certificate result vectors retain their parent
+object, allowing expressions such as `list_certificates(...).items` without dangling storage.
 
 **`zkr_py`'s `bytes` payloads: the one boundary with no conversion in either direction.** `export_certificate`,
 `export_certificate_to_file`/`_to_dsn`, and `import_certificate`/`_from_file`/`_from_dsn` all take or

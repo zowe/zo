@@ -32,8 +32,8 @@ KEYRING_PREFIX = _env_parsed.get("KEYRING_PREFIX", "ZKRUT")
 
 def _unique():
     """A collision-resistant suffix for scratch ring/label names (pid + random), capped at 8 chars."""
-    pid = str(os.getpid())[-4:]
-    return pid + "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    pid = str(os.getpid())[-3:].zfill(3)
+    return "P" + pid + "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
 
 
 def _env(name, znp_name):

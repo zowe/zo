@@ -201,11 +201,15 @@ zkr_py_module = Extension("_zkr_py",
                           extra_compile_args=["-D_EXT", "-D_OPEN_SYS_FILE_EXT=1"],
                           )
 
+ext_modules = [zusf_py_module, zds_py_module, zjb_py_module, zkr_py_module]
+for extension in ext_modules:
+    extension.define_macros.append(("SWIG_TYPE_TABLE", extension.name))
+
 setup(name="zbind",
       version="1.0.0",
       description="Zowe Remote SSH Python Bindings (Self-contained Bundle)",
       cmdclass={"build_ext": BuildExtMixedCharMode},
-      ext_modules=[zusf_py_module, zds_py_module, zjb_py_module, zkr_py_module],
+      ext_modules=ext_modules,
       py_modules=["zusf_py", "zds_py", "zjb_py", "zkr_py"],
       )
 """

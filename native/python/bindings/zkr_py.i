@@ -158,6 +158,22 @@ struct ZKRRingEntry
   std::vector<ZKRRingCert> certs;
 };
 
+// Member vectors borrow storage from their result object. Keep that object alive
+// when the vector is read from a temporary, e.g. list_certificates(...).items.
+%pythoncode %{
+def _keep_vector_owner(getter):
+    def get(self):
+        vector = getter(self)
+        vector._zkr_owner = self
+        return vector
+    return get
+
+for _result_type, _field in ((ZkrCertList, "items"), (ZkrRingList, "items"), (ZKRRingEntry, "certs")):
+    _member = getattr(_result_type, _field)
+    setattr(_result_type, _field, property(_keep_vector_owner(_member.fget), _member.fset, _member.fdel, _member.__doc__))
+del _result_type, _field, _member
+%}
+
 // ZkrCertList / ZkrRingList are defined directly in zkr_py.hpp (not merely #included
 // like the ZKR* structs above), so %include "zkr_py.hpp" already declared them --
 // redeclaring here would just be a duplicate (SWIG warning 302).
