@@ -14,6 +14,7 @@ import random
 import string
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -36,13 +37,6 @@ def _unique():
     return "P" + pid + "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
 
 
-def _env(name, znp_name):
-    """Reads an env var that may arrive either under its own name or with the ZNP_
-    prefix (buildTools.ts forwards local ZNP_* variables to the remote runner
-    verbatim, prefix included)."""
-    return os.environ.get(name) or os.environ.get(znp_name) or ""
-
-
 def _try_del_ring(owner, ring):
     try:
         zkr.delete_keyring(owner, ring)
@@ -59,7 +53,7 @@ def _try_purge_cert(owner, label):
 
 def _try_delete_dsn(dsn):
     try:
-        subprocess.run(f"tsocmd \"DELETE '{dsn}'\"", shell=True, capture_output=True)
+        subprocess.run(["tsocmd", f"DELETE '{dsn}'"], capture_output=True)
     except Exception:
         pass
 
@@ -68,7 +62,7 @@ def _tsocmd(inner_cmd):
     """Runs `tsocmd "<inner_cmd>"` and returns (rc, decoded_output). tsocmd's output is
     EBCDIC, so decode explicitly (cp1047) instead of subprocess's text=True, which
     assumes the process's own codeset."""
-    p = subprocess.run(f'tsocmd "{inner_cmd}"', shell=True, capture_output=True)
+    p = subprocess.run(["tsocmd", inner_cmd], capture_output=True)
     out = (p.stdout + p.stderr).decode("cp1047", errors="replace")
     return p.returncode, out
 
@@ -86,23 +80,17 @@ def _generate_p12_fixture(owner, password):
     label = KEYRING_PREFIX[:4] + "FIX" + uniq
     dsn = f"{owner}.{KEYRING_PREFIX}.{uniq}.P12"
 
-    rc, out = _tsocmd(f"RACDCERT GENCERT SUBJECTSDN(CN('ZKRUT FIXTURE')) WITHLABEL('{label}') SIZE(2048)")
+    rc, out = _tsocmd(f"RACDCERT ID({owner}) GENCERT SUBJECTSDN(CN('ZKRUT {uniq}')) WITHLABEL('{label}') SIZE(2048)")
     if rc != 0:
         return "", f"RACDCERT GENCERT failed: {out}"
 
-    rc, out = _tsocmd(f"RACDCERT EXPORT (LABEL('{label}')) DSN('{dsn}') FORMAT(PKCS12DER) PASSWORD('{password}')")
-    _tsocmd(f"RACDCERT DELETE (LABEL('{label}'))")
-    if rc != 0:
-        return "", f"RACDCERT EXPORT failed: {out}"
+    rc, out = _tsocmd(f"RACDCERT ID({owner}) EXPORT (LABEL('{label}')) DSN('{dsn}') FORMAT(PKCS12DER) PASSWORD('{password}')")
+    delete_rc, _ = _tsocmd(f"RACDCERT ID({owner}) DELETE (LABEL('{label}'))")
+    if rc != 0 or delete_rc != 0:
+        if rc == 0:
+            _try_delete_dsn(dsn)
+        return "", "could not export and remove the dedicated fixture certificate"
     return dsn, ""
-
-
-def _import_from(source, owner, ring, label, usage, password, skip_refresh=False):
-    """Imports via whichever source p12_fixture yielded: a curated file, or a
-    self-provisioned data set (import_certificate_from_dsn reads it directly)."""
-    if "file" in source:
-        return zkr.import_certificate_from_file(owner, ring, label, usage, password, source["file"], skip_refresh)
-    return zkr.import_certificate_from_dsn(owner, ring, label, usage, password, source["dsn"], skip_refresh)
 
 
 @pytest.fixture(scope="module")
@@ -122,37 +110,41 @@ def can_mutate():
     return True
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def p12_fixture(can_mutate):
-    """Yields (source, password) where source is {"file": path} or {"dsn": dsn},
-    consumed by _import_from. Uses the curated ZKR_TEST_P12 / ZKR_TEST_P12_PASS fixture
-    when available, otherwise self-provisions one via RACDCERT. Skips when neither is
-    available (e.g. no GENCERT/EXPORT authority)."""
-    p12_path = _env("ZKR_TEST_P12", "ZNP_ZKR_TEST_P12")
-    p12_pass = _env("ZKR_TEST_P12_PASS", "ZNP_ZKR_TEST_P12_PASS") or "password"
-
-    if p12_path and os.access(p12_path, os.R_OK):
-        yield {"file": p12_path}, p12_pass
-        return
-
+    """Generate fresh certificate content for each test; curated files are not owned."""
     if not can_mutate:
-        pytest.skip("no ZKR_TEST_P12 fixture and no key ring create authority to self-provision one")
+        pytest.skip("no key ring create authority to self-provision a certificate")
 
     gen_pass = KEYRING_PREFIX[:4] + "GEN" + _unique()
     dsn, note = _generate_p12_fixture(OWNER, gen_pass)
     if not dsn:
         pytest.skip(f"could not self-provision a PKCS#12 fixture via RACDCERT: {note}")
     try:
-        yield {"dsn": dsn}, gen_pass
+        yield dsn, gen_pass
     finally:
         _try_delete_dsn(dsn)
 
 
+def _import_owned_certificate(fixture, ring, cleanup):
+    dsn, password = fixture
+    label = KEYRING_PREFIX + _unique()
+    warning = zkr.import_certificate_from_dsn(OWNER, ring, label, "PERSONAL", password, dsn)
+    if "already exists" in warning.lower():
+        pytest.skip("import resolved to an existing certificate; ownership is not established")
+    entries = zkr.list_certificates(OWNER, ring).items
+    if (
+        len(entries) != 1 or entries[0].label != label or
+        entries[0].owner.upper() != OWNER.upper()
+    ):
+        pytest.skip("import did not yield the dedicated certificate; ownership is not established")
+    cleanup["labels"].append(label)
+    return label
+
+
 @pytest.fixture
 def cleanup():
-    """Per-test teardown registry for scratch rings/labels/data sets. Populated up
-    front by each test so a mid-test failure still cleans up, mirroring the
-    afterAll-based cleanup in zkr.test.cpp."""
+    """Delete scratch resources; certificate labels are registered only after ownership checks."""
     registry = {"rings": [], "labels": [], "dsns": []}
     yield registry
     for label in registry["labels"]:
@@ -203,6 +195,75 @@ class TestModuleShape:
         ring_cert = zkr.ZKRRingCert()
         ring_cert.label = "X"
         assert ring_cert.label == "X"
+
+
+class TestCertificateOwnership:
+    @pytest.mark.parametrize("warning,entries", [
+        ("the certificate already exists in the ESM database", [("DEDICATED", OWNER)]),
+        ("", [("EXISTING", OWNER)]),
+        ("", [("DEDICATED", OWNER + "X")]),
+        ("", []),
+        ("", [("DEDICATED", OWNER), ("EXISTING", OWNER)]),
+    ])
+    def test_unowned_import_is_not_registered_for_deletion(self, monkeypatch, warning, entries):
+        monkeypatch.setattr(sys.modules[__name__], "_unique", lambda: "TEST")
+        requested_label = KEYRING_PREFIX + "TEST"
+        items = [SimpleNamespace(label=requested_label if label == "DEDICATED" else label, owner=owner)
+                 for label, owner in entries]
+        monkeypatch.setattr(zkr, "import_certificate_from_dsn", lambda *args: warning)
+        monkeypatch.setattr(zkr, "list_certificates", lambda *args: SimpleNamespace(items=items))
+        registry = {"labels": []}
+        with pytest.raises(pytest.skip.Exception, match="ownership is not established"):
+            _import_owned_certificate(("TEST.P12", "password"), "RING", registry)
+        assert registry["labels"] == []
+
+    def test_new_certificate_with_warning_is_registered(self, monkeypatch):
+        monkeypatch.setattr(sys.modules[__name__], "_unique", lambda: "TEST")
+        label = KEYRING_PREFIX + "TEST"
+        monkeypatch.setattr(zkr, "import_certificate_from_dsn", lambda *args: "its status is NOTRUST")
+        monkeypatch.setattr(zkr, "list_certificates", lambda *args: SimpleNamespace(
+            items=[SimpleNamespace(label=label, owner=OWNER)]))
+        registry = {"labels": []}
+        assert _import_owned_certificate(("TEST.P12", "password"), "RING", registry) == label
+        assert registry["labels"] == [label]
+
+    @pytest.mark.parametrize("export_rc,delete_rc", [(0, 0), (0, 8), (8, 0)])
+    def test_fixture_requires_successful_export_and_removal(self, monkeypatch, export_rc, delete_rc):
+        commands = []
+
+        def run_command(command):
+            commands.append(command)
+            if " DELETE " in command:
+                return delete_rc, ""
+            return (export_rc if " EXPORT " in command else 0), ""
+
+        removed_dsns = []
+        monkeypatch.setattr(sys.modules[__name__], "_tsocmd", run_command)
+        monkeypatch.setattr(sys.modules[__name__], "_try_delete_dsn", removed_dsns.append)
+        dsn, note = _generate_p12_fixture(OWNER, "password")
+        assert len(commands) == 3
+        if export_rc or delete_rc:
+            assert not dsn
+            assert note
+            assert len(removed_dsns) == (1 if export_rc == 0 else 0)
+        else:
+            assert dsn
+            assert not note
+            assert not removed_dsns
+
+    def test_curated_file_is_not_used_for_mutating_tests(self, monkeypatch):
+        monkeypatch.setenv("ZKR_TEST_P12", "/curated/existing.p12")
+        monkeypatch.setenv("ZNP_ZKR_TEST_P12", "/curated/existing.p12")
+        monkeypatch.setattr(sys.modules[__name__], "_generate_p12_fixture",
+                            lambda *args: ("DEDICATED.P12", ""))
+        removed_dsns = []
+        monkeypatch.setattr(sys.modules[__name__], "_try_delete_dsn", removed_dsns.append)
+        fixture = p12_fixture.__wrapped__(True)
+        dsn, password = next(fixture)
+        assert dsn == "DEDICATED.P12"
+        assert password
+        fixture.close()
+        assert removed_dsns == ["DEDICATED.P12"]
 
 
 class TestValidation:
@@ -396,8 +457,8 @@ class TestKeyRingLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# Tier C -- requires key ring create authority AND a PKCS#12 fixture (curated via
-# ZKR_TEST_P12, or self-provisioned via RACDCERT). This is the new coverage for the
+# Tier C -- requires key ring create authority AND a fresh PKCS#12 fixture
+# self-provisioned via RACDCERT for each test. This is the coverage for the
 # zkr_py module: byte-exactness of the `bytes` boundary, PEM ASCII conversion vs.
 # EBCDIC-on-disk parity, and DSN/PDS-E round trips.
 # ---------------------------------------------------------------------------
@@ -407,25 +468,15 @@ class TestCertificateLifecycle:
     def test_full_lifecycle(self, can_mutate, p12_fixture, cleanup):
         if not can_mutate:
             pytest.skip("no key ring create authority")
-        source, password = p12_fixture
 
         ring1 = f"{KEYRING_PREFIX}.CRT1." + _unique()
         ring2 = f"{KEYRING_PREFIX}.CRT2." + _unique()
-        label = KEYRING_PREFIX + _unique()
         cleanup["rings"] += [ring1, ring2]
-        cleanup["labels"].append(label)
 
         zkr.create_keyring(OWNER, ring1)
         zkr.create_keyring(OWNER, ring2)
 
-        _import_from(source, OWNER, ring1, label, "PERSONAL", password)
-
-        # The ESM DB may already hold this cert content under an earlier label; use
-        # whatever label actually landed on the ring for the rest of the flow.
-        certs = zkr.list_certificates(OWNER, ring1)
-        assert len(certs.items) >= 1
-        real_label = certs.items[0].label
-        cleanup["labels"].append(real_label)
+        real_label = _import_owned_certificate(p12_fixture, ring1, cleanup)
 
         # 6. Filter parity: RACDCERT LABEL is exact and case-sensitive, so an exact
         # --label filter finds it; a lowercased one does not (both succeed -- an
@@ -467,26 +518,25 @@ class TestCertificateLifecycle:
         # rename_certificate and back, so cleanup by real_label still works.
         new_label = "ZKRUTREN" + _unique()
         zkr.rename_certificate(OWNER, real_label, new_label)
+        cleanup["labels"].remove(real_label)
+        cleanup["labels"].append(new_label)
         zkr.rename_certificate(OWNER, new_label, real_label)
+        cleanup["labels"].remove(new_label)
+        cleanup["labels"].append(real_label)
 
         # delete_certificate(database=True): removes it from the DB (and every ring).
         zkr.delete_certificate(OWNER, "", real_label, database=True)
+        cleanup["labels"].remove(real_label)
 
     def test_pem_export_to_file_stays_ebcdic_and_private(self, can_mutate, p12_fixture, cleanup, tmp_path):
         if not can_mutate:
             pytest.skip("no key ring create authority")
-        source, password = p12_fixture
 
         ring = f"{KEYRING_PREFIX}.FIL." + _unique()
-        label = KEYRING_PREFIX + "FIL" + _unique()
         cleanup["rings"].append(ring)
-        cleanup["labels"].append(label)
 
         zkr.create_keyring(OWNER, ring)
-        _import_from(source, OWNER, ring, label, "PERSONAL", password)
-        certs = zkr.list_certificates(OWNER, ring)
-        real_label = certs.items[0].label
-        cleanup["labels"].append(real_label)
+        real_label = _import_owned_certificate(p12_fixture, ring, cleanup)
 
         # 5. PEM on disk stays EBCDIC -- deliberate keyring-util parity (D11), locked
         # in so nobody "fixes" it later, plus the private (0600) file mode.
@@ -502,21 +552,14 @@ class TestCertificateLifecycle:
     def test_p12_export_is_binary_and_round_trips(self, can_mutate, p12_fixture, cleanup):
         if not can_mutate:
             pytest.skip("no key ring create authority")
-        source, password = p12_fixture
 
         ring1 = f"{KEYRING_PREFIX}.RT1." + _unique()
         ring2 = f"{KEYRING_PREFIX}.RT2." + _unique()
-        label = KEYRING_PREFIX + "RT" + _unique()
         cleanup["rings"] += [ring1, ring2]
-        cleanup["labels"].append(label)
 
         zkr.create_keyring(OWNER, ring1)
         zkr.create_keyring(OWNER, ring2)
-        _import_from(source, OWNER, ring1, label, "PERSONAL", password)
-
-        certs = zkr.list_certificates(OWNER, ring1)
-        real_label = certs.items[0].label
-        cleanup["labels"].append(real_label)
+        real_label = _import_owned_certificate(p12_fixture, ring1, cleanup)
 
         export_password = "ZKRUTEXP" + _unique()
         data = zkr.export_certificate(OWNER, ring1, real_label, format="p12", password=export_password)
@@ -531,7 +574,6 @@ class TestCertificateLifecycle:
         # The ESM already holds this certificate, so the warning is non-empty
         # (already-exists case) or empty, either is a clean outcome.
         new_label = "ZKRUTN" + _unique()
-        cleanup["labels"].append(new_label)
         warning = zkr.import_certificate(OWNER, ring2, new_label, "PERSONAL", export_password, data)
         assert isinstance(warning, str)
 
@@ -542,7 +584,6 @@ class TestCertificateLifecycle:
         dsn_label = "ZKRUTN2" + _unique()
         seq_dsn = f"{OWNER}.{KEYRING_PREFIX}." + _unique() + ".P12"
         cleanup["dsns"].append(seq_dsn)
-        cleanup["labels"].append(dsn_label)
         n = zkr.export_certificate_to_dsn(OWNER, ring1, real_label, seq_dsn, format="p12", password=export_password)
         assert n == len(data)
         zkr.import_certificate_from_dsn(OWNER, ring2, dsn_label, "PERSONAL", export_password, seq_dsn)
@@ -551,7 +592,6 @@ class TestCertificateLifecycle:
         lib_dsn = f"{OWNER}.{KEYRING_PREFIX}." + _unique() + ".LIB"
         member_dsn = f"{lib_dsn}(CERT01)"
         cleanup["dsns"].append(lib_dsn)
-        cleanup["labels"].append(lib_label)
         n = zkr.export_certificate_to_dsn(
             OWNER, ring1, real_label, member_dsn, format="p12", password=export_password
         )
@@ -568,21 +608,14 @@ class TestCertificateLifecycle:
     def test_count_refresh_disconnect_and_connect_from_database(self, can_mutate, p12_fixture, cleanup):
         if not can_mutate:
             pytest.skip("no key ring create authority")
-        source, password = p12_fixture
 
         ring1 = f"{KEYRING_PREFIX}.CNT1." + _unique()
         ring2 = f"{KEYRING_PREFIX}.CNT2." + _unique()
-        label = KEYRING_PREFIX + "CNT" + _unique()
         cleanup["rings"] += [ring1, ring2]
-        cleanup["labels"].append(label)
 
         zkr.create_keyring(OWNER, ring1)
         zkr.create_keyring(OWNER, ring2)
-        _import_from(source, OWNER, ring1, label, "PERSONAL", password)
-
-        certs = zkr.list_certificates(OWNER, ring1)
-        real_label = certs.items[0].label
-        cleanup["labels"].append(real_label)
+        real_label = _import_owned_certificate(p12_fixture, ring1, cleanup)
 
         assert zkr.count_ring(OWNER, ring1) == 1
         # Virtual ring count (DataGetFirst/GetNext enumeration) must not crash.

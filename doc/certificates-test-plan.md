@@ -100,6 +100,13 @@ Degrades gracefully: any step failing (typically missing
 suite skips exactly as it does today. An explicit `ZKR_TEST_P12` still takes
 precedence, so environments with a curated fixture keep using it.
 
+The Python lifecycle suite always generates fresh certificate content for each
+test and requires successful removal of the generated RACF record before import.
+It does not use curated `ZKR_TEST_P12` files for these mutating tests. Import must
+return the requested label and owner without an already-existing warning before
+the certificate is registered for database cleanup. Without GENCERT/EXPORT
+authority, these Python tests skip.
+
 ### Item 3 — new gated tests for the uncovered paths
 
 In priority order (zowe-mcp-used first):
