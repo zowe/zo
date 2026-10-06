@@ -145,22 +145,22 @@ See [doc/certificates-test-plan.md](./certificates-test-plan.md) for the service
 (`native/c/zkr.hpp`/`zkr.cpp`, R_datalib/IRRSDL64 + System SSL GSKCMS), the 14 JSON-RPC
 methods below, and their test coverage.
 
-| Operation                | z/OSMF | FTP | Backend | Middleware | SDK | CLI | VSCE | Python |
-| ------------------------ | ------ | --- | ------- | ---------- | --- | --- | ---- | ------ |
-| Create key ring          | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Delete key ring          | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| List key rings           | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Count certificates       | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Refresh DIGTCERT class   | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| List certificates        | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Show certificate         | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Set default certificate  | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Connect certificate      | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Delete certificate       | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Trust certificate        | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Rename certificate       | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Export certificate       | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
-| Import certificate       | ❌     | ❌  | ✅      | ✅         | ✅  | ✅  | ❌   | ✅     |
+| Operation                | z/OSMF | FTP | `zo`<br>Backend | `zo`<br>Server | Python<br>Bindings | Node.js<br>SDK | CLI<br>Plug-in | VS Code |
+| ------------------------ | ------ | --- | --------------- | -------------- | ------------------ | -------------- | -------------- | ------- |
+| List key rings           | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Count certificates       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| List certificates        | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Show certificate         | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Create key ring          | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Import certificate       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Export certificate       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Delete certificate       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Delete key ring          | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Set default certificate  | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Connect certificate      | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Trust certificate        | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Rename certificate       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Refresh DIGTCERT class   | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
 
 ## Other
 
