@@ -28,6 +28,7 @@ interface IConfig {
     hostFingerprint?: string;
     preBuildCmd?: string;
     testEnv?: Record<string, string>;
+    pythonEnv?: Record<string, string>;
 }
 
 type SftpError = Error & { code?: number };
@@ -1178,6 +1179,157 @@ async function artifacts(connection: Client, packageAll: boolean) {
     }
 }
 
+const pythonWheelDownloadSource = `import base64, hashlib, json, pathlib, sys
+files = list(pathlib.Path(sys.argv[1]).glob('*.whl'))
+if len(files) != 1:
+    raise RuntimeError('Expected exactly one built wheel')
+wheel = files[0]
+data = wheel.read_bytes()
+print(json.dumps({'name':wheel.name, 'sha256':hashlib.sha256(data).hexdigest(), 'data':base64.b64encode(data).decode()}))
+`;
+
+function quoteWheelShell(value: string): string {
+    return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+async function buildPythonWheel(connection: Client, config: IConfig): Promise<void> {
+    const root = path.resolve(__dirname, "..");
+    const pythonEnv = { ...config.pythonEnv };
+    for (const key of ["ZPY_PYTHON_ROOT", "ZPY_PYTHON_311", "ZPY_PYTHON_313", "ZPY_PYTHON_314"]) {
+        if (process.env[key] !== undefined) pythonEnv[key] = process.env[key];
+    }
+    const run = (command: string, input?: string): Promise<string> => {
+        const profile = `/tmp/zbind-profile-${crypto.randomUUID()}`;
+        const initialize = `umask 077
+sed '/exec .*[/]bin[/]bash/d' "$HOME/.profile" > ${quoteWheelShell(profile)}
+. ${quoteWheelShell(profile)} > /dev/null 2>&1
+profile_status=$?
+rm -f ${quoteWheelShell(profile)}
+test "$profile_status" -eq 0 || exit "$profile_status"
+${preBuildCmd ?? ""}
+`;
+        return new Promise((resolve, reject) => {
+            connection.exec(initialize + command, (err, stream) => {
+                if (err) return reject(err);
+                let stdout = "";
+                let stderr = "";
+                stream.on("data", (data: Buffer) => {
+                    stdout += data.toString();
+                });
+                stream.stderr.on("data", (data: Buffer) => {
+                    stderr += data.toString();
+                });
+                stream.on("error", reject);
+                stream.on("close", (code: number) => {
+                    if (code === 0) resolve(stdout);
+                    else
+                        reject(
+                            new Error(
+                                `Python wheel command failed (${code}):\n${stdout}\n${stderr}`.replace(
+                                    /https?:\/\/[^\s/]+@/g,
+                                    "https://[redacted]@",
+                                ),
+                            ),
+                        );
+                });
+                stream.end(input ?? "");
+            });
+        });
+    };
+    // Resolve deployDir using the SSH login directory, as the other build commands do.
+    const remoteRoot = (await run(`cd ${quoteWheelShell(config.deployDir)} && pwd -P`)).trim();
+    const home = (await run('printf "%s" "$HOME"')).trim();
+    const expandHome = (value: string) => value.replace(/^~(?=\/|$)/, home);
+    const pythonRoot = expandHome(pythonEnv.ZPY_PYTHON_ROOT ?? "/usr/lpp/IBM/cyp/").replace(/\/$/, "");
+    const runtimes = Object.fromEntries(
+        [11, 13, 14].map((minor) => [
+            minor,
+            expandHome(pythonEnv[`ZPY_PYTHON_3${minor}`] ?? `${pythonRoot}/v3r${minor}/pyz/bin/python`),
+        ]),
+    );
+    if (!remoteRoot.startsWith("/") || !Object.values(runtimes).every((value) => value.startsWith("/"))) {
+        throw new Error("Wheel deployment and Python paths must resolve to absolute USS paths");
+    }
+    const stage = `${remoteRoot}/.python-wheel-${crypto.randomUUID()}`;
+    const python = runtimes[11];
+    const pythonCommand = (source: string) => `${quoteWheelShell(python)} -c ${quoteWheelShell(source)}`;
+    const tracked = childProcess
+        .execFileSync("git", ["ls-files", "-z", "--", "native/c", "native/asmmac"], { cwd: root, encoding: "utf8" })
+        .split("\0")
+        .filter(Boolean);
+    const bindings = "native/python/bindings";
+    const buildFiles = [
+        "Makefile",
+        "setup.py",
+        "setup.cfg",
+        "pyproject.toml",
+        "requirements-build.txt",
+        "package_wheel.py",
+        "_zbind_loader.py",
+    ];
+    const interfaces = fs.readdirSync(path.join(root, bindings)).filter((name) => /\.(cpp|hpp|i)$/.test(name));
+    const files = [...tracked, ...[...buildFiles, ...interfaces].map((name) => `${bindings}/${name}`), "LICENSE"];
+    let staged = false;
+    try {
+        console.log("Staging current sources for the Python wheel...");
+        await run(`mkdir ${quoteWheelShell(stage)}`);
+        staged = true;
+        const directories = [...new Set(files.map((file) => path.posix.dirname(`${stage}/${file}`)))];
+        await run(`mkdir -p ${directories.map(quoteWheelShell).join(" ")}`);
+        const sftp = await new Promise<SFTPWrapper>((resolve, reject) =>
+            connection.sftp((err, value) => (err ? reject(err) : resolve(value))),
+        );
+        try {
+            for (const file of files) {
+                await promisify(pipeline)(
+                    fs.createReadStream(path.join(root, file)),
+                    new AsciiToEbcdicTransform(),
+                    sftp.createWriteStream(`${stage}/${file}`),
+                );
+            }
+        } finally {
+            sftp.end();
+        }
+        await run(`chtag -R -t -c IBM-1047 ${quoteWheelShell(stage)}`);
+        await run(
+            `cp -R ${quoteWheelShell(`${remoteRoot}/c/chdsect`)} ${quoteWheelShell(`${stage}/native/c/chdsect`)}`,
+        );
+        console.log("Building the wheel for IBM Python 3.11, 3.13 and 3.14...");
+        await run(
+            `${quoteWheelShell(python)} ${quoteWheelShell(`${stage}/${bindings}/package_wheel.py`)} --build-from-stdin`,
+            JSON.stringify({ runtimes, indexUrl: process.env.PIP_INDEX_URL }),
+        );
+        const result = JSON.parse(
+            await run(
+                `${pythonCommand(pythonWheelDownloadSource)} ${quoteWheelShell(`${stage}/native/python/bindings/dist`)}`,
+            ),
+        ) as {
+            name: string;
+            sha256: string;
+            data: string;
+        };
+        if (path.basename(result.name) !== result.name || !result.name.endsWith(".whl"))
+            throw new Error("Invalid wheel filename");
+        const bytes = Buffer.from(result.data, "base64");
+        if (crypto.createHash("sha256").update(bytes).digest("hex") !== result.sha256)
+            throw new Error("Wheel checksum mismatch");
+        const dist = path.join(root, "dist");
+        fs.mkdirSync(dist, { recursive: true });
+        const file = path.join(dist, result.name);
+        const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+        try {
+            fs.writeFileSync(temporary, bytes);
+            fs.renameSync(temporary, file);
+        } finally {
+            fs.rmSync(temporary, { force: true });
+        }
+        fs.writeFileSync(`${file}.sha256`, `${result.sha256}  ${result.name}\n`);
+        console.log(`Downloaded ${path.relative(root, file)}\nSHA-256: ${result.sha256}`);
+    } finally {
+        if (staged) await run(`rm -rf ${quoteWheelShell(stage)}`);
+    }
+}
+
 /**
  * Runs the precompiled Python bindings packaging script on z/OS and downloads
  * the resulting binary tarball to the local `dist/` directory. The tarball is
@@ -2096,6 +2248,9 @@ async function main() {
                 break;
             case "python:swig:install":
                 await installSwigRelease(sshClient);
+                break;
+            case "python:wheel":
+                await buildPythonWheel(sshClient, config);
                 break;
             case "python:pack":
                 await packPrecompiled(sshClient);
