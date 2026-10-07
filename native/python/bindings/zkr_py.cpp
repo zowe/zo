@@ -51,10 +51,7 @@ void reject_virtual_keyring(const std::string &keyring, const char *op)
                                 op + "; specify a real key ring name");
 }
 
-// Shared validation + conversion + call for the three import_certificate* entry points.
-// opts.p12_data (bytes import / DSN import) or opts.p12_path (file import) must already
-// be set by the caller; convert_path selects which one needs a2e.
-std::string do_import(ZKRImportOptions opts, bool convert_path)
+void validate_import(const ZKRImportOptions &opts)
 {
   if (opts.label.empty())
     throw std::invalid_argument("label is required");
@@ -63,6 +60,13 @@ std::string do_import(ZKRImportOptions opts, bool convert_path)
   if (opts.password.empty())
     throw std::invalid_argument("password is required (PKCS#12 passphrase)");
   reject_virtual_keyring(opts.ring, "import_certificate");
+}
+
+// opts.p12_data or opts.p12_path must be set by the caller; convert_path selects
+// which one needs a2e.
+std::string do_import(ZKRImportOptions opts, bool convert_path)
+{
+  validate_import(opts);
 
   a2e_inplace(opts.owner);
   a2e_inplace(opts.ring);
@@ -496,6 +500,15 @@ std::string import_certificate_from_dsn(const std::string &owner, const std::str
                                         const std::string &label, const std::string &usage,
                                         const std::string &password, const std::string &dsn, bool skip_refresh)
 {
+  ZKRImportOptions opts;
+  opts.owner = owner;
+  opts.ring = keyring;
+  opts.label = label;
+  opts.usage = usage;
+  opts.password = password;
+  opts.skip_refresh = skip_refresh;
+  validate_import(opts);
+
   std::string d = dsn;
   a2e_inplace(d);
   std::string raw, err;
@@ -505,13 +518,6 @@ std::string import_certificate_from_dsn(const std::string &owner, const std::str
     throw std::runtime_error("could not read source data set: " + dsn + " (" + err + ")");
   }
 
-  ZKRImportOptions opts;
-  opts.owner = owner;
-  opts.ring = keyring;
-  opts.label = label;
-  opts.usage = usage;
-  opts.password = password;
   opts.p12_data = raw; // raw PKCS#12 bytes read from the data set, never converted
-  opts.skip_refresh = skip_refresh;
   return do_import(opts, /*convert_path=*/false);
 }

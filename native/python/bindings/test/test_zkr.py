@@ -131,13 +131,13 @@ def _import_owned_certificate(fixture, ring, cleanup):
     label = KEYRING_PREFIX + _unique()
     warning = zkr.import_certificate_from_dsn(OWNER, ring, label, "PERSONAL", password, dsn)
     if "already exists" in warning.lower():
-        pytest.skip("import resolved to an existing certificate; ownership is not established")
+        pytest.fail("import resolved to an existing certificate; ownership is not established")
     entries = zkr.list_certificates(OWNER, ring).items
     if (
         len(entries) != 1 or entries[0].label != label or
         entries[0].owner.upper() != OWNER.upper()
     ):
-        pytest.skip("import did not yield the dedicated certificate; ownership is not established")
+        pytest.fail("import did not yield the dedicated certificate; ownership is not established")
     cleanup["labels"].append(label)
     return label
 
@@ -213,7 +213,7 @@ class TestCertificateOwnership:
         monkeypatch.setattr(zkr, "import_certificate_from_dsn", lambda *args: warning)
         monkeypatch.setattr(zkr, "list_certificates", lambda *args: SimpleNamespace(items=items))
         registry = {"labels": []}
-        with pytest.raises(pytest.skip.Exception, match="ownership is not established"):
+        with pytest.raises(pytest.fail.Exception, match="ownership is not established"):
             _import_owned_certificate(("TEST.P12", "password"), "RING", registry)
         assert registry["labels"] == []
 
@@ -360,21 +360,20 @@ class TestValidation:
         with pytest.raises(ValueError, match="max_entries"):
             zkr.list_certificates(OWNER, "RING01", max_entries=-1)
 
-    def test_import_certificate_requires_label(self):
-        with pytest.raises(ValueError, match="label is required"):
-            zkr.import_certificate(OWNER, "RING01", "", "PERSONAL", "pw", b"data")
-
-    def test_import_certificate_requires_usage(self):
-        with pytest.raises(ValueError, match="usage is required"):
-            zkr.import_certificate(OWNER, "RING01", "LBL", "", "pw", b"data")
-
-    def test_import_certificate_requires_password(self):
-        with pytest.raises(ValueError, match="password is required"):
-            zkr.import_certificate(OWNER, "RING01", "LBL", "PERSONAL", "", b"data")
-
-    def test_import_certificate_rejects_virtual_ring(self):
-        with pytest.raises(ValueError, match="virtual key ring"):
-            zkr.import_certificate(OWNER, "*", "LBL", "PERSONAL", "pw", b"data")
+    @pytest.mark.parametrize("arguments,message", [
+        (("RING01", "", "PERSONAL", "pw"), "label is required"),
+        (("RING01", "LBL", "", "pw"), "usage is required"),
+        (("RING01", "LBL", "PERSONAL", ""), "password is required"),
+        (("*", "LBL", "PERSONAL", "pw"), "virtual key ring"),
+    ])
+    @pytest.mark.parametrize("import_name,source", [
+        ("import_certificate", b"data"),
+        ("import_certificate_from_file", "/nonexistent/zkr-import-test.p12"),
+        ("import_certificate_from_dsn", "INVALID.ZKR.IMPORT"),
+    ])
+    def test_import_validates_before_reading_source(self, import_name, source, arguments, message):
+        with pytest.raises(ValueError, match=message):
+            getattr(zkr, import_name)(OWNER, *arguments, source)
 
     def test_import_certificate_rejects_non_bytes_data(self):
         """Proves the `in` typemap for ZkrBytes is wired, not a `str` fallback: SWIG's
