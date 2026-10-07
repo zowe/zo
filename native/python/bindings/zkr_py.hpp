@@ -15,7 +15,7 @@
 #include <string>
 #include <stdexcept>
 #include <vector>
-#include "../../c/zkr.hpp"
+#include "zkr.hpp"
 #include "conversion.hpp"
 
 // PKCS#12/PEM payloads. Typemapped to/from Python `bytes` in zkr_py.i -- std_string.i's

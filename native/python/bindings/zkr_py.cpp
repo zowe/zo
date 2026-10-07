@@ -10,7 +10,7 @@
  */
 
 #include "zkr_py.hpp"
-#include "../../c/zkrio.hpp"
+#include "zkrio.hpp"
 
 namespace
 {

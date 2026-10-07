@@ -30,8 +30,8 @@ extern "C"
 
 /**
  * @brief Read a PKCS#12/PEM blob out of a sequential data set or PDS/E member, in
- *        binary mode (no code-page conversion, no RDW stripping) -- byte-identical
- *        to `cp -B "//'DSN'"`.
+ *        binary mode: record payloads concatenated without RDWs or code-page
+ *        conversion -- byte-identical to `cp -B "//'DSN'"`.
  * @return 0 on success; non-zero otherwise (details in err)
  */
 int zkrio_read_dsn(const std::string &dsn, std::string &data, std::string &err);
