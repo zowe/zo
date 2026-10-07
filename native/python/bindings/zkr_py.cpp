@@ -88,6 +88,9 @@ std::string export_cert_raw(const std::string &owner, const std::string &keyring
   if (label.empty())
     throw std::invalid_argument("label is required");
 
+  if (format != "pem" && format != "p12")
+    throw std::invalid_argument("format must be 'pem' or 'p12'");
+
   const bool is_p12 = (format == "p12");
   if (is_p12 && password.empty())
     throw std::invalid_argument("password is required with format='p12'");

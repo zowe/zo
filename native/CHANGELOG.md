@@ -6,8 +6,6 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `python`: Generate dedicated certificates for lifecycle tests and only delete certificate records whose ownership has been verified. [#1127](https://github.com/zowe/zowex/pull/1127)
-- `python`: Fixed data set codepage and etag round trips, USS streaming defaults and listing options, and cross-module iterator and certificate result lifetimes. [#1127](https://github.com/zowe/zowex/pull/1127)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)
@@ -44,6 +42,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Fixed `zo uss list` only returning structured results when `--response-format-csv` was also passed. [#1128](https://github.com/zowe/zowex/pull/1128)
 - `c`: Fixed `plugin::Io::is_redirecting_error()` and `is_redirecting_input()` reporting the state of the output stream instead of their own. [#1128](https://github.com/zowe/zowex/pull/1128)
 - `c`: Fixed a plug-in that registers an argument conflicting with an existing name or alias aborting `zo` for every command instead of being rejected with a logged diagnostic. [#1128](https://github.com/zowe/zowex/pull/1128)
+- `c`: Added `zkrio` (`native/c/zkrio.hpp`/`zkrio.cpp`), shared certificate-material data set/file I/O extracted from `commands/certificates.cpp` so `zkr_py` can reuse it without linking the CLI command layer. [#1127](https://github.com/zowe/zowex/pull/1127)
 - Reduced the size of the `zo` binary by over 40% (10MB -> 6MB) by optimizing the codebase. [#1166](https://github.com/zowe/zowex/pull/1166)
 - `python`: Fixed the Python bindings compiling the shared `native/c` sources with `-fzos-le-char-mode=ascii`, which flipped their execution charset to ASCII and broke every data set and job binding. [#1121](https://github.com/zowe/zowex/pull/1121)
 - `python`: `list_data_sets` accepts `show_attributes` so `dsorg`, `volser`, `recfm` and `migrated` can be populated. [#1121](https://github.com/zowe/zowex/pull/1121)
@@ -52,10 +51,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `python`: Fixed the USS bindings (`create_uss_file`, `create_uss_dir`, `move_uss_file_or_dir`, `list_uss_dir`, `chmod_uss_item`, `delete_uss_item`, `chown_uss_item`, `chtag_uss_item`) not converting paths, and `write_uss_file`/`write_uss_file_streamed` not converting etags, between ASCII and EBCDIC. [#1121](https://github.com/zowe/zowex/pull/1121)
 - `python`: Added the `zkr_py` module (certificate/key ring operations: `create_keyring`, `list_certificates`, `export_certificate`, `import_certificate`, and 14 others) — an in-process binding over the same `native/c/zkr.hpp`/`zkr.cpp` service layer `zowex system cert`/`system keyring` use. [#1127](https://github.com/zowe/zowex/pull/1127)
 - `python`: `zkr_py`'s PKCS#12/PEM payloads cross as Python `bytes`, not `str`, so binary certificate material round-trips byte-exact; PEM returned to Python is portable ASCII, but PEM written to a file or data set stays EBCDIC, byte-identical to `keyring-util`. [#1127](https://github.com/zowe/zowex/pull/1127)
-- `c`: Added `zkrio` (`native/c/zkrio.hpp`/`zkrio.cpp`), shared certificate-material data set/file I/O extracted from `commands/certificates.cpp` so `zkr_py` can reuse it without linking the CLI command layer. [#1127](https://github.com/zowe/zowex/pull/1127)
-- `c`: Added `--dsn` to `zowex system cert import`/`export`, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1127](https://github.com/zowe/zowex/pull/1127)
-- `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1127](https://github.com/zowe/zowex/pull/1127)
-- `c`: Guard against OPEN hanging on a password-protected data set (legacy MVS password protection issues a WTOR with no console to answer it) by failing fast, pre-OPEN, in the BPAM write path. [#1127](https://github.com/zowe/zowex/pull/1127)
+- `python`: Fixed data set codepage and etag round trips, USS streaming defaults and listing options, and cross-module iterator and certificate result lifetimes. [#1127](https://github.com/zowe/zowex/pull/1127)
 
 ## `1.0.1`
 

@@ -346,6 +346,16 @@ class TestValidation:
         with pytest.raises(ValueError, match="password is required"):
             zkr.export_certificate(OWNER, "RING01", "LBL", format="p12")
 
+    @pytest.mark.parametrize("format", ["p21", "", "P12", "PEM"])
+    @pytest.mark.parametrize("export_name, sink", [
+        ("export_certificate", ()),
+        ("export_certificate_to_file", ("/nonexistent/zkr-format-test.pem",)),
+        ("export_certificate_to_dsn", ("INVALID.ZKR.FORMAT",)),
+    ])
+    def test_export_certificate_rejects_invalid_format(self, format, export_name, sink):
+        with pytest.raises(ValueError, match="format must be 'pem' or 'p12'"):
+            getattr(zkr, export_name)(OWNER, "RING01", "LBL", *sink, format=format, password="pw")
+
     def test_list_certificates_rejects_negative_max_entries(self):
         with pytest.raises(ValueError, match="max_entries"):
             zkr.list_certificates(OWNER, "RING01", max_entries=-1)

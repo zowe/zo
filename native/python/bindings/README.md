@@ -6,7 +6,7 @@ We provide two distinct packaging scripts, tailored for different deployment nee
 
 ## Available Functions
 
-The bindings are split across four modules, each generated from the corresponding `*_py.hpp` header. All functions raise a Python exception (`RuntimeError`) on failure instead of returning an error code.
+The bindings are split across four modules, each generated from the corresponding `*_py.hpp` header. All functions raise a Python exception on failure instead of returning an error code. The `zds_py`, `zjb_py`, and `zusf_py` modules use `RuntimeError`; see the `zkr_py` section below for its exception types.
 
 ### `zds_py` — Data Sets
 
@@ -100,7 +100,16 @@ Unavailable execution fields are empty strings.
 - `ZKRRingEntry`: `owner`, `name`, `certs: list[ZKRRingCert]`
 - `ZkrCertList`: `items: list[ZKRCertInfo]`, `more_available`
 - `ZkrRingList`: `items: list[ZKRRingEntry]`, `warning`
-- `ZkrError(RuntimeError)`: raised instead of the generic `RuntimeError` the other modules use, with `service`, `function_code`, `saf_rc`, `esm_rc`, `esm_rsn`, `gsk_rc` attributes carrying the same structured SAF/ESM/GSK codes the RPC layer exposes programmatically.
+- `ZkrError(RuntimeError)`: raised for failures reported by the native certificate/key ring service layer, with `service`, `function_code`, `saf_rc`, `esm_rc`, `esm_rsn`, `gsk_rc` attributes carrying the same structured SAF/ESM/GSK codes the RPC layer exposes programmatically.
+
+Invalid arguments raise `ValueError`. All three export functions accept only the
+case-sensitive formats `"pem"` and `"p12"`; other values raise `ValueError` before
+exporting. File writes in `export_certificate_to_file`, data set writes in
+`export_certificate_to_dsn`, and data set reads in `import_certificate_from_dsn`
+raise plain `RuntimeError` on I/O failure. File reads in `import_certificate_from_file`
+are handled by the native service layer and raise `ZkrError`. Catch `RuntimeError`
+to handle both plain I/O failures and `ZkrError`, or catch `ZkrError` separately
+when its structured diagnostics are needed.
 
 Unlike the other three modules, functions here take a keyword argument by name where it makes the call
 readable (`export_certificate(owner, ring, label, format="p12", password=...)`) — see
