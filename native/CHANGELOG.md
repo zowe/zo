@@ -6,8 +6,6 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `python`: Added `npm run z:python:wheel` to build a pip-installable z/OS wheel with native copies for selected IBM Python runtimes, use the selected buildTools SSH/deployment configuration and configurable Python runtime paths, centralize wheel build preparation in `package_wheel.py`, download it to root `dist/` with checksum verification, and clean temporary build directories; added fresh-venv validation and corrected the SWIG default PEM export encoding.
-
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)
@@ -54,6 +52,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `python`: Added the `zkr_py` module (certificate/key ring operations: `create_keyring`, `list_certificates`, `export_certificate`, `import_certificate`, and 14 others) — an in-process binding over the same `native/c/zkr.hpp`/`zkr.cpp` service layer `zowex system cert`/`system keyring` use. [#1127](https://github.com/zowe/zowex/pull/1127)
 - `python`: `zkr_py`'s PKCS#12/PEM payloads cross as Python `bytes`, not `str`, so binary certificate material round-trips byte-exact; PEM returned to Python is portable ASCII, but PEM written to a file or data set stays EBCDIC, byte-identical to `keyring-util`. [#1127](https://github.com/zowe/zowex/pull/1127)
 - `python`: Fixed data set codepage and etag round trips, USS streaming defaults and listing options, and cross-module iterator and certificate result lifetimes. [#1127](https://github.com/zowe/zowex/pull/1127)
+- `python`: Extended `npm run z:python:post` to upload wheels and matching checksums alongside available tarballs to the dev prerelease and link them in the existing PR comment. [#1181](https://github.com/zowe/zowex/pull/1181)
+- `python`: Added `npm run z:python:wheel` to build a pip-installable z/OS wheel with native copies for selected IBM Python runtimes, use the selected buildTools SSH/deployment configuration and configurable Python runtime paths, centralize wheel build preparation in `package_wheel.py`, download it to root `dist/` with checksum verification, and clean temporary build directories; added fresh-venv validation and corrected the SWIG default PEM export encoding. [#1181](https://github.com/zowe/zowex/pull/1181)
 
 ## `1.0.1`
 

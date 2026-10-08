@@ -2104,36 +2104,58 @@ function findStickyCommentId(prNumber: string): number | null {
     return match ? Number(match[1]) : null;
 }
 
-/**
- * Posts the precompiled Python bindings tarball (built on z/OS via
- * `npm run z:python:pack`) to a pull request as a downloadable link.
- */
+/** Uploads available Python artifacts to the dev prerelease and links them in a sticky PR comment. */
 function postPrecompiledBindings(prNumber: string) {
     if (!prNumber || !/^\d+$/.test(prNumber)) {
-        console.error("Usage: npm run z:python:post -- <PR_NUMBER>");
-        process.exit(1);
+        throw new Error("Usage: npm run z:python:post -- <PR_NUMBER>");
     }
 
-    if (!fs.existsSync(TARBALL)) {
-        console.error(`Tarball not found: ${TARBALL}\nRun "npm run z:python:pack" first to build it on z/OS.`);
-        process.exit(1);
+    const distDir = path.dirname(TARBALL);
+    const wheels = fs.existsSync(distDir)
+        ? fs.readdirSync(distDir).filter((name) => name.startsWith("zbind-") && name.endsWith(".whl"))
+        : [];
+    if (wheels.length > 1) {
+        throw new Error(
+            "Multiple zbind wheels found in dist/. Keep the wheel you want to post and move the others elsewhere.",
+        );
+    }
+    if (!fs.existsSync(TARBALL) && wheels.length === 0) {
+        throw new Error(
+            "No Python artifacts found in dist/. Run npm run z:python:pack or npm run z:python:wheel first.",
+        );
     }
 
     const hash = getShortHash();
-    const assetName = `zbind_bin_dist-pr${prNumber}-${hash}.tar.gz`;
-
-    // Defense-in-depth: prNumber and hash are validated above, but re-check that the
-    // resolved staging path stays directly inside dist/ before any filesystem access,
-    // so a crafted argument can never escape the intended directory.
-    const distDir = path.resolve(path.dirname(TARBALL));
-    const stagedPath = path.resolve(distDir, assetName);
-    if (path.dirname(stagedPath) !== distDir) {
-        console.error(`Refusing to stage outside the dist directory: ${stagedPath}`);
-        process.exit(1);
+    const artifacts: Array<{ source: string; name: string; label: string }> = [];
+    if (fs.existsSync(TARBALL)) {
+        artifacts.push({ source: TARBALL, name: `zbind_bin_dist-pr${prNumber}-${hash}.tar.gz`, label: "Tarball" });
     }
-    fs.copyFileSync(TARBALL, stagedPath);
-
+    if (wheels.length) {
+        const parts = wheels[0].split("-");
+        if (parts.length !== 5 && parts.length !== 6) throw new Error(`Invalid wheel filename: ${wheels[0]}`);
+        // A numeric build tag preserves a pip-installable filename while distinguishing PR builds.
+        const name = [...parts.slice(0, 2), `1pr${prNumber}g${hash}`, ...parts.slice(-3)].join("-");
+        artifacts.push({ source: path.join(distDir, wheels[0]), name, label: "Wheel" });
+    }
+    const staging = fs.mkdtempSync(path.join(distDir, ".python-post-"));
     try {
+        const staged = artifacts.map((artifact) => {
+            const destination = path.join(staging, artifact.name);
+            fs.copyFileSync(artifact.source, destination);
+            return destination;
+        });
+        const wheel = artifacts.find((artifact) => artifact.label === "Wheel");
+        if (wheel) {
+            const checksum = crypto
+                .createHash("sha256")
+                .update(fs.readFileSync(path.join(staging, wheel.name)))
+                .digest("hex");
+            const name = `${wheel.name}.sha256`;
+            const destination = path.join(staging, name);
+            fs.writeFileSync(destination, `${checksum}  ${wheel.name}\n`);
+            staged.push(destination);
+            artifacts.push({ source: destination, name, label: "Wheel SHA-256" });
+        }
         const repo = gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
 
         // Ensure the shared prerelease exists; create it only the first time.
@@ -2148,49 +2170,45 @@ function postPrecompiledBindings(prNumber: string) {
             gh(["release", "create", RELEASE_TAG, "--prerelease", "--title", RELEASE_TITLE, "--notes", RELEASE_NOTES]);
         }
 
-        console.log(`Uploading asset "${assetName}"...`);
-        gh(["release", "upload", RELEASE_TAG, stagedPath, "--clobber"]);
-
-        // Resolve the asset's download URL from the release metadata.
+        console.log(`Uploading ${artifacts.length} Python artifact(s)...`);
+        gh(["release", "upload", RELEASE_TAG, ...staged, "--clobber"]);
         const assets = JSON.parse(gh(["release", "view", RELEASE_TAG, "--json", "assets"])).assets as Array<{
             name: string;
             url: string;
         }>;
-        const url =
-            assets.find((a) => a.name === assetName)?.url ??
-            `https://github.com/${repo}/releases/download/${RELEASE_TAG}/${assetName}`;
-
+        const downloads = artifacts.map((artifact) => ({
+            ...artifact,
+            url:
+                assets.find((asset) => asset.name === artifact.name)?.url ??
+                `https://github.com/${repo}/releases/download/${RELEASE_TAG}/${artifact.name}`,
+        }));
         const body = [
             `### ${COMMENT_HEADER}`,
             "",
             `Built from \`${hash}\` on z/OS.`,
             "",
-            `📦 **[Download \`${assetName}\`](${url})**`,
+            ...downloads.map((artifact) => `- **${artifact.label}:** [\`${artifact.name}\`](${artifact.url})`),
             "",
-            `<sub>Hosted as an asset on the \`${RELEASE_TAG}\` prerelease (dev artifact, not for distribution).</sub>`,
+            `<sub>Hosted as assets on the \`${RELEASE_TAG}\` prerelease (dev artifacts, not for distribution).</sub>`,
         ].join("\n");
 
-        // Treat the comment as sticky: update our existing one if present, else create it.
         const existingCommentId = findStickyCommentId(prNumber);
         if (existingCommentId != null) {
             console.log(`Updating existing comment ${existingCommentId} on PR #${prNumber}...`);
-            gh([
-                "api",
-                "--method",
-                "PATCH",
-                `repos/${repo}/issues/comments/${existingCommentId}`,
-                "-f",
-                `body=${body}`,
-            ]);
+            const input = path.join(staging, "comment.json");
+            fs.writeFileSync(input, JSON.stringify({ body }));
+            gh(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existingCommentId}`, "--input", input]);
         } else {
             console.log(`Posting comment to PR #${prNumber}...`);
-            gh(["pr", "comment", prNumber, "--body", body]);
+            const input = path.join(staging, "comment.md");
+            fs.writeFileSync(input, body);
+            gh(["pr", "comment", prNumber, "--body-file", input]);
         }
 
-        console.log(`\n✅ ${existingCommentId != null ? "Updated" : "Posted"} precompiled bindings on PR #${prNumber}`);
-        console.log(`   Asset: ${url}`);
+        console.log(`\n✅ ${existingCommentId != null ? "Updated" : "Posted"} Python bindings on PR #${prNumber}`);
+        for (const artifact of downloads) console.log(`   ${artifact.label}: ${artifact.url}`);
     } finally {
-        fs.rmSync(stagedPath, { force: true });
+        fs.rmSync(staging, { recursive: true, force: true });
     }
 }
 

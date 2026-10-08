@@ -72,6 +72,21 @@ If `PIP_INDEX_URL` is set locally, it is passed through SSH input to pip without
 putting its credentials in command arguments; otherwise the remote profile's
 index is used.
 
+### Post development artifacts to a PR
+
+After building a wheel and/or running `npm run z:python:pack`, run:
+
+```sh
+npm run z:python:post -- <PR_NUMBER>
+```
+
+The command uploads the available tarball and `zbind` wheel from root `dist/`
+to the shared `py-bindings-dev` prerelease, then creates or updates the existing
+Python-bindings comment on the PR with download links. Wheels receive a valid
+PR/commit build tag and a SHA-256 file matching the uploaded filename.
+Keep only the wheel you intend to post in `dist/`; multiple wheels cause an error.
+Posting requires an authenticated GitHub CLI (`gh`).
+
 For a manual build directly on z/OS:
 
 Use a dedicated IBM Python 3.11 build venv and install `requirements-build.txt`.
