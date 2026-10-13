@@ -2,7 +2,133 @@
 
 This directory contains utility scripts to bundle and distribute the Python bindings for the Zowe Remote SSH (ZRS) project on z/OS. 
 
-We provide two distinct packaging scripts, tailored for different deployment needs. Both bundles are completely system agnostic on z/OS and do **NOT** require SWIG to be installed on the target machine.
+The wheel and precompiled bundle do not require SWIG on the installation target.
+Native binaries depend on compatible z/OS and Python runtimes; the source bundle
+can be rebuilt for a different target.
+
+## Python wheel
+
+`make wheel` builds a real wheel that installs with pip. The build uses IBM Python
+3.11 and can include native copies linked for additional Python runtimes. Imports
+remain `zds_py`, `zjb_py`, `zusf_py`, and `zkr_py`.
+
+The wrappers use Python's Limited API, but the z/OS binder records the Python DLL
+name in each extension. Therefore the final wheel contains a native copy per
+supported interpreter and selects it when imported. It is not an unrestricted
+`abi3` wheel: supporting another minor Python version requires adding its linked
+copies and testing them. Free-threaded builds and other Python implementations
+are excluded.
+
+### Install in a fresh z/OS venv
+
+Select a supported IBM Python interpreter, then run:
+
+```sh
+python -m venv my-venv
+my-venv/bin/python -m pip install --no-index /path/to/zbind-1.0.0-*.whl
+my-venv/bin/python -c 'import zds_py, zjb_py, zusf_py, zkr_py'
+```
+
+Installation needs no compiler, SWIG, source checkout, or `PYTHONPATH`. The system
+must provide compatible Language Environment/C++ runtimes and System SSL. Transfer
+the wheel without text conversion and verify its checksum before installing it.
+
+### Build on z/OS
+
+From the project root on your laptop, run:
+
+```sh
+npm run z:python:wheel
+```
+
+This command stages the current native and binding sources in a temporary
+directory on the configured z/OS host, builds native prerequisites and a wheel for IBM Python
+3.11/3.13/3.14, then downloads the wheel and its SHA-256 file to the **project root
+`dist/`**. It verifies the download and removes its temporary local and remote
+directories, including the build venv. Existing remote sources remain available.
+Generated native headers must already exist in the remote deployment's `c/chdsect`.
+
+The command is implemented in `scripts/buildTools.ts` and uses the active
+`config.yaml` profile's `sshProfile`, `deployDir`, and `preBuildCmd`, including
+`--profile=<name>` selection. It invokes `package_wheel.py --build-from-stdin`
+for runtime discovery, build-venv setup, dependency installation, and the normal
+`make wheel` target. Configure Python locations under that profile:
+
+```yaml
+pythonEnv:
+  ZPY_PYTHON_ROOT: /usr/lpp/IBM/cyp/
+  # ZPY_PYTHON_311: /path/to/python3.11
+  # ZPY_PYTHON_313: /path/to/python3.13
+  # ZPY_PYTHON_314: /path/to/python3.14
+```
+
+`ZPY_PYTHON_ROOT` defaults to `/usr/lpp/IBM/cyp/`, with interpreters at
+`v3r11/pyz/bin/python`, `v3r13/pyz/bin/python`, and `v3r14/pyz/bin/python`.
+Use `~/python` for a home-directory installation, or override individual
+executables with the settings above. Local `ZPY_*` environment variables override
+`pythonEnv`. SSH target and deployment root come from the selected profile.
+The command uses the runtimes directly and does not change `fpm`.
+If `PIP_INDEX_URL` is set locally, it is passed through SSH input to pip without
+putting its credentials in command arguments; otherwise the remote profile's
+index is used.
+
+### Post development artifacts to a PR
+
+After building a wheel and/or running `npm run z:python:pack`, run:
+
+```sh
+npm run z:python:post -- <PR_NUMBER>
+```
+
+The command uploads the available tarball and `zbind` wheel from root `dist/`
+to the shared `py-bindings-dev` prerelease, then creates or updates the existing
+Python-bindings comment on the PR with download links. Wheels receive a valid
+PR/commit build tag and a SHA-256 file matching the uploaded filename.
+Keep only the wheel you intend to post in `dist/`; multiple wheels cause an error.
+Posting requires an authenticated GitHub CLI (`gh`).
+
+For a manual build directly on z/OS:
+
+Use a dedicated IBM Python 3.11 build venv and install `requirements-build.txt`.
+Uploaded EBCDIC requirements files must first be converted to UTF-8 for pip:
+
+```sh
+build_python=$(python -c 'import os, sys; print(os.path.realpath(sys.executable))')
+"$build_python" -m venv wheel-build-venv
+iconv -f IBM-1047 -t UTF-8 requirements-build.txt > requirements-build-utf8.txt
+chtag -t -c UTF-8 requirements-build-utf8.txt
+wheel-build-venv/bin/python -m pip install -r requirements-build-utf8.txt
+make wheel PYTHON=wheel-build-venv/bin/python \
+  WHEEL_ARGS="--platform os390_29_00_3932.zos --runtime cp313=/path/to/libpython3.13.x --runtime cp314=/path/to/libpython3.14.x"
+```
+
+Replace the side-deck paths with those from the installed IBM runtimes. The example
+platform tags reflect the tested LPAR's older and newer pip conventions; verify
+them with `python -m pip debug --verbose` on your targets. Without additional
+`--runtime` arguments, the wheel contains only Python 3.11. For deployments without
+the repository root, pass `--license-file /path/to/LICENSE` in `WHEEL_ARGS`.
+
+The target builds native prerequisites and SWIG wrappers, stages UTF-8 proxies,
+links the specified runtime variants, and writes the wheel to the bindings'
+`dist/`. The npm command downloads it to the project's root `dist/`. The existing
+`make build` workflow remains available.
+
+### Verify the installed wheel
+
+For each target interpreter, the runner creates a fresh venv and stages tests in
+`/tmp` outside the source package:
+
+```sh
+python test/run_wheel_tests.py /path/to/zbind-1.0.0-*.whl
+python test/run_wheel_tests.py /path/to/zbind-1.0.0-*.whl --functional --owner YOURID
+```
+
+The first command tests installation, native module selection, UTF-8 USS reads,
+and SWIG lifetimes. The second also creates disposable dataset, USS, job, and
+certificate/key-ring resources under the specified user. Tests use the configured
+`PIP_INDEX_URL` to obtain pytest/PyYAML; keep credentials in the environment.
+Logs and JUnit reports remain in the reported validation directory. Successful
+runs check uninstall/reinstall, then remove the venv unless `--keep-venv` is set.
 
 ## Available Functions
 

@@ -21,6 +21,13 @@
 %include "std_string.i"
 %include "std_vector.i"
 
+// Native SWIG escapes parsed string defaults as EBCDIC octets. Initialize this
+// default in wrapper code so the ASCII execution charset supplies the bytes.
+%typemap(default) const std::string &format (std::string default_format) {
+  default_format = "pem";
+  $1 = &default_format;
+}
+
 // ZkrError (zkr_py.hpp) is a C++-only carrier for structured SAF/ESM/GSK codes, thrown and
 // caught entirely on the C++ side of %exception below. Without this, SWIG's automatic class
 // wrapping for this %include'd struct silently shadows the *real* zkr_py.ZkrError exception

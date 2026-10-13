@@ -8,6 +8,14 @@ import zds_py as ds
 FIXTURES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 ENV_FIXTURE_PATH = os.path.join(FIXTURES_PATH, "env.yml")
 
+def test_list_system_parmlib_members():
+    """A full 256-byte directory block is valid, not a corruption warning."""
+    names = [member.name for member in ds.list_members("SYS1.PARMLIB")]
+    assert names
+    assert len(names) == len(set(names))
+    assert all(1 <= len(name) <= 8 for name in names)
+
+
 class TestDatasetFunctions:
     """Combined tests for all dataset functions."""
     

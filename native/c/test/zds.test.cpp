@@ -268,6 +268,19 @@ void zds_tests()
 
     describe("list members", [&]() -> void
     {
+      it("should list SYS1.PARMLIB without rejecting full directory blocks", []() -> void
+      {
+        ZDS zds = {0};
+        std::vector<ZDSMem> members;
+        int rc = zds_list_members(&zds, "SYS1.PARMLIB", members);
+        ExpectWithContext(rc, zds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+        Expect(members.empty()).ToBe(false);
+        for (const auto &member : members)
+        {
+          Expect(zds_is_valid_member_name(member.name)).ToBe(true);
+        }
+      });
+
       it("should list all members when pattern is empty", [&]() -> void
       {
         ListMembersTestContext tc(created_dsns);

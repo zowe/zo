@@ -16,6 +16,15 @@ profiles:
     # USS directory on z/OS where native code is built
     deployDir: ~/zowex
 
+    # Python wheel runtime locations. Local ZPY_* environment variables override these.
+    # Default root: /usr/lpp/IBM/cyp/; expects v3r{11,13,14}/pyz/bin/python.
+    # Override individual executables for installations with a different layout.
+    pythonEnv:
+      ZPY_PYTHON_ROOT: /usr/lpp/IBM/cyp/
+      # ZPY_PYTHON_311: /path/to/python3.11
+      # ZPY_PYTHON_313: /path/to/python3.13
+      # ZPY_PYTHON_314: /path/to/python3.14
+
     # Command to run before building the native code
     # preBuildCmd: '. ~/entrypoint.sh'  # Run script to configure build environment
     #

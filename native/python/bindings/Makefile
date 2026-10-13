@@ -27,6 +27,14 @@ _SWIG_LIB = \
 	fi;
 
 SWIG=$(_SWIG_ENV) $(_SWIG_LIB) swig
+PYTHON=python
+WHEEL_ARGS=
+
+# Install requirements-build.txt in a build venv before invoking this target.
+wheel:
+	$(MAKE) -c ../../c build-out build-out/zdsm.o build-out/zutm.o build-out/zam.o build-out/zam24.o build-out/zutm31.o build-out/zutcall24.o build-out/zjbm.o
+	$(MAKE) swig-wrappers
+	$(_SWIG_ENV) $(PYTHON) package_wheel.py $(WHEEL_ARGS)
 
 # Generate SWIG wrappers
 swig-wrappers:
@@ -79,6 +87,7 @@ help:
 	@echo "  build-zjb     - Build zjb_py module only"
 	@echo "  build-zkr     - Build zkr_py module only"
 	@echo "  clean         - Clean generated files"
+	@echo "  wheel         - Build a z/OS wheel for explicitly selected Python runtimes"
 	@echo "  help          - Show this help message"
 
 # Clean generated files
@@ -92,4 +101,4 @@ clean:
 	rm -rf build/
 	rm -rf ../../c/build-out/swig
 
-.PHONY: all help swig-wrappers swig-extenders build clean build-zusf build-zds build-zjb build-zkr
+.PHONY: all help swig-wrappers swig-extenders build clean build-zusf build-zds build-zjb build-zkr wheel

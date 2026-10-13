@@ -2644,24 +2644,29 @@ int zds_list_members(ZDS *zds, std::string dsn, std::vector<ZDSMem> &members, co
 
   while (fread(&rec, sizeof(rec), 1, fp))
   {
-    if (rec.count > RECLEN)
+    if (rec.count == 0)
+      continue; // unused directory block
+    constexpr int count_size = sizeof(rec.count);
+    constexpr int block_size = sizeof(rec);
+    if (rec.count < count_size || rec.count > block_size)
     {
       if (!corrupt_directory_block)
       {
-        ZDIAG_SET_MSG(&zds->diag, "Corrupt PDS directory block encountered for '%s': used-count %hu exceeds %d bytes; results may be incomplete", dsn.c_str(), rec.count, RECLEN);
+        ZDIAG_SET_MSG(&zds->diag, "Corrupt PDS directory block encountered for '%s': used-count %hu outside %d..%d bytes; results may be incomplete", dsn.c_str(), rec.count, count_size, block_size);
         zds->diag.detail_rc = ZDS_RSNCD_TRUNCATION_WARNING;
         corrupt_directory_block = true;
       }
-      rec.count = RECLEN;
     }
 
+    // The on-disk count includes its own two-byte field.
+    const int data_length = std::clamp<int>(rec.count, count_size, block_size) - count_size;
     unsigned char *data = nullptr;
     data = (unsigned char *)&rec;
     data += sizeof(rec.count); // increment past halfword length
     int len = sizeof(RECORD_ENTRY);
-    for (int i = 0; i < rec.count; i = i + len)
+    for (int i = 0; i < data_length; i = i + len)
     {
-      if (i + (int)sizeof(RECORD_ENTRY) > rec.count)
+      if (i + (int)sizeof(RECORD_ENTRY) > data_length)
       {
         break;
       }
@@ -2717,7 +2722,7 @@ int zds_list_members(ZDS *zds, std::string dsn, std::vector<ZDSMem> &members, co
           int user_data_len = info * 2; // convert halfwords to bytes
 
           if (show_attributes && user_data_len >= (int)sizeof(ISPF_STATS) &&
-              i + (int)sizeof(entry) + user_data_len <= rec.count)
+              i + (int)sizeof(entry) + user_data_len <= data_length)
           {
             const ISPF_STATS *stats = reinterpret_cast<const ISPF_STATS *>(data + sizeof(entry));
             mem.stats_valid = is_valid_ispf_stats(stats, user_data_len);
@@ -2755,7 +2760,7 @@ int zds_list_members(ZDS *zds, std::string dsn, std::vector<ZDSMem> &members, co
         data += sizeof(entry) + info * 2;
         len = sizeof(entry) + info * 2;
 
-        int remainder = rec.count - (i + len);
+        int remainder = data_length - (i + len);
         if (remainder < sizeof(entry))
           break;
       }
