@@ -138,6 +138,29 @@ void zo_job_list_tests(std::vector<std::string> &_jobs, std::vector<std::string>
       Expect(response).ToContain(",");
     });
 
+    it("should add execution data columns with --exec-data", []()
+    {
+      std::string default_response;
+      int rc = execute_command_with_output(zo_command + " job list --max-entries 5 --rfc", default_response);
+      ExpectWithContext(rc, default_response).ToBeGreaterThanOrEqualTo(0);
+      std::string exec_response;
+      rc = execute_command_with_output(zo_command + " job list --max-entries 5 --exec-data --rfc", exec_response);
+      ExpectWithContext(rc, exec_response).ToBeGreaterThanOrEqualTo(0);
+
+      // jobid, jobname, owner, status, retcode, execsystem, execmember, execsubmitted, execstarted, execended
+      // --max-entries 5 can append a "Warning: results truncated" line that is not a CSV record
+      auto expect_columns = [](const std::string &response, size_t expected)
+      {
+        for (const auto &line : parse_rfc_response(response, "\n"))
+        {
+          if (!line.empty() && line.rfind("Warning:", 0) != 0)
+            Expect(parse_rfc_response(line, ",").size()).ToBe(expected);
+        }
+      };
+      expect_columns(default_response, 5);
+      expect_columns(exec_response, 10);
+    });
+
     it("should validate RFC format structure for job list", []()
     {
       std::string response;

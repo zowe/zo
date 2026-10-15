@@ -4,6 +4,10 @@ All notable changes to the Client code for "@zowe/zowex-for-zowe-sdk" are docume
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- Added optional z/OSMF-compatible execution fields to job list and status response types, including `execSubmitted` and `execEnded` for submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
+
 ## `1.0.2`
 
 - Fixed an error when issuing streamed RPC requests to a `zowex` server running in Bash shell. [#1155](https://github.com/zowe/zowex/pull/1155)
