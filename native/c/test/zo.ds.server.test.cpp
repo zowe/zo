@@ -349,6 +349,56 @@ void zo_ds_server_tests()
       });
     });
 
+    describe("delete VSAM", [&]() -> void
+    {
+      it("should delete a VSAM cluster via RPC with default options", [&]() -> void
+      {
+        TestVsamGuard cluster;
+        int req_id;
+        const std::string request = make_rpc_request("deleteVsam", "{\"dsname\":\"" + cluster.name() + "\"}", req_id);
+        write_to_server(server, request);
+        const std::string response = read_rpc_response(server);
+        Expect(response).ToContain("\"success\":true");
+        Expect(response).ToContain("\"id\":" + std::to_string(req_id));
+
+        std::string list_response;
+        const int rc = execute_command_with_output(zo_command + " ds list '" + cluster.name() + "' --exact-match", list_response);
+        ExpectWithContext(rc, list_response).Not().ToBe(0);
+      });
+
+      it("should return IDCAMS diagnostics when deletion fails", [&]() -> void
+      {
+        const std::string request = make_rpc_request("deleteVsam", "{\"dsname\":\"" + get_test_ds() + ".VSAM\"}");
+        write_to_server(server, request);
+        const std::string response = read_rpc_response(server);
+        Expect(response).ToContain("\"error\"");
+        Expect(response).ToContain("IDCAMS returned nonzero RC");
+        Expect(response).ToContain("IDC3012I");
+      });
+
+      it("should reject missing names and non-boolean options", [&]() -> void
+      {
+        for (const std::string params : {"{}", "{\"dsname\":\"USER.VSAM\",\"erase\":\"true\"}", "{\"dsname\":\"USER.VSAM\",\"purge\":1}"})
+        {
+          write_to_server(server, make_rpc_request("deleteVsam", params));
+          const std::string response = read_rpc_response(server);
+          Expect(response).ToContain("\"error\"");
+          Expect(response).ToContain("-32602");
+        }
+      });
+
+      it("should reject empty names, wildcards, members and control statement injection", [&]() -> void
+      {
+        for (const std::string name : {"", "USER.*", "USER.VSAM(MEMBER)", "USER.VSAM'", "USER.VSAM\\n DELETE USER.OTHER CLUSTER PURGE"})
+        {
+          write_to_server(server, make_rpc_request("deleteVsam", "{\"dsname\":\"" + name + "\"}"));
+          const std::string response = read_rpc_response(server);
+          Expect(response).ToContain("\"error\"");
+          Expect(response).ToContain("invalid VSAM cluster name");
+        }
+      });
+    });
+
     describe("list", [&]() -> void
     {
       std::string ds_pattern;

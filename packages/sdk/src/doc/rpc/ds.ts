@@ -48,6 +48,23 @@ export interface DeleteDatasetRequest extends common.CommandRequest<"deleteDatas
 
 export type DeleteDatasetResponse = common.CommandResponse;
 
+export interface DeleteVsamRequest extends common.CommandRequest<"deleteVsam"> {
+    /**
+     * VSAM cluster name
+     */
+    dsname: string;
+    /**
+     * Overwrite the data component with binary zeros before deletion. Defaults to false (NOERASE).
+     */
+    erase?: boolean;
+    /**
+     * Delete the cluster even if its retention period has not expired. Defaults to false (NOPURGE).
+     */
+    purge?: boolean;
+}
+
+export type DeleteVsamResponse = common.CommandResponse;
+
 export interface RenameDatasetRequest extends common.CommandRequest<"renameDataset"> {
     /**
      * Dataset name before

@@ -4,6 +4,10 @@ All notable changes to the Client code for "zowex-for-zowe-cli" are documented i
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- Added the `zowe zo delete vsam` command with `--erase` and `--purge` options to delete VSAM clusters over SSH. [#490](https://github.com/zowe/zowex/issues/490)
+
 ## `1.0.2`
 
 - Corrected the `create data-set-member` success message to say `Member` instead of `Dataset`. [#639](https://github.com/zowe/zowex/issues/639)

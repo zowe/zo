@@ -25,6 +25,7 @@ int handle_data_set_list_members(InvocationContext &result);
 int handle_data_set_resolve_alias(InvocationContext &result);
 int handle_data_set_write(InvocationContext &result);
 int handle_data_set_delete(InvocationContext &result);
+int handle_vsam_delete(InvocationContext &result);
 int handle_data_set_restore(InvocationContext &result);
 int handle_data_set_compress(InvocationContext &result);
 int handle_data_set_create_member(InvocationContext &result);
