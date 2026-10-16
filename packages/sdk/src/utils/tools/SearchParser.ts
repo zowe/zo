@@ -63,7 +63,16 @@ export function parseSearchOutput(output: string): SearchResult {
         if (currentMember && (currentMember.name != null || currentMember.matches.length > 0)) {
             const lastMatch = currentMember.matches.at(-1);
             if (lastMatch) lastMatch.afterContext.push(...pendingContext);
-            members.push(currentMember);
+            if (currentMember.name != null) {
+                const existing = members.find((m) => m.name === currentMember!.name);
+                if (existing) {
+                    existing.matches.push(...currentMember.matches);
+                } else {
+                    members.push(currentMember);
+                }
+            } else {
+                members.push(currentMember);
+            }
         }
         pendingContext = [];
         currentMember = null;
@@ -74,7 +83,8 @@ export function parseSearchOutput(output: string): SearchResult {
 
         // NOTE(Kelosky): ASMFSUPC - MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0 (2021/11/01) 2026/02/20 9.05
         if (/ASMFSUPC/.test(line) && /COMPARE UTILITY/.test(line)) {
-            header = line.trim();
+            const headerMatch = line.match(/(?:^|\f|\s{2,})(ASMFSUPC\s+-.*COMPARE UTILITY.*)$/);
+            header = (headerMatch ? headerMatch[1] : line).trim();
         }
 
         // Parse "SRCH DSN:"
@@ -85,12 +95,31 @@ export function parseSearchOutput(output: string): SearchResult {
             if (line.includes("SOURCE SECTION")) {
                 // Parse member name from dataset name if present; sequential data sets have no member
                 const memParse = dsMatch[1].match(/^([^()]+)\(([^)]+)\)\s*$/);
-                closeCurrentMember();
-                currentMember = {
-                    name: memParse?.[2],
-                    matches: [],
-                };
-                continue;
+                const memberName = memParse?.[2];
+
+                if (memberName) {
+                    if (currentMember && currentMember.name === memberName) {
+                        continue;
+                    }
+                    closeCurrentMember();
+                    currentMember = {
+                        name: memberName,
+                        matches: [],
+                    };
+                    continue;
+                } else {
+                    if (currentMember) {
+                        // Across a SuperC page break within a member (or sequential dataset),
+                        // SuperC outputs "LINE-#  SOURCE SECTION  SRCH DSN: <DSN>" without
+                        // repeating the member name. Keep accumulating into the existing member.
+                        continue;
+                    }
+                    currentMember = {
+                        name: undefined,
+                        matches: [],
+                    };
+                    continue;
+                }
             }
         }
 
@@ -124,9 +153,10 @@ export function parseSearchOutput(output: string): SearchResult {
             const matchLine = line.match(/^\s+(\d+)\s{2}(.+)$/);
             if (matchLine) {
                 const lastMatch = currentMember.matches.at(-1);
+                const content = matchLine[2].replace(/(?:\s*\f.*|\s+ASMFSUPC\s+-.*)$/, "").trimEnd();
                 currentMember.matches.push({
                     lineNumber: parseInt(matchLine[1], 10),
-                    content: matchLine[2].trimEnd(),
+                    content,
                     beforeContext: lastMatch ? [] : pendingContext,
                     afterContext: [],
                 });
@@ -138,7 +168,8 @@ export function parseSearchOutput(output: string): SearchResult {
             }
             const contextLine = line.match(/^\s+\*\s{2}(.+)$/);
             if (contextLine) {
-                pendingContext.push(contextLine[1].trimEnd());
+                const contextContent = contextLine[1].replace(/(?:\s*\f.*|\s+ASMFSUPC\s+-.*)$/, "").trimEnd();
+                pendingContext.push(contextContent);
             }
         }
 

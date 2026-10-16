@@ -159,4 +159,62 @@ describe("parseSearchOutput", () => {
         expect(result.members).toHaveLength(1);
         expect(result.members[0].name).toBe("IEFBR14");
     });
+
+    it("should keep member name across SuperC page breaks and strip fused page headers", () => {
+        const output = [
+            "\f  ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/10/05  16.41    PAGE     5",
+            " LINE-#  SOURCE SECTION                    SRCH DSN: SYS1.MACLIB",
+            "",
+            " IHASDWA                     --------- STRING(S) FOUND -------------------",
+            "",
+            "        65  */*     AN ESTAE-TYPE RECOVERY ROUTINE IF REGISTER 0 DOES NOT    */",
+            "      1121  SDWATEST EQU  2        ESTAE/I/X WAS GIVEN CONTROL               @L4A",
+            "      1141  SDWAEADR DS   CL4      FRR OR ESTAE RECOVERY ROUTINE ADDRESS.    ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/10/05  16.41    PAGE     6",
+            " LINE-#  SOURCE SECTION                    SRCH DSN: SYS1.MACLIB",
+            "",
+            "      1146  *                      ON ENTRY TO AN ESTAE: 0                   @G860P38",
+            "      1190  *   FRR PERCOLATION AND ARE ZEROED ON RTM2 ESTAE PERCOLATION.",
+            "\f  ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/10/05  16.41    PAGE     7",
+            "     SEARCH-FOR SUMMARY SECTION            SRCH DSN: SYS1.MACLIB",
+            "",
+            "LINES-FOUND  LINES-PROC  MEMBERS-W/LNS  MEMBERS-WO/LNS  COMPARE-COLS  LONGEST-LINE",
+            "         5          200            1              10           1:80           80",
+            "",
+            "THE FOLLOWING PROCESS STATEMENTS (USING COLUMNS 1:72) WERE PROCESSED:",
+            "    SRCHFOR 'ESTAE'",
+        ].join("\n");
+
+        const result = parseSearchOutput(output);
+
+        expect(result.members).toHaveLength(1);
+        expect(result.members[0].name).toBe("IHASDWA");
+        expect(result.members[0].matches.map((m) => m.lineNumber)).toEqual([65, 1121, 1141, 1146, 1190]);
+        expect(result.members[0].matches[2].content).toBe("SDWAEADR DS   CL4      FRR OR ESTAE RECOVERY ROUTINE ADDRESS.");
+        expect(result.header).toBe(
+            "ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/10/05  16.41    PAGE     7",
+        );
+        expect(result.summary.linesFound).toBe(5);
+        expect(result.summary.membersWithLines).toBe(1);
+    });
+
+    it("should merge multiple same-name member sections into a single entry", () => {
+        const output = [
+            "\f  ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/04/21   8.53    PAGE     1",
+            " LINE-#  SOURCE SECTION                    SRCH DSN: IBMUSER.JCL",
+            "",
+            " FOO                         --------- STRING(S) FOUND -------------------",
+            "        10  //STEP1    EXEC PGM=FOO",
+            " BAR                         --------- STRING(S) FOUND -------------------",
+            "        20  //STEP2    EXEC PGM=BAR",
+            " FOO                         --------- STRING(S) FOUND -------------------",
+            "        30  //STEP3    EXEC PGM=FOO2",
+        ].join("\n");
+
+        const result = parseSearchOutput(output);
+
+        expect(result.members).toHaveLength(2);
+        expect(result.members.map((m) => m.name)).toEqual(["FOO", "BAR"]);
+        expect(result.members[0].matches.map((m) => m.lineNumber)).toEqual([10, 30]);
+        expect(result.members[1].matches.map((m) => m.lineNumber)).toEqual([20]);
+    });
 });
