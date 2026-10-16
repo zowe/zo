@@ -24,6 +24,16 @@ the repo. Gated tests **skip** (not fail) when their gate is closed, so the
 suite passes for any user — but skipped tests provide no coverage. CI currently
 runs with both gates closed.
 
+The Python bindings suite (`native/python/bindings/test/test_zkr.py`, part of
+`npm run z:python:test` / `.github/workflows/zos-py-build.yml`) mirrors the same
+three tiers against the `zkr_py` module (`create_keyring`, `list_certificates`,
+`export_certificate`, etc. — see
+[native/python/bindings/README.md](../native/python/bindings/README.md#zkr_py--certificates-and-key-rings)).
+It calls the same `zkr.hpp`/`zkr.cpp` service layer **in-process** (no JSON-RPC, no
+`zowex server`), so it is complementary to, not a substitute for, Item 4 below, which
+drives the RPC layer out-of-process over JSON-RPC. Same gates, same expectation in
+CI: the CI user has no certificate authority, so Tiers B and C skip there too.
+
 ## 2. Coverage matrix
 
 "zowe-mcp" marks methods exercised on a real system by
@@ -89,6 +99,13 @@ Degrades gracefully: any step failing (typically missing
 `IRR.DIGTCERT.GENCERT`/`EXPORT` authority) logs the reason and the lifecycle
 suite skips exactly as it does today. An explicit `ZKR_TEST_P12` still takes
 precedence, so environments with a curated fixture keep using it.
+
+The Python lifecycle suite always generates fresh certificate content for each
+test and requires successful removal of the generated RACF record before import.
+It does not use curated `ZKR_TEST_P12` files for these mutating tests. Import must
+return the requested label and owner without an already-existing warning before
+the certificate is registered for database cleanup. Without GENCERT/EXPORT
+authority, these Python tests skip.
 
 ### Item 3 — new gated tests for the uncovered paths
 

@@ -321,17 +321,7 @@ class TestDatasetFunctions:
         content = ds.read_data_set(dsn, "binary")
         assert content.startswith(test_data)
 
-    # KNOWN LIMITATION TESTS
-    # These pin the two gaps called out under "Known limitation" in
-    # native/python/bindings/README.md. They are strict xfails: today they fail and the suite stays
-    # green, but the moment the underlying conversion is fixed pytest reports XPASS as a failure,
-    # which is the signal to drop the marker here and the note in the README together.
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Explicit codepage double-converts data set content (zds converts, then the binding "
-               "converts again), so the round-trip hands back an empty string. See "
-               "native/python/bindings/README.md.",
-    )
+    # Encoding and etag regression tests
     def test_read_write_dataset_with_explicit_codepage(self):
         """Explicit (non-default, non-binary) codepage should round-trip."""
         dsn = f"{self.test_dsn_base}.CODEPG"
@@ -347,11 +337,6 @@ class TestDatasetFunctions:
         content = ds.read_data_set(dsn, "IBM-1047")
         assert content == test_data + "\n"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Etags are converted on the way out but not on the way in, so an etag handed back to "
-               "write_data_set never matches. See native/python/bindings/README.md.",
-    )
     def test_write_dataset_etag_round_trip(self):
         """An etag returned by write_data_set should be accepted by the next write."""
         dsn = f"{self.test_dsn_base}.ETAG"

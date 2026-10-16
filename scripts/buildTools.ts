@@ -235,6 +235,7 @@ class WatchUtils {
 
         this.watcher = chokidar.watch(["**/*"], {
             cwd: this.rootDir,
+            ignored: /(^|[\\/])\.cache([\\/]|$)/,
             ignoreInitial: true,
             persistent: true,
         });
@@ -1140,7 +1141,7 @@ function getDirs(next = "") {
 
     const readDirs = fs.readdirSync(path.resolve(__dirname, `${localDeployDir}/${next}`), { withFileTypes: true });
     for (const dir of readDirs) {
-        if (dir.isDirectory()) {
+        if (dir.isDirectory() && dir.name !== ".cache") {
             const newDir = `${dir.name}/`;
             dirs.push(`${next}${newDir}`, ...getDirs(`${next}${newDir}`));
         }

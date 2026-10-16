@@ -147,6 +147,14 @@ struct ZKRImportOptions
   bool skip_refresh = false; // do not auto-refresh DIGTCERT when the ESM signals it is required
 };
 
+// The bindings compile this header EBCDIC and their SWIG wrappers ASCII. libc++ uses a distinct
+// inline namespace per char mode (std::__1 vs std::__1_a), so a mangled name is unresolvable
+// across that boundary -- everything the bindings call needs C linkage.
+#ifdef SWIG
+extern "C"
+{
+#endif
+
 /**
  * @brief Create a new key ring (R_datalib NEWRING).
  * @return 0 on success; non-zero otherwise (details in zkr->diag)
@@ -194,6 +202,27 @@ int zkr_list_ring(ZKR *zkr, const std::string &owner, const std::string &ring,
  *        exact, case-sensitive comparison, no wildcards or generics. usage is
  *        matched the same way against the PERSONAL/CERTAUTH/OTHER strings
  *        produced by zkr_list_ring. An empty label/usage means "no filter".
+ * @param certs matching entries are appended here, in enumeration order
+ * @param max_entries cap on the number of MATCHING entries returned (0 = all)
+ * @param more_available if non-null, set to true when the cap cut off further
+ *        matching entries
+ */
+void zkr_filter_certs_into(const std::vector<ZKRCertInfo> &certs, const std::string &label,
+                           const std::string &usage, size_t max_entries, bool *more_available,
+                           std::vector<ZKRCertInfo> &out);
+
+#ifdef SWIG
+}
+#endif
+
+/**
+ * @brief Filter a certificate list the way RACDCERT treats the LABEL keyword:
+ *        exact, case-sensitive comparison, no wildcards or generics. usage is
+ *        matched the same way against the PERSONAL/CERTAUTH/OTHER strings
+ *        produced by zkr_list_ring. An empty label/usage means "no filter".
+ *        Thin by-value wrapper around zkr_filter_certs_into -- kept outside the
+ *        extern "C" block below because C linkage cannot express a std::vector
+ *        return by value; the bindings call zkr_filter_certs_into directly.
  * @param max_entries cap on the number of MATCHING entries returned (0 = all)
  * @param more_available if non-null, set to true when the cap cut off further
  *        matching entries
@@ -204,6 +233,11 @@ std::vector<ZKRCertInfo> zkr_filter_certs(const std::vector<ZKRCertInfo> &certs,
                                           const std::string &usage,
                                           size_t max_entries = 0,
                                           bool *more_available = nullptr);
+
+#ifdef SWIG
+extern "C"
+{
+#endif
 
 /**
  * @brief Export a certificate from a key ring.
@@ -266,5 +300,9 @@ int zkr_set_default(ZKR *zkr, const std::string &owner, const std::string &ring,
  * @return 0 on success; non-zero otherwise (details in zkr->diag)
  */
 int zkr_alter_cert(ZKR *zkr, const ZKRAlterOptions &opts);
+
+#ifdef SWIG
+}
+#endif
 
 #endif // ZKR_HPP

@@ -32,4 +32,12 @@
 %feature("docstring") chtag_uss_item "Change file tag of a USS file or directory.";
 
 %include "std_string.i"
+
+struct ListOptions {
+    bool all_files;
+    bool long_format;
+    int max_depth;
+    explicit ListOptions(bool all_files = false, bool long_format = false, int max_depth = 1);
+};
+
 %include "zusf_py.hpp"

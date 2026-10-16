@@ -5,6 +5,13 @@ on:
     paths:
       - ".github/workflows/zos-py-build.yml"
       - "native/python/**"
+      # zkr_py shares these native/c sources with zowex (see native/python/bindings/
+      # setup.py); listed individually rather than all of native/c/** since this job
+      # shares the zos-build concurrency group and takes ~20 minutes.
+      - "native/c/zkr.hpp"
+      - "native/c/zkr.cpp"
+      - "native/c/zkrio.hpp"
+      - "native/c/zkrio.cpp"
   # push:
   #   branches:
   #     - main
@@ -68,6 +75,7 @@ jobs:
           OWNER: ${{ secrets.SSH_MARIST_ZNP_ID }}
           DSN_PREFIX: ${{ secrets.SSH_MARIST_ZNP_ID }}.PY#BI
           USS_BASE_DIR: /ZOWE/tmp/test_uss_functions_for_python_bindings
+          KEYRING_PREFIX: ZKRUT
           EOF
 
       - name: Install Dependencies

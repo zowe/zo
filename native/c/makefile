@@ -89,7 +89,7 @@ SERVER_OBJS = $(OUT_DIR)/server/builder.o \
 	$(OUT_DIR)/server/validator.o \
 	$(OUT_DIR)/server/worker.o
 
-SWIG_EXTENDER_OBJS = $(OUT_DIR_SWIG)/zut.o $(OUT_DIR_SWIG)/zds.o $(OUT_DIR_SWIG)/zjb.o $(OUT_DIR_SWIG)/zcn.o $(OUT_DIR_SWIG)/zusf.o $(OUT_DIR_SWIG)/ztso.o
+SWIG_EXTENDER_OBJS = $(OUT_DIR_SWIG)/zut.o $(OUT_DIR_SWIG)/zds.o $(OUT_DIR_SWIG)/zjb.o $(OUT_DIR_SWIG)/zcn.o $(OUT_DIR_SWIG)/zusf.o $(OUT_DIR_SWIG)/ztso.o $(OUT_DIR_SWIG)/zkr.o $(OUT_DIR_SWIG)/zkrio.o
 
 all: libzut.so libzut.a libzds.so libzds.a libzusf.so libzusf.a libzcn.so libzcn.a libzjb.so libzjb.a libzkr.so libzkr.a zo zoa
 swig-extenders: $(OUT_DIR_SWIG) $(SWIG_EXTENDER_OBJS)
@@ -207,6 +207,10 @@ $(OUT_DIR)/zkr.o: zkr.cpp
 	@echo 'Building $(OUT_DIR)/zkr.o'
 	$(CXX) $(CPP_FLAGS) -o $@ $^
 
+$(OUT_DIR_SWIG)/zkr.o: $(OUT_DIR_SWIG) zkr.cpp
+	@echo 'Building $(OUT_DIR_SWIG)/zkr.o with SWIG macro'
+	$(CXX) $(SWIG_FLAGS) -o $@ zkr.cpp
+
 $(OUT_DIR)/libzkr.so: $(OUT_DIR)/zkr.o
 	@echo 'Building $(OUT_DIR)/libzkr.so'
 	$(CXX) $(DLL_BND_FLAGS) -o $@ $^ $(GSKCMS_SIDEDECK)
@@ -218,6 +222,17 @@ $(OUT_DIR)/libzkr.a: $(OUT_DIR)/zkr.o
 	ar -rv $@ $^
 
 libzkr.a: $(OUT_DIR) $(OUT_DIR)/libzkr.a
+
+# zkrio is a plain (non-SWIG) helper used only by the zowex command layer today;
+# it deliberately stays out of libzkr.{so,a}, which binds standalone against
+# nothing but the GSKCMS side deck (see zkr_py plan D8).
+$(OUT_DIR)/zkrio.o: zkrio.cpp
+	@echo 'Building $(OUT_DIR)/zkrio.o'
+	$(CXX) $(CPP_FLAGS) -o $@ $^
+
+$(OUT_DIR_SWIG)/zkrio.o: $(OUT_DIR_SWIG) zkrio.cpp
+	@echo 'Building $(OUT_DIR_SWIG)/zkrio.o with SWIG macro'
+	$(CXX) $(SWIG_FLAGS) -o $@ zkrio.cpp
 
 #
 # Jobs
@@ -386,7 +401,7 @@ $(OUT_DIR)/extend/plugin.o: extend/plugin.cpp
 #
 # Test CLI
 #
-$(OUT_DIR)/zo: $(OUT_DIR)/zo.o $(OUT_DIR)/json_output.o $(OUT_DIR)/extend/plugin.o $(COMMAND_OBJS) $(SERVER_OBJS) $(OUT_DIR)/zjsonm.o $(OUT_DIR)/libzut.a $(OUT_DIR)/libzjb.a $(OUT_DIR)/libzds.a $(OUT_DIR)/libzusf.a $(OUT_DIR)/libztso.a $(OUT_DIR)/libzkr.a
+$(OUT_DIR)/zo: $(OUT_DIR)/zo.o $(OUT_DIR)/json_output.o $(OUT_DIR)/extend/plugin.o $(OUT_DIR)/zkrio.o $(COMMAND_OBJS) $(SERVER_OBJS) $(OUT_DIR)/zjsonm.o $(OUT_DIR)/libzut.a $(OUT_DIR)/libzjb.a $(OUT_DIR)/libzds.a $(OUT_DIR)/libzusf.a $(OUT_DIR)/libztso.a $(OUT_DIR)/libzkr.a
 	@echo 'Building zo (z/OS target level: $(ZosMinLevel))'
 	$(CXX) $(CPP_BND_FLAGS) -o $@ $^ $(GSKCMS_SIDEDECK)
 

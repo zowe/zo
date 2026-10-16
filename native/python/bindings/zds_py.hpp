@@ -14,8 +14,8 @@
 
 #include <string>
 #include <vector>
-#include "../../c/zdstype.h"
-#include "../../c/zds.hpp"
+#include "zdstype.h"
+#include "zds.hpp"
 #include "conversion.hpp"
 
 void create_data_set(std::string dsn, const DS_ATTRIBUTES &attributes);

@@ -117,6 +117,10 @@ std::string read_uss_file(const std::string &file, const std::string &codepage)
 
 void read_uss_file_streamed(const std::string &file, const std::string &pipe, const std::string &codepage, size_t *content_len)
 {
+  size_t bytes_read = 0;
+  if (content_len == nullptr)
+    content_len = &bytes_read;
+
   ZUSF ctx = {0};
   set_encoding_opts(ctx, codepage);
 
@@ -145,6 +149,10 @@ std::string write_uss_file(const std::string &file, const std::string &data, con
 
 std::string write_uss_file_streamed(const std::string &file, const std::string &pipe, const std::string &codepage, const std::string &etag, size_t *content_len)
 {
+  size_t bytes_written = 0;
+  if (content_len == nullptr)
+    content_len = &bytes_written;
+
   ZUSF ctx = {0};
   set_encoding_opts(ctx, codepage);
   set_etag(ctx, etag);

@@ -14,7 +14,7 @@
 
 #include <string>
 #include <stdexcept>
-#include "../../c/zusf.hpp"
+#include "zusf.hpp"
 #include "conversion.hpp"
 
 void create_uss_file(const std::string &file, const std::string &mode);
