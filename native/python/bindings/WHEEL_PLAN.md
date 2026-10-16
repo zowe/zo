@@ -45,10 +45,11 @@ proven in this implementation.
 | `fpm 13` | 3.13.15 | `os390_29_00_3932` |
 | `fpm 14` | 3.14.7 | `zos` |
 
-All three recognize `.abi3.so` filenames. The final wheel carries explicit
-interpreter/ABI tags for the included versions, plus both verified platform
-conventions. It excludes Python 3.12, free-threaded builds, Python 2, and other
-implementations. Only the current LPAR/runtime combinations have been exercised.
+All three recognize `.abi3.so` filenames. The final wheel defaults to
+`py3-none-any` to bypass differing pip platform conventions. Its loader rejects
+non-z/OS platforms, unbundled Python versions, free-threaded builds, and other
+implementations at import time. `Requires-Python: >=3.11` remains in the package
+metadata. Only the current LPAR/runtime combinations have been exercised.
 
 `fpm` changes a shared `current` symlink. Each test uses a fresh venv created from
 its selected interpreter's resolved executable. Restore the original selection
@@ -64,8 +65,9 @@ when the matrix finishes; switching versions does not update an existing venv.
    compatible System SSL and Language Environment/C++ runtimes remain prerequisites.
 3. Stage SWIG Python proxies, loader code, license text, and metadata as UTF-8.
    Store extensions and the wheel ZIP as binary bytes.
-4. Assemble one wheel with all twelve native copies, complete `METADATA`, expanded
-   compatibility tags, and `RECORD` hashes. Publish the completed archive only after
+4. Assemble one wheel with all twelve native copies, complete `METADATA`, matching
+   `py3-none-any` filename and metadata tags, and `RECORD` hashes. Keep
+   `Root-Is-Purelib: false`. Publish the completed archive only after
    successful assembly.
 5. On import, select `_zbind_native/cp311`, `cp313`, or `cp314` and load that
    runtime's extension. Preserve `zds_py`, `zjb_py`, `zusf_py`, and `zkr_py` imports.
@@ -102,15 +104,15 @@ credentials must stay out of repository files and console output.
 Expected artifact:
 
 ```text
-zbind-1.0.0-cp311.cp313.cp314-cp311.cp313.cp314-os390_29_00_3932.zos.whl
+zbind-1.0.0-py3-none-any.whl
 ```
 
-Compressed interpreter and ABI tags expand to a Cartesian product. Standard
-CPython pip matches its own interpreter/ABI pair; free-threaded ABI tags do not
-match. The filename and `WHEEL` metadata describe the same expanded tag set.
+The `none-any` suffix is a deliberate installation workaround for z/OS pip.
+The filename and `WHEEL` metadata carry the same tag; runtime compatibility is
+enforced by `_zbind_loader.py` when importing the native modules.
 See the [wheel specification](https://packaging.python.org/en/latest/specifications/binary-distribution-format/).
 
-## Validation completed
+## Validation completed before the portable-tag change
 
 - Build in an isolated remote copy, preserving the working bindings sources.
 - Build and download with `npm run z:python:wheel`, then install the identical
@@ -122,7 +124,7 @@ See the [wheel specification](https://packaging.python.org/en/latest/specificati
 - Check archive contents, UTF-8 source validity, `RECORD` hashes, and transfer checksum.
 - Preserve test reports and document the tested support matrix.
 
-The wheel downloaded by the npm command completed the final matrix:
+The original platform-tagged wheel downloaded by the npm command completed this matrix:
 
 | Runtime | Functional and installation tests | Uninstall/reinstall |
 | --- | --- | --- |
@@ -140,7 +142,7 @@ Compatibility tag checks reject Python 3.10, 3.12, 3.15, and free-threaded 3.14.
 The remote and downloaded archive checksums match; all `RECORD` hashes, UTF-8
 Python sources, twelve native copies, and extension execute permissions were verified.
 
-The downloaded wheel has a companion `.whl.sha256` file. Its SHA-256 is:
+That original platform-tagged wheel had the following SHA-256:
 
 ```text
 8e72a0223f9dcdca3d4c73b957dc2f14404c3000732959da84e50896ef21fddd
@@ -154,6 +156,19 @@ is not evidence that transfer preserved the bytes.
 The npm command applies this base64 transfer automatically, compares the remote
 SHA-256 before publishing the local archive, and writes a companion checksum file.
 Rebuilding can change archive hashes; use the checksum beside the current artifact.
+
+## Portable-tag validation
+
+The `py3-none-any` artifact was assembled locally from the existing native builds.
+All twelve binaries and Python sources remain byte-identical; only `WHEEL` and
+`RECORD` contents changed. Archive hashes, UTF-8 sources, executable permissions,
+and the companion checksum were verified. Installation and uninstall/reinstall
+passed in a fresh local venv. Loader checks rejected non-z/OS imports and simulated
+unsupported runtimes. Repository lint and build passed. Live z/OS revalidation
+could not run because SSH to `lpar.1` timed out.
+
+The validation report is in `dist/wheel-tests/none-any-validation.json`. The prior
+archive and checksum are preserved in `dist/wheel-tests/platform-tagged-original/`.
 
 ## Cleanup and build lifetime
 

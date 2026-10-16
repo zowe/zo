@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `python`: Default release wheels to `py3-none-any` filename and metadata tags so pip accepts them across z/OS platform-tag conventions; retain native runtime checks during import. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `c`: Corrected PDS directory used-count handling so full 256-byte blocks, including those in `SYS1.PARMLIB`, list successfully and member parsing stays within the active entry bytes. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)

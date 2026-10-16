@@ -2,7 +2,6 @@
 """Build one z/OS wheel containing extensions linked for each supported runtime."""
 
 import argparse
-import itertools
 import json
 import os
 from pathlib import Path
@@ -33,9 +32,6 @@ def python_side_deck_index(command):
 
 
 def probe_runtime():
-    # pip supplies the platform tag it will accept, which can differ from sysconfig.
-    from pip._vendor.packaging.tags import sys_tags
-
     version = sysconfig.get_python_version()
     paths = [Path(sys.executable).resolve().parents[1] / "lib"]
     paths += [Path(sysconfig.get_config_var(key) or ".") for key in ("LIBDIR", "LIBPL")]
@@ -43,7 +39,7 @@ def probe_runtime():
                       if (directory / f"libpython{version}.x").is_file()), None)
     if side_deck is None:
         raise RuntimeError(f"Cannot find the Python {version} side deck")
-    return {"version": version, "deck": str(side_deck), "platform": next(sys_tags()).platform}
+    return {"version": version, "deck": str(side_deck)}
 
 
 def decode_json(raw):
@@ -79,8 +75,7 @@ def build_from_stdin():
     subprocess.run(["chtag", "-t", "-c", "UTF-8", str(requirements)], check=True)
     subprocess.run([python, "-m", "pip", "install", "--quiet", "-r", str(requirements)],
                    env=env, stdin=subprocess.DEVNULL, check=True)
-    platforms = ".".join(dict.fromkeys(runtime["platform"] for runtime in runtimes.values()))
-    args = ["--platform", platforms]
+    args = []
     for minor in (13, 14):
         args += ["--runtime", f"cp3{minor}={runtimes[minor]['deck']}"]
     subprocess.run(["make", "wheel", "PYTHON=" + python, "WHEEL_ARGS=" + shlex.join(args)],
@@ -110,11 +105,10 @@ def assemble_wheel(base, native, release):
     from wheel.wheelfile import WheelFile
 
     runtimes, platforms, outdir = release.runtimes, release.platform, release.outdir
-    tags = ".".join(sorted(runtimes))
-    # Compressed tags form a Cartesian product. Normal CPython pip accepts only
-    # its matching interpreter/ABI pair; free-threaded builds cannot match.
+    # Default to py3-none-any to bypass inconsistent z/OS tags in pip.
+    # The loader enforces the actual platform and bundled runtime requirements.
     distribution, version = base.name.split("-")[:2]
-    filename = f"{distribution}-{version}-{tags}-{tags}-{platforms}.whl"
+    filename = f"{distribution}-{version}-py3-none-{platforms}.whl"
     outdir.mkdir(parents=True, exist_ok=True)
     wheel = native.parent / filename
     with zipfile.ZipFile(base) as source, WheelFile(wheel, "w") as target:
@@ -136,9 +130,8 @@ def assemble_wheel(base, native, release):
                                                 str(release.license_file)])
         target.writestr(f"{info}/LICENSE", license_text)
         metadata = "Wheel-Version: 1.0\nGenerator: zbind multi-runtime builder\nRoot-Is-Purelib: false\n"
-        for interpreter, abi, platform in itertools.product(sorted(runtimes), sorted(runtimes),
-                                                             platforms.split(".")):
-            metadata += f"Tag: {interpreter}-{abi}-{platform}\n"
+        for platform in platforms.split("."):
+            metadata += f"Tag: py3-none-{platform}\n"
         target.writestr(f"{info}/WHEEL", metadata)
     subprocess.run(["chtag", "-b", str(wheel)], check=True)
     destination = outdir / filename
@@ -157,8 +150,8 @@ def main():
     parser.add_argument("--license-file", type=Path, default=Path(__file__).resolve().parents[3] / "LICENSE")
     parser.add_argument("--runtime", type=parse_runtime, action="append", default=[],
                         help="Repeat for each additional runtime: cp313=/path/libpython3.13.x")
-    parser.add_argument("--platform", default=sysconfig.get_platform().replace("-", "_").replace(".", "_"),
-                        help="Verified pip platform tags, separated by dots")
+    parser.add_argument("--platform", default="any",
+                        help="Override the default 'any' pip platform tag; separate multiple tags with dots")
     args = parser.parse_args()
     if args.probe_runtime:
         print(json.dumps(probe_runtime()))

@@ -1206,7 +1206,9 @@ sed '/exec .*[/]bin[/]bash/d' "$HOME/.profile" > ${quoteWheelShell(profile)}
 profile_status=$?
 rm -f ${quoteWheelShell(profile)}
 test "$profile_status" -eq 0 || exit "$profile_status"
-${preBuildCmd ?? ""}
+{
+${preBuildCmd || ":"}
+} >&2
 `;
         return new Promise((resolve, reject) => {
             connection.exec(initialize + command, (err, stream) => {

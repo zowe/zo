@@ -3,11 +3,19 @@
 Run from a staged test directory containing no binding sources or binaries.
 """
 
+from email.parser import Parser
 import importlib
+from importlib.metadata import distribution
 from pathlib import Path
 import sys
 
 import pytest
+
+
+def test_installed_wheel_metadata():
+    metadata = Parser().parsestr(distribution("zbind").read_text("WHEEL"))
+    assert metadata.get_all("Tag") == ["py3-none-any"]
+    assert metadata["Root-Is-Purelib"] == "false"
 
 
 @pytest.mark.parametrize("name", ["zusf_py", "zds_py", "zjb_py", "zkr_py"])

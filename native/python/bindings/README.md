@@ -12,6 +12,12 @@ can be rebuilt for a different target.
 3.11 and can include native copies linked for additional Python runtimes. Imports
 remain `zds_py`, `zjb_py`, `zusf_py`, and `zkr_py`.
 
+The default filename is `zbind-1.0.0-py3-none-any.whl`, with a matching
+`Tag: py3-none-any` in its wheel metadata. This is an installation workaround for
+pip's differing `os390`/`zos` platform tags. The archive contains native z/OS
+binaries and sets `Root-Is-Purelib: false`; imports still require a supported,
+GIL-enabled IBM CPython runtime on z/OS.
+
 The wrappers use Python's Limited API, but the z/OS binder records the Python DLL
 name in each extension. Therefore the final wheel contains a native copy per
 supported interpreter and selects it when imported. It is not an unrestricted
@@ -99,14 +105,14 @@ iconv -f IBM-1047 -t UTF-8 requirements-build.txt > requirements-build-utf8.txt
 chtag -t -c UTF-8 requirements-build-utf8.txt
 wheel-build-venv/bin/python -m pip install -r requirements-build-utf8.txt
 make wheel PYTHON=wheel-build-venv/bin/python \
-  WHEEL_ARGS="--platform os390_29_00_3932.zos --runtime cp313=/path/to/libpython3.13.x --runtime cp314=/path/to/libpython3.14.x"
+  WHEEL_ARGS="--runtime cp313=/path/to/libpython3.13.x --runtime cp314=/path/to/libpython3.14.x"
 ```
 
-Replace the side-deck paths with those from the installed IBM runtimes. The example
-platform tags reflect the tested LPAR's older and newer pip conventions; verify
-them with `python -m pip debug --verbose` on your targets. Without additional
-`--runtime` arguments, the wheel contains only Python 3.11. For deployments without
-the repository root, pass `--license-file /path/to/LICENSE` in `WHEEL_ARGS`.
+Replace the side-deck paths with those from the installed IBM runtimes. The default
+`any` platform tag avoids platform matching in pip; `--platform` remains available
+for an explicit override. Without additional `--runtime` arguments, the wheel
+contains only Python 3.11. For deployments without the repository root, pass
+`--license-file /path/to/LICENSE` in `WHEEL_ARGS`.
 
 The target builds native prerequisites and SWIG wrappers, stages UTF-8 proxies,
 links the specified runtime variants, and writes the wheel to the bindings'
@@ -123,8 +129,8 @@ python test/run_wheel_tests.py /path/to/zbind-1.0.0-*.whl
 python test/run_wheel_tests.py /path/to/zbind-1.0.0-*.whl --functional --owner YOURID
 ```
 
-The first command tests installation, native module selection, UTF-8 USS reads,
-and SWIG lifetimes. The second also creates disposable dataset, USS, job, and
+The first command tests installation, wheel metadata, native module selection,
+UTF-8 USS reads, and SWIG lifetimes. The second also creates disposable dataset, USS, job, and
 certificate/key-ring resources under the specified user. Tests use the configured
 `PIP_INDEX_URL` to obtain pytest/PyYAML; keep credentials in the environment.
 Logs and JUnit reports remain in the reported validation directory. Successful
