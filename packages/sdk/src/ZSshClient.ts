@@ -11,7 +11,7 @@
 
 import { posix } from "node:path";
 import type { Stream } from "node:stream";
-import { ImperativeError, Logger } from "@zowe/imperative";
+import { Censor, ImperativeError, Logger } from "@zowe/imperative";
 import type { SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import type {
     ClientOptions,
@@ -325,7 +325,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                 timeoutId,
             });
             const requestStr = JSON.stringify(rpcRequest);
-            Logger.getAppLogger().trace(`Sending request: ${requestStr}`);
+            Logger.getAppLogger().trace(`Sending request: ${JSON.stringify(Censor.censorObject(rpcRequest))}`);
             this.mSshStream.stdin.write(`${requestStr}\n`);
         }).finally(() => clearTimeout(timeoutId));
     }
@@ -481,12 +481,15 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                 continue;
             }
 
-            Logger.getAppLogger().trace(`Received response: ${responses[i]}`);
             let response: RpcResponse | RpcNotification;
             try {
                 response = JSON.parse(responses[i]);
+                Logger.getAppLogger().trace(`Received response: ${JSON.stringify(Censor.censorObject(response))}`);
             } catch {
-                const errMsg = Logger.getAppLogger().error("Invalid JSON response: %s", responses[i]);
+                const errMsg = Logger.getAppLogger().error(
+                    "Invalid JSON response: %s",
+                    Censor.censorRawData(responses[i]),
+                );
                 this.mErrHandler(new Error(errMsg));
                 continue;
             }
