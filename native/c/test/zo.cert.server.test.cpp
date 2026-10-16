@@ -87,6 +87,18 @@ void zo_cert_server_tests()
         Expect(response).Not().ToContain("\"success\":true");
         Expect(response).Not().ToContain("Request validation failed");
       });
+
+      it("accepts importCertificate with dsn and no file at the schema layer", [&]() -> void {
+        // `file` became FIELD_OPTIONAL so a dsn-only import is not rejected by
+        // schema validation; it is expected to fail later (handler/ESM), but not
+        // with "Request validation failed".
+        write_to_server(server, make_rpc_request("importCertificate",
+                                                 "{\"owner\":\"TESTUSER\",\"keyring\":\"RING01\",\"label\":\"LBL\","
+                                                 "\"usage\":\"PERSONAL\",\"dsn\":\"TESTUSER.NOPE.P12\","
+                                                 "\"password\":\"secret\"}"));
+        std::string response = read_rpc_response(server);
+        Expect(response).Not().ToContain("Request validation failed");
+      });
     });
 
     describe("read-only methods (gated on ESM authority)", [&]() -> void

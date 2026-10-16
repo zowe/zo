@@ -18,13 +18,14 @@ export default class ImportCertHandler extends SshBaseHandler {
         params: IHandlerParameters,
         client: ZSshClient,
     ): Promise<certificates.ImportCertificateResponse> {
-        const { owner, keyring, label, usage, file, password } = params.arguments;
+        const { owner, keyring, label, usage, file, dsn, password } = params.arguments;
         const response = await client.certificates.importCertificate({
             owner,
             keyring,
             label,
             usage,
             file,
+            dsn,
             password,
             skipRefresh: params.arguments.skipRefresh,
         });

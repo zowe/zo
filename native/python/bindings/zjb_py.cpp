@@ -58,7 +58,7 @@ vector<ZJob> list_jobs_by_owner(string owner_name, string prefix, string status)
   ZJB zjb = {0};
 
   // A blank prefix reaches ZJBMLIST as a job name filter of blanks rather than "no filter",
-  // which the extended status service rejects, so send the wildcard zowex defaults to.
+  // which the extended status service rejects, so send the wildcard zo defaults to.
   if (prefix.empty())
   {
     prefix = ZJB_ANY_PREFIX;

@@ -29,20 +29,27 @@
 
 #include "ztest.hpp"
 #include "zutils.hpp"
+#include "../zds.hpp"
 #include "../zkr.hpp"
 #include "../zkrtype.h"
+#include "../zut.hpp"
 
 using namespace ztst;
 
 namespace
 {
 
-// A collision-resistant suffix for scratch ring/label names. Random() is fine in
-// a normal test binary (unlike the workflow sandbox); combine it with the pid so
-// concurrent test runs on the same LPAR do not clash.
+// A collision-resistant suffix for scratch ring/label names, capped at 8 chars.
+// Random() is fine in a normal test binary (unlike the workflow sandbox); combine
+// it with the pid so concurrent test runs on the same LPAR do not clash.
 std::string zkr_unique()
 {
-  return std::to_string(getpid()) + get_random_string(4);
+  std::string pid = std::to_string(getpid());
+  if (pid.size() > 4)
+  {
+    pid = pid.substr(pid.size() - 4);
+  }
+  return pid + get_random_string(4);
 }
 
 // Delete a scratch ring, swallowing any error (best-effort cleanup).
@@ -142,9 +149,12 @@ void zkr_tests()
     // in commands/certificates.cpp, which rejects bad input BEFORE any ESM
     // call, so they need no key ring authority and are fully deterministic.
     // ---------------------------------------------------------------------
-    describe("CLI input validation (no authority required)", [&]() -> void
+    describe(
+        "CLI input validation (no authority required)",
+        [&]() -> void
     {
-      it("`system cert --help` lists the certificate subcommands", []() -> void
+      it("`system cert --help` lists the certificate subcommands",
+         []() -> void
       {
         std::string out;
         int rc = execute_command_with_output(zo_command + " system cert --help", out);
@@ -155,7 +165,8 @@ void zkr_tests()
         Expect(out).ToContain("rename");
       });
 
-      it("`system keyring --help` lists the key ring subcommands", []() -> void
+      it("`system keyring --help` lists the key ring subcommands",
+         []() -> void
       {
         std::string out;
         int rc = execute_command_with_output(zo_command + " system keyring --help", out);
@@ -165,54 +176,107 @@ void zkr_tests()
         Expect(out).ToContain("count");
       });
 
-      it("`cert delete` rejects the virtual ring '*' and points to --database", []() -> void
+      it("`cert delete` rejects the virtual ring '*' and points to --database",
+         []() -> void
       {
         std::string out;
-        int rc = execute_command_with_output(zo_command + " system cert delete TESTUSER '*' -l LBL", out);
+        int rc = execute_command_with_output(
+            zo_command + " system cert delete TESTUSER '*' -l LBL", out);
         Expect(rc).Not().ToBe(0);
         Expect(out).ToContain("--database");
       });
 
-      it("`cert delete` requires a key ring or --database", []() -> void
+      it("`cert delete` requires a key ring or --database",
+         []() -> void
       {
         std::string out;
-        int rc = execute_command_with_output(zo_command + " system cert delete TESTUSER -l LBL", out);
+        int rc = execute_command_with_output(
+            zo_command + " system cert delete TESTUSER -l LBL", out);
         Expect(rc).Not().ToBe(0);
         Expect(out).ToContain("--database");
       });
 
-      it("`cert delete` rejects a key ring and --database together", []() -> void
+      it("`cert delete` rejects a key ring and --database together",
+         []() -> void
       {
         std::string out;
-        int rc = execute_command_with_output(zo_command + " system cert delete TESTUSER RING01 -l LBL --database", out);
+        int rc = execute_command_with_output(
+            zo_command + " system cert delete TESTUSER RING01 -l LBL --database", out);
         Expect(rc).Not().ToBe(0);
         Expect(out).ToContain("not both");
       });
 
-      it("`cert connect` rejects '*' for --from-ring and points to --from-database", []() -> void
+      it("`cert connect` rejects '*' for --from-ring and points to --from-database",
+         []() -> void
       {
         std::string out;
-        int rc = execute_command_with_output(zo_command + " system cert connect TESTUSER RING02 -l LBL --from-ring '*'",
-                                             out);
+        int rc = execute_command_with_output(
+            zo_command + " system cert connect TESTUSER RING02 -l LBL --from-ring '*'", out);
         Expect(rc).Not().ToBe(0);
         Expect(out).ToContain("--from-database");
       });
 
-      it("`cert connect` requires --from-ring or --from-database", []() -> void
+      it("`cert connect` requires --from-ring or --from-database",
+         []() -> void
       {
         std::string out;
-        int rc = execute_command_with_output(zo_command + " system cert connect TESTUSER RING02 -l LBL", out);
+        int rc = execute_command_with_output(
+            zo_command + " system cert connect TESTUSER RING02 -l LBL", out);
         Expect(rc).Not().ToBe(0);
         Expect(out).ToContain("--from-ring");
       });
 
-      it("`cert export -F p12` requires --password", []() -> void
+      it("`cert export -F p12` requires --password",
+         []() -> void
       {
         std::string out;
         int rc = execute_command_with_output(
-            zo_command + " system cert export TESTUSER RING01 -l LBL -F p12 -f /tmp/ignored.p12", out);
+            zo_command + " system cert export TESTUSER RING01 -l LBL -F p12 -f /tmp/ignored.p12",
+            out);
         Expect(rc).Not().ToBe(0);
         Expect(out).ToContain("--password is required");
+      });
+
+      it("`cert export -F p12` with neither --file nor --dsn requires one of them",
+         []() -> void
+      {
+        std::string out;
+        int rc = execute_command_with_output(
+            zo_command + " system cert export TESTUSER RING01 -l LBL -F p12 -p secret", out);
+        Expect(rc).Not().ToBe(0);
+        Expect(out).ToContain("--dsn");
+      });
+
+      it("`cert export` rejects --file and --dsn together",
+         []() -> void
+      {
+        std::string out;
+        int rc = execute_command_with_output(
+            zo_command + " system cert export TESTUSER RING01 -l LBL -f /tmp/a.pem --dsn A.B.C", out);
+        Expect(rc).Not().ToBe(0);
+        Expect(out).ToContain("not both");
+      });
+
+      it("`cert import` rejects --file and --dsn together",
+         []() -> void
+      {
+        std::string out;
+        int rc = execute_command_with_output(
+            zo_command + " system cert import TESTUSER RING01 -l LBL -u PERSONAL -p secret "
+                         "-f /tmp/a.p12 --dsn A.B.C",
+            out);
+        Expect(rc).Not().ToBe(0);
+        Expect(out).ToContain("not both");
+      });
+
+      it("`cert import` requires --file or --dsn",
+         []() -> void
+      {
+        std::string out;
+        int rc = execute_command_with_output(
+            zo_command + " system cert import TESTUSER RING01 -l LBL -u PERSONAL -p secret", out);
+        Expect(rc).Not().ToBe(0);
+        Expect(out).ToContain("--dsn");
       });
     });
 
@@ -222,9 +286,12 @@ void zkr_tests()
     // -- and --max-entries caps MATCHING rows, so a filtered list must scan
     // past the page size. Pure functions over synthetic data; no ESM.
     // ---------------------------------------------------------------------
-    describe("list filter semantics (RACDCERT LABEL parity, no authority required)", [&]() -> void
+    describe(
+        "list filter semantics (RACDCERT LABEL parity, no authority required)",
+        [&]() -> void
     {
-      it("finds an exact label match beyond the default page size", []() -> void
+      it("finds an exact label match beyond the default page size",
+         []() -> void
       {
         // 12 certs; the target sits at position 11 -- past the default
         // --max-entries page of 10 that used to truncate before filtering.
@@ -239,7 +306,8 @@ void zkr_tests()
         Expect(more).ToBe(false);
       });
 
-      it("label matching is case-sensitive", []() -> void
+      it("label matching is case-sensitive",
+         []() -> void
       {
         std::vector<ZKRCertInfo> certs;
         certs.push_back(zkr_mk_cert("MYCERT", "PERSONAL"));
@@ -249,7 +317,8 @@ void zkr_tests()
         Expect(zkr_filter_certs(certs, "MYCERT", "", 0, &more).size()).ToBe(static_cast<size_t>(1));
       });
 
-      it("'*' is not a wildcard for labels", []() -> void
+      it("'*' is not a wildcard for labels",
+         []() -> void
       {
         std::vector<ZKRCertInfo> certs;
         certs.push_back(zkr_mk_cert("CERT1", "PERSONAL"));
@@ -260,12 +329,14 @@ void zkr_tests()
         Expect(out[0].label).ToBe("*");
       });
 
-      it("--max-entries caps matching rows and flags more", []() -> void
+      it("--max-entries caps matching rows and flags more",
+         []() -> void
       {
         // 30 certs alternating usage: 15 CERTAUTH among them.
         std::vector<ZKRCertInfo> certs;
         for (int i = 0; i < 30; ++i)
-          certs.push_back(zkr_mk_cert("CERT" + std::to_string(i), (i % 2 == 0) ? "CERTAUTH" : "PERSONAL"));
+          certs.push_back(zkr_mk_cert("CERT" + std::to_string(i),
+                                      (i % 2 == 0) ? "CERTAUTH" : "PERSONAL"));
 
         bool more = false;
         const std::vector<ZKRCertInfo> out = zkr_filter_certs(certs, "", "CERTAUTH", 10, &more);
@@ -275,18 +346,21 @@ void zkr_tests()
           Expect(out[i].usage).ToBe("CERTAUTH");
       });
 
-      it("--max-entries 0 returns all matches", []() -> void
+      it("--max-entries 0 returns all matches",
+         []() -> void
       {
         std::vector<ZKRCertInfo> certs;
         for (int i = 0; i < 30; ++i)
-          certs.push_back(zkr_mk_cert("CERT" + std::to_string(i), (i % 2 == 0) ? "CERTAUTH" : "PERSONAL"));
+          certs.push_back(zkr_mk_cert("CERT" + std::to_string(i),
+                                      (i % 2 == 0) ? "CERTAUTH" : "PERSONAL"));
 
         bool more = true;
         Expect(zkr_filter_certs(certs, "", "CERTAUTH", 0, &more).size()).ToBe(static_cast<size_t>(15));
         Expect(more).ToBe(false);
       });
 
-      it("without filters the cap applies to raw entries", []() -> void
+      it("without filters the cap applies to raw entries",
+         []() -> void
       {
         std::vector<ZKRCertInfo> certs;
         for (int i = 0; i < 12; ++i)
@@ -297,7 +371,8 @@ void zkr_tests()
         Expect(more).ToBe(true);
       });
 
-      it("label and usage filters combine with AND", []() -> void
+      it("label and usage filters combine with AND",
+         []() -> void
       {
         std::vector<ZKRCertInfo> certs;
         certs.push_back(zkr_mk_cert("CERT1", "PERSONAL"));
@@ -319,9 +394,12 @@ void zkr_tests()
     bool can_mutate = false;
     std::string probe_note;
 
-    describe("service diagnostics and linkage (no authority required)", [&]() -> void
+    describe(
+        "service diagnostics and linkage (no authority required)",
+        [&]() -> void
     {
-      it("links R_datalib and probes key ring create authority", [&]() -> void
+      it("links R_datalib and probes key ring create authority",
+         [&]() -> void
       {
         ZKR z{};
         const std::string ring = "ZKRUT.PROBE." + zkr_unique();
@@ -340,10 +418,12 @@ void zkr_tests()
           Expect(z.diag.e_msg.empty()).ToBe(false);
           Expect(z.diag.saf_rc).ToBeGreaterThanOrEqualTo(8);
         }
-        TestLog(can_mutate ? "key ring authority: AVAILABLE" : "key ring authority: DENIED (" + probe_note + ")");
+        TestLog(can_mutate ? "key ring authority: AVAILABLE"
+                           : "key ring authority: DENIED (" + probe_note + ")");
       });
 
-      it("reports a clean diagnostic for a missing key ring", [&]() -> void
+      it("reports a clean diagnostic for a missing key ring",
+         [&]() -> void
       {
         ZKR z{};
         std::vector<ZKRCertInfo> certs;
@@ -355,7 +435,8 @@ void zkr_tests()
         Expect(static_cast<int>(z.diag.function_code)).ToBe(static_cast<int>(ZKR_GETCERT_CODE));
       });
 
-      it("reads the caller's virtual key ring without crashing", [&]() -> void
+      it("reads the caller's virtual key ring without crashing",
+         [&]() -> void
       {
         ZKR z{};
         std::vector<ZKRCertInfo> certs;
@@ -374,9 +455,12 @@ void zkr_tests()
     // one must fail fast, before any key ring is even opened. No authority
     // needed.
     // ---------------------------------------------------------------------
-    describe("export option validation (no authority required)", [&]() -> void
+    describe(
+        "export option validation (no authority required)",
+        [&]() -> void
     {
-      it("rejects a p12 export with an empty password before touching the key ring", []() -> void
+      it("rejects a p12 export with an empty password before touching the key ring",
+         []() -> void
       {
         ZKRExportOptions ex;
         ex.owner = "TESTUSER";
@@ -398,9 +482,12 @@ void zkr_tests()
     // an empty source file must fail fast, before any SAF/GSK call. No
     // authority needed.
     // ---------------------------------------------------------------------
-    describe("import option validation (no authority required)", [&]() -> void
+    describe(
+        "import option validation (no authority required)",
+        [&]() -> void
     {
-      it("rejects an empty PKCS#12 file before touching the key ring", []() -> void
+      it("rejects an empty PKCS#12 file before touching the key ring",
+         []() -> void
       {
         const std::string path = "/tmp/zkrut-empty-" + zkr_unique() + ".p12";
         std::ofstream f(path.c_str());
@@ -426,9 +513,13 @@ void zkr_tests()
     // Key ring lifecycle. Requires authority to create key rings; skipped
     // (not failed) otherwise.
     // ---------------------------------------------------------------------
-    describe("key ring lifecycle (requires create authority)", [&]() -> void
+    describe(
+        "key ring lifecycle (requires create authority)",
+        [&]() -> void
     {
-      itif("creates a key ring, lists it empty, enumerates it, and deletes it", [&]() -> void
+      itif(
+          "creates a key ring, lists it empty, enumerates it, and deletes it",
+          [&]() -> void
       {
         ZKR z{};
         const std::string ring = "ZKRUT.LIFE." + zkr_unique();
@@ -444,16 +535,20 @@ void zkr_tests()
         ExpectWithContext(zkr_list_rings(&z, owner, ring, rings), z.diag.e_msg).ToBe(0);
 
         ExpectWithContext(zkr_del_ring(&z, owner, ring), z.diag.e_msg).ToBe(0);
-      }, can_mutate);
+      },
+          can_mutate);
 
-      itif("deleting a nonexistent key ring reports a clean error", [&]() -> void
+      itif(
+          "deleting a nonexistent key ring reports a clean error",
+          [&]() -> void
       {
         ZKR z{};
         const std::string ring = "ZKRUT.GHOST." + zkr_unique();
         int rc = zkr_del_ring(&z, owner, ring);
         Expect(rc).Not().ToBe(0);
         Expect(z.diag.e_msg.empty()).ToBe(false);
-      }, can_mutate);
+      },
+          can_mutate);
     });
 
     // ---------------------------------------------------------------------
@@ -468,7 +563,9 @@ void zkr_tests()
     // output) is NOT covered by automated tests yet and must be verified
     // manually when the export/import paths change.
     // ---------------------------------------------------------------------
-    describe("certificate lifecycle (requires authority + a PKCS#12 fixture)", [&]() -> void
+    describe(
+        "certificate lifecycle (requires authority + a PKCS#12 fixture)",
+        [&]() -> void
     {
       std::string p12 = zkr_env("ZKR_TEST_P12", "ZNP_ZKR_TEST_P12");
       std::string p12pass = zkr_env("ZKR_TEST_P12_PASS", "ZNP_ZKR_TEST_P12_PASS");
@@ -503,15 +600,23 @@ void zkr_tests()
       // still tears down the scratch rings and any stray DB certificate.
       static std::vector<std::string> cleanup_rings;
       static std::vector<std::string> cleanup_labels;
+      static std::vector<std::string> cleanup_dsns;
       static std::string exported_p12;
-      afterAll([&]() -> void
+      afterAll(
+          [&]() -> void
       {
         for (const auto &l : cleanup_labels)
           zkr_try_purge_cert(owner, l);
         for (const auto &r : cleanup_rings)
           zkr_try_del_ring(owner, r);
+        for (const auto &d : cleanup_dsns)
+        {
+          ZDS zds{};
+          zds_delete_dsn(&zds, d);
+        }
         cleanup_rings.clear();
         cleanup_labels.clear();
+        cleanup_dsns.clear();
         if (!generated_p12.empty())
         {
           unlink(generated_p12.c_str());
@@ -528,7 +633,9 @@ void zkr_tests()
       // which are slow; the 10s default is not enough.
       TEST_OPTIONS cert_opts = {false, 120};
 
-      itif("imports, shows, exports, alters, connects, and deletes a certificate", [&]() -> void
+      itif(
+          "imports, shows, exports, alters, connects, and deletes a certificate",
+          [&]() -> void
       {
         const std::string ring1 = "ZKRUT.CRT1." + zkr_unique();
         const std::string ring2 = "ZKRUT.CRT2." + zkr_unique();
@@ -563,7 +670,8 @@ void zkr_tests()
         // (both succeed -- an empty result is not an error).
         std::string flt_out;
         int flt_rc = execute_command_with_output(
-            zo_command + " system keyring list " + owner + " " + ring1 + " --label " + real_label, flt_out);
+            zo_command + " system keyring list " + owner + " " + ring1 + " --label " + real_label,
+            flt_out);
         ExpectWithContext(flt_rc, flt_out).ToBe(0);
         Expect(flt_out).ToContain(real_label);
 
@@ -574,7 +682,8 @@ void zkr_tests()
         {
           std::string miss_out;
           int miss_rc = execute_command_with_output(
-              zo_command + " system keyring list " + owner + " " + ring1 + " --label " + lower_label, miss_out);
+              zo_command + " system keyring list " + owner + " " + ring1 + " --label " + lower_label,
+              miss_out);
           ExpectWithContext(miss_rc, miss_out).ToBe(0);
           Expect(miss_out).Not().ToContain("Certificate: ");
         }
@@ -630,16 +739,19 @@ void zkr_tests()
         // Record the connected label so afterAll purges it too, then
         // remove the certificate from the DB (and every ring).
         cleanup_labels.push_back(real_label);
-        ExpectWithContext(zkr_del_cert(&z, owner, "*", real_label, /*skip_refresh*/ false), z.diag.e_msg).ToBe(0);
-      }, cert_opts, run_cert);
+        ExpectWithContext(zkr_del_cert(&z, owner, "*", real_label, /*skip_refresh*/ false), z.diag.e_msg)
+            .ToBe(0);
+      },
+          cert_opts, run_cert);
 
       // Uncovered paths from doc/certificates-test-plan.md item 3:
       // p12 export (gsk_export_key), re-import already-exists warning,
       // ring-scoped disconnect (4/4/12 auto-refresh), connect from the
       // virtual ring ("--from-database"), count, standalone refresh.
-      itif("round-trips a p12 export, warns on re-import, disconnects one ring, "
-           "connects from the database, counts, and refreshes",
-           [&]() -> void
+      itif(
+          "round-trips a p12 export, warns on re-import, disconnects one ring, "
+          "connects from the database, counts, and refreshes",
+          [&]() -> void
       {
         const std::string ring1 = "ZKRUT.RT1." + zkr_unique();
         const std::string ring2 = "ZKRUT.RT2." + zkr_unique();
@@ -670,10 +782,12 @@ void zkr_tests()
         // keyring count through the CLI: a real ring (GetRingInfo sum)
         // and the virtual ring (DataGetFirst/GetNext enumeration).
         std::string out;
-        int crc = execute_command_with_output(zo_command + " system keyring count " + owner + " " + ring1, out);
+        int crc = execute_command_with_output(
+            zo_command + " system keyring count " + owner + " " + ring1, out);
         ExpectWithContext(crc, out).ToBe(0);
         Expect(out).ToContain("1 certificate(s)");
-        crc = execute_command_with_output(zo_command + " system keyring count " + owner + " '*'", out);
+        crc = execute_command_with_output(
+            zo_command + " system keyring count " + owner + " '*'", out);
         ExpectWithContext(crc, out).ToBe(0);
 
         // p12 export with a passphrase (the gsk_export_key path; PEM
@@ -738,7 +852,148 @@ void zkr_tests()
         // Remove the certificate from the DB and every ring (also
         // covered by afterAll if an earlier expectation aborts).
         ExpectWithContext(zkr_del_cert(&z, owner, "*", real_label, false), z.diag.e_msg).ToBe(0);
-      }, cert_opts, run_cert);
+      },
+          cert_opts, run_cert);
+
+      // `--dsn` support (native/c/commands/certificates.cpp): export to a
+      // data set and re-import from it, for both a sequential DSN and a
+      // PDS/E member -- the BPAM path step 1 of the design exists for.
+      // PKCS#12 encryption is salted, so two independent exports are never
+      // byte-identical; round-trip validity (re-import succeeds) is what
+      // proves the bytes survived the data set unmangled.
+      itif(
+          "exports a certificate to a data set and re-imports it, for a "
+          "sequential DSN and a PDS/E member",
+          [&]() -> void
+      {
+        const std::string ring1 = "ZKRUT.DS1." + zkr_unique();
+        const std::string ring2 = "ZKRUT.DS2." + zkr_unique();
+        const std::string ring3 = "ZKRUT.DS3." + zkr_unique();
+        const std::string label = "ZKRUTDS" + zkr_unique();
+        cleanup_rings.push_back(ring1);
+        cleanup_rings.push_back(ring2);
+        cleanup_rings.push_back(ring3);
+        cleanup_labels.push_back(label);
+
+        ZKR z{};
+        ExpectWithContext(zkr_new_ring(&z, owner, ring1), z.diag.e_msg).ToBe(0);
+        ExpectWithContext(zkr_new_ring(&z, owner, ring2), z.diag.e_msg).ToBe(0);
+        ExpectWithContext(zkr_new_ring(&z, owner, ring3), z.diag.e_msg).ToBe(0);
+
+        ZKRImportOptions imp;
+        imp.owner = owner;
+        imp.ring = ring1;
+        imp.label = label;
+        imp.usage = "PERSONAL";
+        imp.p12_path = p12;
+        imp.password = p12pass;
+        ExpectWithContext(zkr_import_cert(&z, imp), z.diag.e_msg).ToBe(0);
+
+        std::vector<ZKRCertInfo> certs;
+        ExpectWithContext(zkr_list_ring(&z, owner, ring1, certs), z.diag.e_msg).ToBe(0);
+        Expect(certs.size()).ToBeGreaterThanOrEqualTo(static_cast<size_t>(1));
+        const std::string real_label = certs[0].label;
+        cleanup_labels.push_back(real_label);
+
+        const std::string dsn_pass = "ZKRUTDSN" + zkr_unique();
+        const std::string seq_dsn = owner + ".ZKRUT.T" + zkr_unique().substr(1) + ".P12";
+        const std::string lib_dsn = owner + ".ZKRUT.T" + zkr_unique().substr(1) + ".LIB";
+        const std::string member_dsn = lib_dsn + "(CERT01)";
+        cleanup_dsns.push_back(seq_dsn);
+        cleanup_dsns.push_back(lib_dsn);
+
+        // Sequential data set.
+        std::string out;
+        int rc = execute_command_with_output(
+            zo_command + " system cert export " + owner + " " + ring1 + " -l '" + real_label +
+                "' -F p12 -p " + dsn_pass + " --dsn " + seq_dsn,
+            out);
+        ExpectWithContext(rc, out).ToBe(0);
+
+        ZDS read_zds{};
+        zut_prepare_encoding("binary", &read_zds.encoding_opts);
+        std::string seq_bytes;
+        rc = zds_read(ZDSReadOpts{.zds = &read_zds, .dsname = seq_dsn}, seq_bytes);
+        ExpectWithContext(rc, read_zds.diag.e_msg).ToBe(0);
+        Expect(seq_bytes.empty()).ToBe(false);
+
+        rc = execute_command_with_output(
+            zo_command + " system cert import " + owner + " " + ring2 + " -l ZKRUTN" + zkr_unique() +
+                " -u PERSONAL -p " + dsn_pass + " --dsn " + seq_dsn,
+            out);
+        ExpectWithContext(rc, out).ToBe(0);
+
+        // PDS/E member -- the BPAM path.
+        rc = execute_command_with_output(
+            zo_command + " system cert export " + owner + " " + ring1 + " -l '" + real_label +
+                "' -F p12 -p " + dsn_pass + " --dsn '" + member_dsn + "'",
+            out);
+        ExpectWithContext(rc, out).ToBe(0);
+
+        ZDS read_member_zds{};
+        zut_prepare_encoding("binary", &read_member_zds.encoding_opts);
+        std::string member_bytes;
+        rc = zds_read(ZDSReadOpts{.zds = &read_member_zds, .dsname = member_dsn}, member_bytes);
+        ExpectWithContext(rc, read_member_zds.diag.e_msg).ToBe(0);
+        Expect(member_bytes.empty()).ToBe(false);
+
+        rc = execute_command_with_output(
+            zo_command + " system cert import " + owner + " " + ring3 + " -l ZKRUTN" + zkr_unique() +
+                " -u PERSONAL -p " + dsn_pass + " --dsn '" + member_dsn + "'",
+            out);
+        ExpectWithContext(rc, out).ToBe(0);
+
+        // A subsequent export to the same member must succeed, not hang
+        // -- proves the BPAM ENQ/RESERVE from the first export released.
+        rc = execute_command_with_output(
+            zo_command + " system cert export " + owner + " " + ring1 + " -l '" + real_label +
+                "' -F p12 -p " + dsn_pass + " --dsn '" + member_dsn + "'",
+            out);
+        ExpectWithContext(rc, out).ToBe(0);
+      },
+          cert_opts, run_cert);
+
+      // A binary upload to RECFM=FB pads the last record past the DER
+      // SEQUENCE; import must still accept it (GSK ignores the trailing pad).
+      itif(
+          "imports a PKCS#12 bundle from a record-padded FB data set",
+          [&]() -> void
+      {
+        const std::string ring = "ZKRUT.FB." + zkr_unique();
+        cleanup_rings.push_back(ring);
+        ZKR z{};
+        ExpectWithContext(zkr_new_ring(&z, owner, ring), z.diag.e_msg).ToBe(0);
+
+        const std::string fb_dsn = owner + ".ZKRUT.T" + zkr_unique().substr(1) + ".FB";
+        cleanup_dsns.push_back(fb_dsn);
+        DS_ATTRIBUTES a{};
+        a.dsorg = "PS";
+        a.recfm = "F,B";
+        a.lrecl = 80;
+        a.blksize = 27920;
+        a.alcunit = "TRK";
+        a.primary = 5;
+        a.secondary = 5;
+        std::string response;
+        ExpectWithContext(zds_create_dsn(nullptr, fb_dsn, a, response), response).ToBe(0);
+
+        std::string out;
+        int rc = execute_command_with_output("cp -B " + p12 + " \"//'" + fb_dsn + "'\"", out);
+        ExpectWithContext(rc, out).ToBe(0);
+
+        rc = execute_command_with_output(
+            zo_command + " system cert import " + owner + " " + ring + " -l ZKRUTN" + zkr_unique() +
+                " -u PERSONAL -p " + p12pass + " --dsn " + fb_dsn,
+            out);
+        ExpectWithContext(rc, out).ToBe(0);
+
+        std::vector<ZKRCertInfo> certs;
+        ExpectWithContext(zkr_list_ring(&z, owner, ring, certs), z.diag.e_msg).ToBe(0);
+        for (const auto &c : certs)
+          cleanup_labels.push_back(c.label);
+        Expect(certs.size()).ToBeGreaterThanOrEqualTo(static_cast<size_t>(1));
+      },
+          cert_opts, run_cert);
     });
   });
 }

@@ -190,7 +190,7 @@ const std::string zo_server_command = zo_dir + "/zo server";
 void zo_server_tests()
 {
 
-  describe("zowex server tests", []() -> void
+  describe("zo server tests", []() -> void
   {
     it("should print ready message on startup", []() -> void
     {

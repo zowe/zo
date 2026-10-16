@@ -161,6 +161,7 @@ ZJSON_SCHEMA(ExportCertificateResponse,
     FIELD_REQUIRED(keyring, STRING),
     FIELD_REQUIRED(format, STRING),
     FIELD_OPTIONAL(file, STRING),
+    FIELD_OPTIONAL(dsn, STRING),
     FIELD_OPTIONAL(bytesWritten, NUMBER),
     FIELD_REQUIRED(data, STRING)
 );

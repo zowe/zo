@@ -106,7 +106,7 @@ import os
 chdsect = "chdsect"
 ztype = "."
 
-# These sources are shared with zowex, which compiles them with the ibm-clang default EBCDIC
+# These sources are shared with zo, which compiles them with the ibm-clang default EBCDIC
 # execution charset. The SWIG's default CFLAGS -fzos-le-char-mode=ascii flip the charset and 
 # silently reinterprets every string literal. This break all EBCDIC control blocks it builds
 # and the Metal C routines it calls. Let's compile those translations in EBCDIC and leave the 

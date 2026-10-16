@@ -206,6 +206,44 @@ describe("RpcClientApi", () => {
         });
     });
 
+    it("should route certificate commands correctly", async () => {
+        await client.certificates.exportCertificate({
+            owner: "USER01",
+            keyring: "RING02",
+            label: "CERT03",
+            format: "p12",
+            dsn: "USER01.CERT03.P12",
+            password: "secret",
+        });
+        expect(client.request).toHaveBeenCalledWith({
+            command: "exportCertificate",
+            owner: "USER01",
+            keyring: "RING02",
+            label: "CERT03",
+            format: "p12",
+            dsn: "USER01.CERT03.P12",
+            password: "secret",
+        });
+
+        await client.certificates.importCertificate({
+            owner: "USER01",
+            keyring: "RING02",
+            label: "CERT03",
+            usage: "PERSONAL",
+            dsn: "USER01.CERT03.P12",
+            password: "secret",
+        });
+        expect(client.request).toHaveBeenCalledWith({
+            command: "importCertificate",
+            owner: "USER01",
+            keyring: "RING02",
+            label: "CERT03",
+            usage: "PERSONAL",
+            dsn: "USER01.CERT03.P12",
+            password: "secret",
+        });
+    });
+
     it("should route tool commands correctly", async () => {
         await client.tool.search({ dsname: "USER.DATASET", pattern: "FIND" });
         expect(client.request).toHaveBeenCalledWith({

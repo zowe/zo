@@ -268,7 +268,7 @@ static int handle_console_command(plugin::InvocationContext &context)
     if (std::string::npos != details.find("command not found") ||
         std::string::npos != details.find("Permission denied"))
     {
-      context.error_stream() << "  The zoa binary must be installed alongside zowex (or named via ZOA_PATH) and be executable by this user." << std::endl;
+      context.error_stream() << "  The zoa binary must be installed alongside zo (or named via ZOA_PATH) and be executable by this user." << std::endl;
     }
     else if (std::string::npos != details.find("Not authorized"))
     {

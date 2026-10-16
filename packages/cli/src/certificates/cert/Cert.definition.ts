@@ -33,8 +33,10 @@ const ExportCertDefinition: ICommandDefinition = {
     summary: "Export a certificate from a key ring",
     description:
         "Export a certificate from a key ring in PEM (certificate only) or PKCS#12 (certificate plus " +
-        "private key) format. With --file the certificate is written on the server; PEM without --file " +
-        "is printed to stdout. The private key is only available in the p12 format.",
+        "private key) format, to a file, a data set, or (PEM only) stdout. With --file the certificate is " +
+        "written to a USS file on the server; with --dsn it is written to a sequential data set or PDS/E " +
+        "member (created if it does not exist); PEM with neither is printed to stdout. The private key is " +
+        "only available in the p12 format.",
     examples: [
         {
             description: "Export a certificate as PEM to a file on the server",
@@ -43,6 +45,10 @@ const ExportCertDefinition: ICommandDefinition = {
         {
             description: "Export a certificate and key as PKCS#12",
             options: "USER01 RING02 -l CERT03 -F p12 -f /tmp/CERT03.p12 -p secret",
+        },
+        {
+            description: "Export a certificate and key as PKCS#12 to a data set",
+            options: "USER01 RING02 -l CERT03 -F p12 -p secret --dsn USER01.CERT03.P12",
         },
     ],
     positionals: [OWNER_POSITIONAL, KEYRING_POSITIONAL],
@@ -59,8 +65,20 @@ const ExportCertDefinition: ICommandDefinition = {
         {
             name: "file",
             aliases: ["f"],
-            description: "Output file path on the z/OS server. Required for p12; PEM prints to stdout if omitted.",
+            description:
+                "Output file path on the z/OS server. Required for p12 unless --dsn is used; PEM prints to " +
+                "stdout if omitted. Mutually exclusive with --dsn.",
             type: "string",
+            conflictsWith: ["dsn"],
+        },
+        {
+            name: "dsn",
+            description:
+                "Output data set on the z/OS server (sequential or PDS/E member), created if it does not " +
+                "exist. Mutually exclusive with --file. Note that a data set is protected by its RACF " +
+                "DATASET profile, not by file permissions.",
+            type: "string",
+            conflictsWith: ["file"],
         },
         {
             name: "password",
@@ -76,15 +94,19 @@ const ImportCertDefinition: ICommandDefinition = {
     handler: `${__dirname}/import/Import.handler`,
     type: "command",
     name: "import",
-    summary: "Import a certificate into a key ring from a PKCS#12 file",
+    summary: "Import a certificate into a key ring from a PKCS#12 file or data set",
     description:
-        "Import a certificate (and its private key, when present) into a key ring from a PKCS#12 file " +
-        "that already resides on the z/OS server. If the certificate content already exists in the ESM " +
-        "database, the existing record is connected to the ring and keeps its original label.",
+        "Import a certificate (and its private key, when present) into a key ring from a PKCS#12 file or " +
+        "data set that already resides on the z/OS server. If the certificate content already exists in " +
+        "the ESM database, the existing record is connected to the ring and keeps its original label.",
     examples: [
         {
             description: "Import a personal certificate",
             options: "USER01 RING02 -l CERT03 -u PERSONAL -f /tmp/file.p12 -p secret",
+        },
+        {
+            description: "Import a personal certificate from a data set",
+            options: "USER01 RING02 -l CERT03 -u PERSONAL -p secret --dsn USER01.CERT03.P12",
         },
     ],
     positionals: [OWNER_POSITIONAL, KEYRING_POSITIONAL],
@@ -107,9 +129,17 @@ const ImportCertDefinition: ICommandDefinition = {
         {
             name: "file",
             aliases: ["f"],
-            description: "Path to the source PKCS#12 file on the z/OS server.",
+            description: "Path to the source PKCS#12 file on the z/OS server. Mutually exclusive with --dsn.",
             type: "string",
-            required: true,
+            conflictsWith: ["dsn"],
+        },
+        {
+            name: "dsn",
+            description:
+                "Source PKCS#12 data set on the z/OS server (sequential or PDS/E member). Mutually " +
+                "exclusive with --file.",
+            type: "string",
+            conflictsWith: ["file"],
         },
         { name: "password", aliases: ["p"], description: "PKCS#12 passphrase.", type: "string", required: true },
         {

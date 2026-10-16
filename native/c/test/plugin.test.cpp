@@ -147,7 +147,7 @@ void register_provider(plugin::PluginManager &pm, RegistrationFn fn)
   pm.register_command_provider(std::unique_ptr<plugin::CommandProvider>(new LambdaProviderFactory(std::move(fn))));
 }
 
-// Mirror the state zowex is in when it calls register_commands: a root already
+// Mirror the state zo is in when it calls register_commands: a root already
 // populated with a built-in verb.
 parser::command_ptr make_builtin(const std::string &name, const std::string &help)
 {

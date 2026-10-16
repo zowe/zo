@@ -1105,7 +1105,7 @@ describe("ZSshUtils", () => {
                 },
             );
         };
-        it("Should return hasExecutePermission=true and version number if zowex command succeeds", async () => {
+        it("Should return hasExecutePermission=true and version number if zo command succeeds", async () => {
             const expectedServerPath = `/u/users/user/mybins/${ZSshClient.BIN_NAME}`;
             const expectedVersion = "1.0.0-aefbab";
             mockDetectServerSSH(expectedServerPath, expectedVersion, true);
@@ -1120,7 +1120,7 @@ describe("ZSshUtils", () => {
             expect(detectResult.hasExecutePermission).toEqual(true);
             expect(detectResult.version).toEqual(expectedVersion);
         });
-        it("Should return hasExecutePermission=false if zowex command fails", async () => {
+        it("Should return hasExecutePermission=false if zo command fails", async () => {
             const expectedServerPath = `/u/users/user/mybins/${ZSshClient.BIN_NAME}`;
             mockDetectServerSSH(expectedServerPath, undefined, false);
             const session = new SshSession({
