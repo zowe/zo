@@ -7,10 +7,14 @@ Build the Zowe Remote SSH native Python bindings.
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
-from package_metadata import get_version
 import os
 import json
 import subprocess
+import sys
+
+# PEP 517 hooks do not add the bindings directory to the module search path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from package_metadata import get_version
 
 C_PATH = "../../c"
 chdsect = os.path.abspath(f"{C_PATH}/chdsect")
