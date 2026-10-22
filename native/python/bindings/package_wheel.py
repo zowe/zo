@@ -129,7 +129,7 @@ def assemble_wheel(base, native, release):
         license_text = subprocess.check_output(["iconv", "-f", "IBM-1047", "-t", "UTF-8",
                                                 str(release.license_file)])
         target.writestr(f"{info}/LICENSE", license_text)
-        metadata = "Wheel-Version: 1.0\nGenerator: zbind multi-runtime builder\nRoot-Is-Purelib: false\n"
+        metadata = "Wheel-Version: 1.0\nGenerator: zo multi-runtime builder\nRoot-Is-Purelib: false\n"
         for platform in platforms.split("."):
             metadata += f"Tag: py3-none-{platform}\n"
         target.writestr(f"{info}/WHEEL", metadata)

@@ -141,9 +141,9 @@ The existing table and CSV columns are unchanged; the execution fields are avail
 
 ## Certificates
 
-See [doc/certificates-test-plan.md](./certificates-test-plan.md) for the service layer
-(`native/c/zkr.hpp`/`zkr.cpp`, R_datalib/IRRSDL64 + System SSL GSKCMS), the 14 JSON-RPC
-methods below, and their test coverage.
+See [Testing certificates and key rings](./certificates-testing.md) for test
+commands, required authority, and fixture setup for the native service and Python
+bindings.
 
 | Operation                | z/OSMF | FTP | `zo`<br>Backend | `zo`<br>Server | Python<br>Bindings | Node.js<br>SDK | CLI<br>Plug-in | VS Code |
 | ------------------------ | ------ | --- | --------------- | -------------- | ------------------ | -------------- | -------------- | ------- |

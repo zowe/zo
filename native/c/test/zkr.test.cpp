@@ -89,7 +89,7 @@ std::string zkr_env(const char *name, const char *znp_name)
 }
 
 // Self-provision a throwaway PKCS#12 fixture via RACDCERT (see
-// doc/certificates-test-plan.md, item 2): GENCERT a scratch certificate,
+// doc/certificates-testing.md): GENCERT a scratch certificate,
 // EXPORT it as PKCS12DER to a temporary dataset, DELETE the ESM record (so a
 // later import sees a brand-new certificate), then binary-copy the dataset to
 // a USS temp file. Returns the USS path, or "" with `note` set when any step
@@ -747,10 +747,6 @@ void zkr_tests()
       },
           cert_opts, run_cert);
 
-      // Uncovered paths from doc/certificates-test-plan.md item 3:
-      // p12 export (gsk_export_key), re-import already-exists warning,
-      // ring-scoped disconnect (4/4/12 auto-refresh), connect from the
-      // virtual ring ("--from-database"), count, standalone refresh.
       itif(
           "round-trips a p12 export, warns on re-import, disconnects one ring, "
           "connects from the database, counts, and refreshes",
@@ -838,7 +834,7 @@ void zkr_tests()
         // Re-connect to ring1 sourcing the bytes from the virtual ring
         // -- the service path behind `cert connect --from-database`.
         // This settles empirically that DataGetFirst on "*" can feed
-        // DataPut (test plan item 3.4).
+        // DataPut.
         ZKRConnectOptions conn;
         conn.owner = owner;
         conn.ring = ring1;

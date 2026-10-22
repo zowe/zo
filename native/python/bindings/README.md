@@ -8,22 +8,23 @@ can be rebuilt for a different target.
 
 ## Python wheel
 
-`make wheel` builds a real wheel that installs with pip. The build uses IBM Python
-3.11 and can include native copies linked for additional Python runtimes. Imports
-remain `zds_py`, `zjb_py`, `zusf_py`, and `zkr_py`.
+`make wheel` builds a pip-installable wheel using IBM Python 3.11. The npm build
+includes native copies for IBM Python 3.11, 3.13, and 3.14; the loader selects the
+copy matching the active interpreter. Imports are `zds_py`, `zjb_py`, `zusf_py`,
+and `zkr_py`.
 
-The default filename is `zbind-1.0.0-py3-none-any.whl`, with a matching
-`Tag: py3-none-any` in its wheel metadata. This is an installation workaround for
+The Python distribution is named `zo`. Its version comes from the root
+`package.json`, the same release version used by the native `zo` binary, so
+`npm run version:bump` also updates subsequent Python builds. The default filename
+is currently `zo-1.0.2-py3-none-any.whl`. The `py3-none-any` tag works around
 pip's differing `os390`/`zos` platform tags. The archive contains native z/OS
-binaries and sets `Root-Is-Purelib: false`; imports still require a supported,
-GIL-enabled IBM CPython runtime on z/OS.
+binaries, and imports require a bundled, GIL-enabled IBM CPython runtime on z/OS.
 
 The wrappers use Python's Limited API, but the z/OS binder records the Python DLL
-name in each extension. Therefore the final wheel contains a native copy per
-supported interpreter and selects it when imported. It is not an unrestricted
-`abi3` wheel: supporting another minor Python version requires adding its linked
-copies and testing them. Free-threaded builds and other Python implementations
-are excluded.
+name in each extension. Supporting another minor Python version requires adding
+its side deck and runtime selection to the build, then running the installed-wheel
+tests with that interpreter. The Limited API alone does not make these binaries
+compatible with future Python versions.
 
 ### Install in a fresh z/OS venv
 
@@ -31,13 +32,17 @@ Select a supported IBM Python interpreter, then run:
 
 ```sh
 python -m venv my-venv
-my-venv/bin/python -m pip install --no-index /path/to/zbind-1.0.0-*.whl
+my-venv/bin/python -m pip install --no-index /path/to/zo-1.0.2-py3-none-any.whl
 my-venv/bin/python -c 'import zds_py, zjb_py, zusf_py, zkr_py'
 ```
 
 Installation needs no compiler, SWIG, source checkout, or `PYTHONPATH`. The system
 must provide compatible Language Environment/C++ runtimes and System SSL. Transfer
 the wheel without text conversion and verify its checksum before installing it.
+
+When reusing an environment with the former `zbind` distribution, run
+`python -m pip uninstall zbind` before installing `zo`, since both distributions
+provide the same binding modules.
 
 ### Build on z/OS
 
@@ -48,8 +53,8 @@ npm run z:python:wheel
 ```
 
 This command stages the current native and binding sources in a temporary
-directory on the configured z/OS host, builds native prerequisites and a wheel for IBM Python
-3.11/3.13/3.14, then downloads the wheel and its SHA-256 file to the **project root
+directory on the configured z/OS host, builds the wheel and native prerequisites,
+then downloads the wheel and its SHA-256 file to the **project root
 `dist/`**. It verifies the download and removes its temporary local and remote
 directories, including the build venv. Existing remote sources remain available.
 Generated native headers must already exist in the remote deployment's `c/chdsect`.
@@ -78,22 +83,7 @@ If `PIP_INDEX_URL` is set locally, it is passed through SSH input to pip without
 putting its credentials in command arguments; otherwise the remote profile's
 index is used.
 
-### Post development artifacts to a PR
-
-After building a wheel and/or running `npm run z:python:pack`, run:
-
-```sh
-npm run z:python:post -- <PR_NUMBER>
-```
-
-The command uploads the available tarball and `zbind` wheel from root `dist/`
-to the shared `py-bindings-dev` prerelease, then creates or updates the existing
-Python-bindings comment on the PR with download links. Wheels receive a valid
-PR/commit build tag and a SHA-256 file matching the uploaded filename.
-Keep only the wheel you intend to post in `dist/`; multiple wheels cause an error.
-Posting requires an authenticated GitHub CLI (`gh`).
-
-For a manual build directly on z/OS:
+### Build manually on z/OS
 
 Use a dedicated IBM Python 3.11 build venv and install `requirements-build.txt`.
 Uploaded EBCDIC requirements files must first be converted to UTF-8 for pip:
@@ -113,6 +103,9 @@ Replace the side-deck paths with those from the installed IBM runtimes. The defa
 for an explicit override. Without additional `--runtime` arguments, the wheel
 contains only Python 3.11. For deployments without the repository root, pass
 `--license-file /path/to/LICENSE` in `WHEEL_ARGS`.
+The build also needs the release `package.json` at the repository root or beside
+the deployed `c/` and `python/` directories; the npm wheel command stages it
+automatically.
 
 The target builds native prerequisites and SWIG wrappers, stages UTF-8 proxies,
 links the specified runtime variants, and writes the wheel to the bindings'
@@ -125,16 +118,34 @@ For each target interpreter, the runner creates a fresh venv and stages tests in
 `/tmp` outside the source package:
 
 ```sh
-python test/run_wheel_tests.py /path/to/zbind-1.0.0-*.whl
-python test/run_wheel_tests.py /path/to/zbind-1.0.0-*.whl --functional --owner YOURID
+python test/run_wheel_tests.py /path/to/zo-1.0.2-py3-none-any.whl
+python test/run_wheel_tests.py /path/to/zo-1.0.2-py3-none-any.whl --functional --owner YOURID
 ```
 
 The first command tests installation, wheel metadata, native module selection,
-UTF-8 USS reads, and SWIG lifetimes. The second also creates disposable dataset, USS, job, and
-certificate/key-ring resources under the specified user. Tests use the configured
-`PIP_INDEX_URL` to obtain pytest/PyYAML; keep credentials in the environment.
+UTF-8 USS reads, and SWIG lifetimes. The second also creates disposable dataset,
+USS, job, and certificate/key-ring resources under the specified user. Tests use
+the configured `PIP_INDEX_URL` to obtain pytest/PyYAML; keep credentials in the environment.
 Logs and JUnit reports remain in the reported validation directory. Successful
 runs check uninstall/reinstall, then remove the venv unless `--keep-venv` is set.
+
+### Post development artifacts to a PR
+
+After building a wheel and/or running `npm run z:python:pack`, run:
+
+```sh
+npm run z:python:post -- <PR_NUMBER>
+```
+
+The command uploads the available tarball and `zo` wheel from root `dist/`
+to the `py-bindings-dev` prerelease and creates or updates the PR comment with
+download links. It uses the current Git commit for the artifact build tag, for
+example `zo-1.0.2-1pr1181gabcdef12-py3-none-any.whl`, and generates a matching
+SHA-256 file. It does not rebuild or test the artifacts.
+
+Posting requires an authenticated GitHub CLI (`gh`). Keep only the wheel you
+intend to post in `dist/`; multiple wheels cause an error. Move
+`zbind_bin_dist.tar.gz` out of `dist/` to omit the tarball from the upload.
 
 ## Available Functions
 

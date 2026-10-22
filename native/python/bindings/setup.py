@@ -7,6 +7,7 @@ Build the Zowe Remote SSH native Python bindings.
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
+from package_metadata import get_version
 import os
 import json
 import subprocess
@@ -204,8 +205,8 @@ if ABI3_BUILD:
         for name in ("zutm", "zam", "zam24", "zutm31", "zutcall24")
     ]
 
-setup(name="zbind",
-      version="1.0.0",
+setup(name="zo",
+      version=get_version(),
       description="Zowe Remote SSH native Python bindings for z/OS",
       python_requires=">=3.11" if ABI3_BUILD else None,
       cmdclass={"build_ext": BuildExtMixedCharMode, "build_py": BuildPyUtf8},

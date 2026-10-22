@@ -3,6 +3,9 @@
 import os
 import subprocess
 import sys
+from package_metadata import get_version
+
+PACKAGE_VERSION = get_version()
 
 # Define paths relative to this script's directory
 BINDINGS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -205,8 +208,8 @@ ext_modules = [zusf_py_module, zds_py_module, zjb_py_module, zkr_py_module]
 for extension in ext_modules:
     extension.define_macros.append(("SWIG_TYPE_TABLE", extension.name))
 
-setup(name="zbind",
-      version="1.0.0",
+setup(name="zo",
+      version=@PACKAGE_VERSION@,
       description="Zowe Remote SSH Python Bindings (Self-contained Bundle)",
       cmdclass={"build_ext": BuildExtMixedCharMode},
       ext_modules=ext_modules,
@@ -215,7 +218,7 @@ setup(name="zbind",
 """
 
 with open(os.path.join(DIST_DIR, "setup.py"), "w") as f:
-    f.write(setup_py_content)
+    f.write(setup_py_content.replace("@PACKAGE_VERSION@", repr(PACKAGE_VERSION)))
 print("Wrote setup.py to bundle.")
 
 # 8. Write setup.cfg to bundle

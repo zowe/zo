@@ -83,7 +83,7 @@ assert not matches, "Scratch dataset prefix already exists"
     print("\n".join(lines[-20:]))
     if result.returncode:
         raise SystemExit(result.returncode)
-    run_logged([python, "-m", "pip", "uninstall", "--quiet", "-y", "zbind"], work, env)
+    run_logged([python, "-m", "pip", "uninstall", "--quiet", "-y", "zo"], work, env)
     run_logged([python, "-m", "pip", "install", "--quiet", "--no-index", str(wheel)], work, env)
     subprocess.run([python, "-c", "import zds_py, zjb_py, zusf_py, zkr_py"], cwd=tests, env=env, check=True)
     if not args.keep_venv:

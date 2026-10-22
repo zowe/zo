@@ -1266,11 +1266,17 @@ ${preBuildCmd || ":"}
         "setup.cfg",
         "pyproject.toml",
         "requirements-build.txt",
+        "package_metadata.py",
         "package_wheel.py",
         "_zbind_loader.py",
     ];
     const interfaces = fs.readdirSync(path.join(root, bindings)).filter((name) => /\.(cpp|hpp|i)$/.test(name));
-    const files = [...tracked, ...[...buildFiles, ...interfaces].map((name) => `${bindings}/${name}`), "LICENSE"];
+    const files = [
+        ...tracked,
+        ...[...buildFiles, ...interfaces].map((name) => `${bindings}/${name}`),
+        "LICENSE",
+        "package.json",
+    ];
     let staged = false;
     try {
         console.log("Staging current sources for the Python wheel...");
@@ -2114,11 +2120,11 @@ function postPrecompiledBindings(prNumber: string) {
 
     const distDir = path.dirname(TARBALL);
     const wheels = fs.existsSync(distDir)
-        ? fs.readdirSync(distDir).filter((name) => name.startsWith("zbind-") && name.endsWith(".whl"))
+        ? fs.readdirSync(distDir).filter((name) => name.startsWith("zo-") && name.endsWith(".whl"))
         : [];
     if (wheels.length > 1) {
         throw new Error(
-            "Multiple zbind wheels found in dist/. Keep the wheel you want to post and move the others elsewhere.",
+            "Multiple zo wheels found in dist/. Keep the wheel you want to post and move the others elsewhere.",
         );
     }
     if (!fs.existsSync(TARBALL) && wheels.length === 0) {

@@ -69,7 +69,7 @@ def _tsocmd(inner_cmd):
 
 def _generate_p12_fixture(owner, password):
     """Self-provision a throwaway PKCS#12 fixture via RACDCERT (see
-    doc/certificates-test-plan.md, item 2): GENCERT a scratch certificate, EXPORT it as
+    doc/certificates-testing.md): GENCERT a scratch certificate, EXPORT it as
     PKCS12DER to a scratch data set, then DELETE the ESM record (so a later import sees
     a brand-new certificate). Returns the data set name -- import_certificate_from_dsn
     reads it directly, no USS copy hop needed, unlike the C++ fixture this mirrors.

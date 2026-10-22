@@ -13,7 +13,7 @@ import pytest
 
 
 def test_installed_wheel_metadata():
-    metadata = Parser().parsestr(distribution("zbind").read_text("WHEEL"))
+    metadata = Parser().parsestr(distribution("zo").read_text("WHEEL"))
     assert metadata.get_all("Tag") == ["py3-none-any"]
     assert metadata["Root-Is-Purelib"] == "false"
 
