@@ -2184,12 +2184,19 @@ function postPrecompiledBindings(prNumber: string) {
                 assets.find((asset) => asset.name === artifact.name)?.url ??
                 `https://github.com/${repo}/releases/download/${RELEASE_TAG}/${artifact.name}`,
         }));
+        const wheelLinks: string[] = [];
+        const otherLinks: string[] = [];
+        for (const artifact of downloads) {
+            const links = artifact.label.startsWith("Wheel") ? wheelLinks : otherLinks;
+            links.push(`- **${artifact.label}:** [\`${artifact.name}\`](${artifact.url})`);
+        }
         const body = [
             `### ${COMMENT_HEADER}`,
             "",
             `Built from \`${hash}\` on z/OS.`,
             "",
-            ...downloads.map((artifact) => `- **${artifact.label}:** [\`${artifact.name}\`](${artifact.url})`),
+            ...wheelLinks,
+            ...(otherLinks.length ? ["", "---", "", "Others:", "", ...otherLinks] : []),
             "",
             `<sub>Hosted as assets on the \`${RELEASE_TAG}\` prerelease (dev artifacts, not for distribution).</sub>`,
         ].join("\n");
