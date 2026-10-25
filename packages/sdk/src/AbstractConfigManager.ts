@@ -42,6 +42,9 @@ import {
 import { type ISshConfigExt, SshConfigUtils } from "./SshConfigUtils";
 import { ZSshUtils } from "./ZSshUtils";
 
+const DEFAULT_KEEP_ALIVE_SECONDS = 30;
+const DEFAULT_KEEP_ALIVE_COUNT_MAX = 3;
+
 export abstract class AbstractConfigManager {
     public constructor(private mProfilesCache: ProfileInfo) {}
 
@@ -64,6 +67,31 @@ export abstract class AbstractConfigManager {
     private sshRegex = /^ssh\s+(?:([a-zA-Z0-9_-]+)@)?([a-zA-Z0-9.-]+)/;
     private flagRegex = /-(\w+)(?:\s+("[^"]+"|'[^']+'|\S+))?/g;
 
+    private retainConnection = false;
+    private retainKeepAliveSeconds?: number;
+    private retainedConnection?: NodeSSH;
+
+    /**
+     * Hand over the connection that validated the profile chosen by the last `promptForProfile` call made with
+     * `retainConnection`. The caller owns it and must dispose it. Undefined if validation did not connect
+     * (e.g. the profile was looked up by name) or the connection has since dropped.
+     */
+    public takeRetainedConnection(): NodeSSH | undefined {
+        const ssh = this.retainedConnection;
+        this.retainedConnection = undefined;
+        if (ssh != null && !ssh.isConnected()) {
+            ssh.dispose();
+            return undefined;
+        }
+        return ssh;
+    }
+
+    /** Dispose a retained connection that nobody took. */
+    public releaseRetainedConnection(): void {
+        this.retainedConnection?.dispose();
+        this.retainedConnection = undefined;
+    }
+
     public async promptForProfile(
         profileName?: string,
         options?: PromptForProfileOptions,
@@ -72,7 +100,12 @@ export abstract class AbstractConfigManager {
             setExistingProfile = true,
             prioritizeProjectLevelConfig = true,
             disableCreateNewProfile = false,
+            retainConnection = false,
+            keepAliveInterval,
         } = options ?? {};
+        this.releaseRetainedConnection();
+        this.retainConnection = retainConnection;
+        this.retainKeepAliveSeconds = keepAliveInterval;
         this.validationResult = undefined;
         if (profileName) {
             return { profile: this.getMergedAttrs(profileName), message: "", failNotFound: false, type: "ssh" };
@@ -524,11 +557,18 @@ export abstract class AbstractConfigManager {
 
     private async attemptConnection(config: ISshConfigExt): Promise<void> {
         const ssh = new NodeSSH();
+        let keep = false;
 
         try {
             // Prepare connection configuration
             const connectionConfig = ZSshUtils.buildSshConfig(new SshSession(config), {
                 readyTimeout: config.handshakeTimeout || this.getClientSetting("handshakeTimeout") || 30000,
+                // A retained connection may host the long-lived server, so it needs the same keep-alive as one
+                // opened by ZSshClient
+                ...(this.retainConnection && {
+                    keepaliveInterval: (this.retainKeepAliveSeconds ?? DEFAULT_KEEP_ALIVE_SECONDS) * 1000,
+                    keepaliveCountMax: DEFAULT_KEEP_ALIVE_COUNT_MAX,
+                }),
             });
 
             // Attempt connection
@@ -541,8 +581,16 @@ export abstract class AbstractConfigManager {
             if (result.stderr?.startsWith("FOTS1668")) {
                 throw new Error(result.stderr);
             }
+            if (this.retainConnection) {
+                // A later successful attempt (e.g. after a corrected user or password) supersedes an earlier one
+                this.retainedConnection?.dispose();
+                this.retainedConnection = ssh;
+                keep = true;
+            }
         } finally {
-            ssh.dispose();
+            if (!keep) {
+                ssh.dispose();
+            }
         }
     }
 

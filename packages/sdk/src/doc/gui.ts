@@ -49,4 +49,14 @@ export interface PromptForProfileOptions {
     setExistingProfile?: boolean;
     prioritizeProjectLevelConfig?: boolean;
     disableCreateNewProfile?: boolean;
+    /**
+     * Keep the connection that validated the selected profile open instead of disposing it, so the caller can
+     * reuse it (see `AbstractConfigManager.takeRetainedConnection`) and the user authenticates, e.g. with MFA, once.
+     */
+    retainConnection?: boolean;
+    /**
+     * Seconds between keep-alive messages on the retained connection (default: 30). Keep-alive can only be set when
+     * connecting, so this must be known up front for a connection that will later host the long-lived server.
+     */
+    keepAliveInterval?: number;
 }

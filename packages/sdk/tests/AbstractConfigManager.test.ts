@@ -27,6 +27,7 @@ import { AbstractConfigManager } from "../src/AbstractConfigManager";
 import { ConfigFileUtils } from "../src/ConfigFileUtils";
 import { type inputBoxOpts, MESSAGE_TYPE, type qpItem, type qpOpts } from "../src/doc";
 import { type ISshConfigExt, SshConfigUtils } from "../src/SshConfigUtils";
+import { ZSshUtils } from "../src/ZSshUtils";
 import { migratedSshConfigs, migratedSshConfigsValidation, sshProfiles } from "./fixtures/sshConfigs.fixture";
 
 vi.mock("path", async (importOriginal) => {
@@ -1525,6 +1526,102 @@ describe("AbstractConfigManager", async () => {
         });
     });
     describe("attemptConnection", async () => {
+        describe("retainConnection", () => {
+            const config = { name: "testProf", privateKey: "/path/to/id_rsa", port: 22, user: "user1" };
+            const mockConnectable = () => {
+                vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue(undefined as any);
+                vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValue(true);
+                vi.spyOn(NodeSSH.prototype, "execCommand").mockResolvedValue({ stdout: "" } as any);
+                return vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+            };
+
+            it("should enable keep-alive on a retained connection and not on a default one", async () => {
+                mockConnectable();
+                const buildSpy = vi.spyOn(ZSshUtils, "buildSshConfig");
+
+                await (testManager as any).attemptConnection(config);
+                expect(buildSpy.mock.calls[0][1]).not.toHaveProperty("keepaliveInterval");
+
+                (testManager as any).retainConnection = true;
+                await (testManager as any).attemptConnection(config);
+                expect(buildSpy.mock.calls[1][1]).toMatchObject({ keepaliveInterval: 30000, keepaliveCountMax: 3 });
+
+                (testManager as any).retainKeepAliveSeconds = 5;
+                await (testManager as any).attemptConnection(config);
+                expect(buildSpy.mock.calls[2][1]).toMatchObject({ keepaliveInterval: 5000 });
+            });
+
+            it("should dispose the validation connection by default", async () => {
+                const disposeSpy = mockConnectable();
+                await (testManager as any).attemptConnection(config);
+                expect(disposeSpy).toHaveBeenCalledTimes(1);
+                expect(testManager.takeRetainedConnection()).toBeUndefined();
+            });
+
+            it("should keep the connection of a successful attempt so it can be taken", async () => {
+                const disposeSpy = mockConnectable();
+                (testManager as any).retainConnection = true;
+                await (testManager as any).attemptConnection(config);
+
+                expect(disposeSpy).not.toHaveBeenCalled();
+                const taken = testManager.takeRetainedConnection();
+                expect(taken).toBeInstanceOf(NodeSSH);
+                expect(testManager.takeRetainedConnection()).toBeUndefined();
+            });
+
+            it("should dispose a connection that failed validation even when retaining", async () => {
+                const disposeSpy = mockConnectable();
+                vi.spyOn(NodeSSH.prototype, "execCommand").mockResolvedValue({ stderr: "FOTS1668" } as any);
+                (testManager as any).retainConnection = true;
+
+                await expect((testManager as any).attemptConnection(config)).rejects.toThrow("FOTS1668");
+
+                expect(disposeSpy).toHaveBeenCalledTimes(1);
+                expect(testManager.takeRetainedConnection()).toBeUndefined();
+            });
+
+            it("should dispose the earlier retained connection when a later attempt succeeds", async () => {
+                const disposeSpy = mockConnectable();
+                (testManager as any).retainConnection = true;
+                await (testManager as any).attemptConnection(config);
+                await (testManager as any).attemptConnection(config);
+                expect(disposeSpy).toHaveBeenCalledTimes(1);
+            });
+
+            it("should not hand over a retained connection that has since dropped", async () => {
+                const disposeSpy = mockConnectable();
+                (testManager as any).retainConnection = true;
+                await (testManager as any).attemptConnection(config);
+                vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValue(false);
+
+                expect(testManager.takeRetainedConnection()).toBeUndefined();
+                expect(disposeSpy).toHaveBeenCalledTimes(1);
+            });
+
+            it("should dispose an untaken retained connection on release", async () => {
+                const disposeSpy = mockConnectable();
+                (testManager as any).retainConnection = true;
+                await (testManager as any).attemptConnection(config);
+
+                testManager.releaseRetainedConnection();
+
+                expect(disposeSpy).toHaveBeenCalledTimes(1);
+                expect(testManager.takeRetainedConnection()).toBeUndefined();
+            });
+
+            it("should release a stale retained connection when promptForProfile starts", async () => {
+                const disposeSpy = mockConnectable();
+                (testManager as any).retainConnection = true;
+                await (testManager as any).attemptConnection(config);
+
+                vi.spyOn(testManager as any, "getMergedAttrs").mockReturnValue({});
+                await testManager.promptForProfile("someProfile", { retainConnection: true });
+
+                expect(disposeSpy).toHaveBeenCalledTimes(1);
+                expect(testManager.takeRetainedConnection()).toBeUndefined();
+            });
+        });
+
         it("should attempt connection and have a truthy result", async () => {
             const connectMock = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValueOnce(undefined);
             const isConnectedMock = vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(true);

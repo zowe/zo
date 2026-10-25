@@ -7,6 +7,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## Recent Changes
 
 - BugFix: Censored sensitive info when logging RPC request and response details in ZSshClient. [#1190](https://github.com/zowe/zo/pull/1190)
+- Added the `retainConnection` option to `AbstractConfigManager.promptForProfile` and an optional existing-connection argument to `SessionContext`, so the connection that validates a profile can be reused and users with MFA authenticate once.
+- Added `ClientOptions.existingConnection` and `SessionContext.releaseSsh()` so `ZSshClient.create` can start the server on an already authenticated connection instead of opening and authenticating a new one.
 
 ## `1.0.2`
 

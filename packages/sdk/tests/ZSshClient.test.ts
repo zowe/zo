@@ -482,6 +482,74 @@ describe("ZSshClient", () => {
             expect(createClientMock).toHaveBeenCalledWith(true);
         });
 
+        it("should start the server on an existing connection without connecting again", async () => {
+            const { connectSpy, execAsyncSpy, sshStream } = setupMockSshClient();
+            const createClientMock = vi.spyOn(sshRs, "createClient");
+            createClientMock.mockClear();
+            const existing = new Client();
+
+            const client = await ZSshClient.create(new SshSession(fakeSession), {
+                existingConnection: existing as any,
+            });
+
+            expect(client).toBeInstanceOf(ZSshClient);
+            expect(connectSpy).not.toHaveBeenCalled();
+            expect(createClientMock).not.toHaveBeenCalled();
+            expect(execAsyncSpy).toHaveBeenCalledTimes(1);
+            expect((client as any).mSshClient).toBe(existing);
+            expect((client as any).mSshStream).toBe(sshStream);
+        });
+
+        it("should end the existing connection when the client is disposed", async () => {
+            setupMockSshClient();
+            const endSpy = vi.spyOn(Client.prototype, "end").mockImplementation(() => {});
+            const client = await ZSshClient.create(new SshSession(fakeSession), {
+                existingConnection: new Client() as any,
+            });
+
+            client.dispose();
+
+            expect(endSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it("should end the existing connection when startup fails", async () => {
+            setupMockSshClient({ mockExecAsync: false });
+            vi.spyOn(ZSshClient.prototype as any, "execAsync").mockRejectedValue(new Error("no server"));
+            const endSpy = vi.spyOn(Client.prototype, "end").mockImplementation(() => {});
+
+            await expect(
+                ZSshClient.create(new SshSession(fakeSession), { existingConnection: new Client() as any }),
+            ).rejects.toThrow("no server");
+
+            expect(endSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it("should invoke onClose when the existing connection closes", async () => {
+            setupMockSshClient();
+            const onClose = vi.fn();
+            const existing = new Client();
+            await ZSshClient.create(new SshSession(fakeSession), { existingConnection: existing as any, onClose });
+
+            existing.emit("close");
+
+            expect(onClose).toHaveBeenCalledTimes(1);
+        });
+
+        it("should ignore an existing connection when using the native client", async () => {
+            const { connectSpy } = setupMockSshClient();
+            const createClientMock = vi.spyOn(sshRs, "createClient").mockReturnValue(new Client() as any);
+            const existing = new Client();
+
+            const client = await ZSshClient.create(new SshSession(fakeSession), {
+                existingConnection: existing as any,
+                useNativeSsh: true,
+            });
+
+            expect(createClientMock).toHaveBeenCalledWith(true);
+            expect(connectSpy).toHaveBeenCalledTimes(1);
+            expect((client as any).mSshClient).not.toBe(existing);
+        });
+
         it("should use the session agent without loading a private key or sending a password", async () => {
             const { connectSpy } = setupMockSshClient();
             vi.spyOn(ZSshUtils, "buildSshConfig").mockRestore();

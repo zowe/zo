@@ -9,6 +9,7 @@
  *
  */
 
+import type { Client } from "../ssh-rs";
 import type { CommandRequest, CommandResponse } from "./rpc/common";
 import type { ProgressCallback, RpcPromise } from "./types";
 
@@ -64,6 +65,14 @@ export interface ClientOptions {
      * (default: 60)
      */
     serverStartupTimeout?: number;
+
+    /**
+     * An already connected and authenticated ssh2 client to start the server on, instead of opening a new
+     * connection (and authenticating again, e.g. with MFA). The client takes ownership and ends it on dispose or
+     * failed startup. Ignored when `useNativeSsh` is set, in which case the caller still owns it.
+     * Keep-alive can only be configured when connecting, so it is the caller's responsibility for this connection.
+     */
+    existingConnection?: Client;
 
     /**
      * Use experimental native SSH client for improved performance

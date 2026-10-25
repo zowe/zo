@@ -17,7 +17,20 @@ export class SessionContext implements Disposable {
     private sshConn?: NodeSSH;
     private connectPromise?: Promise<NodeSSH>;
 
-    constructor(private readonly session: SshSession) {}
+    /**
+     * @param session Session whose credentials are used to (re)connect
+     * @param existingConnection An already authenticated connection to adopt, so no new authentication is needed
+     * until it drops. The context takes ownership and disposes it.
+     */
+    constructor(
+        private readonly session: SshSession,
+        existingConnection?: NodeSSH,
+    ) {
+        if (existingConnection != null) {
+            this.sshConn = existingConnection;
+            this.connectPromise = Promise.resolve(existingConnection);
+        }
+    }
 
     public [Symbol.dispose](): void {
         if (this.sshConn != null) {
@@ -32,6 +45,26 @@ export class SessionContext implements Disposable {
                 () => {},
             );
         }
+    }
+
+    /**
+     * Relinquish the live connection to the caller (e.g. to start the server on it) so disposing this context
+     * no longer ends it. The caller owns the returned connection. Undefined if there is no live connection.
+     */
+    public async releaseSsh(): Promise<NodeSSH | undefined> {
+        let ssh: NodeSSH | undefined;
+        try {
+            ssh = await this.connectPromise;
+        } catch {
+            ssh = undefined;
+        }
+        this.sshConn = undefined;
+        this.connectPromise = undefined;
+        if (ssh != null && !ssh.isConnected()) {
+            ssh.dispose();
+            return undefined;
+        }
+        return ssh;
     }
 
     public get ISshSession(): ISshSession {

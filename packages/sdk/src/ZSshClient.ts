@@ -71,7 +71,8 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         const client = new ZSshClient();
         client.mErrHandler = opts.onError ?? ZSshClient.defaultErrHandler;
         client.mResponseTimeout = opts.responseTimeout ? opts.responseTimeout * 1000 : 60e3;
-        client.mSshClient = createClient(opts.useNativeSsh);
+        const adoptConnection = opts.existingConnection != null && !opts.useNativeSsh;
+        client.mSshClient = adoptConnection ? opts.existingConnection! : createClient(opts.useNativeSsh);
         try {
             client.mSshStream = await new Promise<ClientChannel>((resolve, reject) => {
                 let established = false;
@@ -112,7 +113,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     Logger.getAppLogger().error(`Error connecting to SSH: ${err}`);
                     client.mErrHandler(err);
                 });
-                client.mSshClient.on("ready", () => {
+                const startServer = () => {
                     const zowexBin = posix.join(opts.serverPath ?? ZSshClient.DEFAULT_SERVER_PATH, ZSshClient.BIN_NAME);
                     const serverArgs = ["server"];
                     if (opts.numWorkers != null) {
@@ -129,7 +130,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                         clearTimeout(serverStartupTimeoutId);
                         resolve(stream);
                     }, onStartupError);
-                });
+                };
                 client.mSshClient.on("close", () => {
                     Logger.getAppLogger().debug("Client disconnected");
                     if (!established) {
@@ -144,12 +145,19 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     client.handleDisconnect("SSH connection closed", opts.onClose);
                 });
                 const keepAliveMsec = opts.keepAliveInterval != null ? opts.keepAliveInterval * 1000 : 30e3;
-                client.mSshClient.connect(
-                    ZSshUtils.buildSshConfig(session, {
-                        keepaliveInterval: keepAliveMsec,
-                        keepaliveCountMax: opts.keepAliveCountMax ?? 3,
-                    }),
-                );
+                if (adoptConnection) {
+                    // Already authenticated, so there is no "ready" event to wait for
+                    Logger.getAppLogger().debug("Starting the server on an existing SSH connection");
+                    startServer();
+                } else {
+                    client.mSshClient.on("ready", startServer);
+                    client.mSshClient.connect(
+                        ZSshUtils.buildSshConfig(session, {
+                            keepaliveInterval: keepAliveMsec,
+                            keepaliveCountMax: opts.keepAliveCountMax ?? 3,
+                        }),
+                    );
+                }
             });
         } catch (err) {
             // Clean up the SSH connection so failed startups do not leak connections,

@@ -73,6 +73,39 @@ describe("SessionContext", () => {
             expect(firstSsh).toBe(secondSsh);
         });
 
+        it("adopts an existing connection instead of connecting", async () => {
+            const connectSpy = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as any);
+            const existing = new NodeSSH();
+            const ctx = new SessionContext(new SshSession(fakeSession), existing);
+
+            expect(await ctx.getSsh()).toBe(existing);
+            expect(await ctx.getSsh()).toBe(existing);
+            expect(connectSpy).not.toHaveBeenCalled();
+        });
+
+        it("reconnects when an adopted connection has dropped", async () => {
+            const connectSpy = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as any);
+            const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+            const existing = new NodeSSH();
+            const ctx = new SessionContext(new SshSession(fakeSession), existing);
+            vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(false);
+
+            const ssh = await ctx.getSsh();
+
+            expect(connectSpy).toHaveBeenCalledTimes(1);
+            expect(disposeSpy).toHaveBeenCalledTimes(1);
+            expect(ssh).not.toBe(existing);
+        });
+
+        it("disposes an adopted connection with the context", () => {
+            const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+            const ctx = new SessionContext(new SshSession(fakeSession), new NodeSSH());
+
+            ctx[Symbol.dispose]();
+
+            expect(disposeSpy).toHaveBeenCalledTimes(1);
+        });
+
         it("retries after a failed connection", async () => {
             const connectSpy = vi
                 .spyOn(NodeSSH.prototype, "connect")
@@ -101,6 +134,50 @@ describe("SessionContext", () => {
             expect(connectSpy).toHaveBeenCalledTimes(2);
             expect(disposeSpy).toHaveBeenCalledTimes(1);
             expect(second).not.toBe(first);
+        });
+    });
+
+    describe("releaseSsh", () => {
+        it("hands over the live connection so disposing the context does not end it", async () => {
+            vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as any);
+            const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+            const ctx = new SessionContext(new SshSession(fakeSession));
+            const ssh = await ctx.getSsh();
+
+            expect(await ctx.releaseSsh()).toBe(ssh);
+            ctx[Symbol.dispose]();
+
+            expect(disposeSpy).not.toHaveBeenCalled();
+        });
+
+        it("hands over an adopted connection", async () => {
+            const existing = new NodeSSH();
+            const ctx = new SessionContext(new SshSession(fakeSession), existing);
+
+            expect(await ctx.releaseSsh()).toBe(existing);
+        });
+
+        it("returns undefined when never connected", async () => {
+            const ctx = new SessionContext(new SshSession(fakeSession));
+            expect(await ctx.releaseSsh()).toBeUndefined();
+        });
+
+        it("returns undefined and disposes a connection that dropped", async () => {
+            const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+            const ctx = new SessionContext(new SshSession(fakeSession), new NodeSSH());
+            vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValue(false);
+
+            expect(await ctx.releaseSsh()).toBeUndefined();
+            expect(disposeSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it("returns undefined when the connection attempt failed", async () => {
+            vi.spyOn(NodeSSH.prototype, "connect").mockRejectedValue(new Error("refused"));
+            vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+            const ctx = new SessionContext(new SshSession(fakeSession));
+            await expect(ctx.getSsh()).rejects.toThrow("refused");
+
+            expect(await ctx.releaseSsh()).toBeUndefined();
         });
     });
 
