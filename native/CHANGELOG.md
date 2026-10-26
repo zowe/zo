@@ -4,6 +4,10 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes 
+
+- `c`: Added additional error logging when failing to parse IDCAMS output when attempting to resolve a data set alias. [TODO](TODO)
+
 ## `1.0.2`
 
 - `c`: Clarified the `zowex ds create-member` success message to indicate it creates only the member and not the data set. [#639](https://github.com/zowe/zowex/issues/639)
