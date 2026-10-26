@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes 
 
-- `c`: Added additional error logging when failing to parse IDCAMS output when attempting to resolve a data set alias. [TODO](TODO)
+- `c`: Added additional error logging when failing to parse IDCAMS output when attempting to resolve a data set alias. [#1198](https://github.com/zowe/zo/pull/1198)
 
 ## `1.0.2`
 
