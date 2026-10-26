@@ -15,6 +15,7 @@
 
 #include "ztest.hpp"
 #include "zjb.hpp"
+#include "../zjbtime.hpp"
 #include <unistd.h>
 #include <thread>
 #include <chrono>
@@ -48,6 +49,54 @@ void zjb_tests()
       }
       submitted_jobs.clear();
     }, cleanup_opts);
+
+    describe("execution timestamps", []() -> void
+    {
+      it("should preserve centiseconds in z/OSMF UTC format", []() -> void
+      {
+        const unsigned char date[] = {0x01, 0x18, 0x30, 0x7F};
+        Expect(zjb_detail::format_timestamp(date, 3271801, 0)).ToBe("2018-11-03T09:05:18.010Z");
+      });
+
+      it("should accept midnight and positive packed date signs", []() -> void
+      {
+        const unsigned char date[] = {0x01, 0x24, 0x00, 0x1C};
+        Expect(zjb_detail::format_timestamp(date, 0, 0)).ToBe("2024-01-01T00:00:00.000Z");
+      });
+
+      it("should handle Gregorian leap years and century boundaries", []() -> void
+      {
+        const unsigned char leap_day[] = {0x01, 0x24, 0x06, 0x0F};
+        const unsigned char leap_century[] = {0x01, 0x00, 0x36, 0x6F};
+        const unsigned char non_leap_century[] = {0x02, 0x00, 0x36, 0x6F};
+        Expect(zjb_detail::format_timestamp(leap_day, 0, 0)).ToBe("2024-02-29T00:00:00.000Z");
+        Expect(zjb_detail::format_timestamp(leap_century, 0, 0)).ToBe("2000-12-31T00:00:00.000Z");
+        Expect(zjb_detail::format_timestamp(non_leap_century, 0, 0)).ToBe("");
+      });
+
+      it("should normalize both UTC offset directions across year boundaries", []() -> void
+      {
+        const unsigned char first_day[] = {0x01, 0x24, 0x00, 0x1F};
+        const unsigned char last_day[] = {0x01, 0x24, 0x36, 0x6F};
+        Expect(zjb_detail::format_timestamp(first_day, 90000, 360000)).ToBe("2023-12-31T23:15:00.000Z");
+        Expect(zjb_detail::format_timestamp(last_day, 8550000, -360000)).ToBe("2025-01-01T00:45:00.000Z");
+      });
+
+      it("should omit unavailable or malformed JES timestamps", []() -> void
+      {
+        const unsigned char missing[] = {0, 0, 0, 0};
+        const unsigned char no_date[] = {0, 0, 0, 0x0C};
+        const unsigned char invalid_day[] = {0x01, 0x24, 0x36, 0x7F};
+        const unsigned char invalid_digit[] = {0x01, 0x2A, 0x00, 0x1F};
+        const unsigned char date[] = {0x01, 0x24, 0x00, 0x1F};
+        Expect(zjb_detail::format_timestamp(missing, 0, 0)).ToBe("");
+        Expect(zjb_detail::format_timestamp(no_date, 0, 0)).ToBe("");
+        Expect(zjb_detail::format_timestamp(invalid_day, 0, 0)).ToBe("");
+        Expect(zjb_detail::format_timestamp(invalid_digit, 0, 0)).ToBe("");
+        Expect(zjb_detail::format_timestamp(date, -1, 0)).ToBe("");
+        Expect(zjb_detail::format_timestamp(date, 8640000, 0)).ToBe("");
+      });
+    });
 
     it("should be able to list a job", [&]() -> void
     {

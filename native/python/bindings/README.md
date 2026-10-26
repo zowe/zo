@@ -41,8 +41,12 @@ The bindings are split across three modules, each generated from the correspondi
 
 **Supporting types:**
 
-- `ZJob`: `jobname`, `jobid`, `owner`, `status`, `full_status`, `retcode`, `correlator`
+- `ZJob`: `jobname`, `jobid`, `owner`, `status`, `full_status`, `retcode`, `correlator`, `exec_system`, `exec_member`, `exec_submitted`, `exec_started`, `exec_ended`
 - `ZJobDD`: `jobid`, `ddn`, `dsn`, `stepname`, `procstep`, `key`
+
+The `exec_*` timestamps are UTC ISO 8601 strings (`YYYY-MM-DDTHH:mm:ss.SSSZ`).
+Use `exec_submitted` to sort by submission date and `exec_ended` to sort by completion date.
+Unavailable execution fields are empty strings.
 
 ### `zusf_py` — USS (Unix System Services)
 
