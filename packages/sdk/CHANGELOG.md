@@ -7,6 +7,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## Recent Changes
 
 - BugFix: Censored sensitive info when logging RPC request and response details in ZSshClient. [#1190](https://github.com/zowe/zo/pull/1190)
+- Fixed SSH utility helpers closing their connection before asynchronous operations completed when passed an `SshSession`. [#1195](https://github.com/zowe/zo/issues/1195)
 
 ## `1.0.2`
 
