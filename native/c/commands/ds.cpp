@@ -662,7 +662,8 @@ static std::string_view find_alias_target(std::string_view output)
   {
     return {};
   }
-  const auto it = std::find_if(output.begin() + start, output.end(), [](unsigned char c) {
+  const auto it = std::find_if(output.begin() + start, output.end(), [](unsigned char c)
+  {
     return std::isspace(c);
   });
   return output.substr(start, it - (output.begin() + start));
@@ -683,7 +684,8 @@ int handle_data_set_resolve_alias(InvocationContext &context)
   if (rc != 0)
   {
     ZLOG_ERROR("Error resolving data set alias '%s': %s\n%s", aliasDsn.c_str(), idcamsOutput.c_str(), idcamsError.c_str());
-    context.error_stream() << failMsg;
+    context.error_stream() << failMsg << "IDCAMS failed. IDCAMS output:\n"
+                           << idcamsOutput << std::endl;
     return RTNCD_FAILURE;
   }
 
@@ -699,7 +701,10 @@ int handle_data_set_resolve_alias(InvocationContext &context)
   }
   else
   {
-    context.error_stream() << failMsg;
+    context.error_stream() << failMsg
+                           << "Failed to parse IDCAMS output:\n"
+                           << idcamsOutput << std::endl;
+    ZLOG_ERROR("Error locating target data set for alias in IDCAMS output:\n%s", idcamsOutput.c_str());
     result->set("targetDsn", str(""));
     rc = RTNCD_FAILURE;
   }
