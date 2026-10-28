@@ -25,6 +25,11 @@ void convert_job_to_ascii(ZJob &job)
   e2a_inplace(job.full_status);
   e2a_inplace(job.retcode);
   e2a_inplace(job.correlator);
+  e2a_inplace(job.exec_system);
+  e2a_inplace(job.exec_member);
+  e2a_inplace(job.exec_submitted);
+  e2a_inplace(job.exec_started);
+  e2a_inplace(job.exec_ended);
 }
 
 void convert_jobs_to_ascii(vector<ZJob> &jobs)

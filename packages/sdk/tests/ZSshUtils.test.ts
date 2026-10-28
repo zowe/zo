@@ -10,9 +10,9 @@
  */
 
 import * as fs from "node:fs";
-import { ImperativeError, Logger } from "@zowe/imperative";
+import { DeferredPromise, ImperativeError, Logger } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
-import { NodeSSH } from "node-ssh";
+import { NodeSSH, type SSHExecCommandResponse } from "node-ssh";
 import { SshErrors } from "../src/SshErrors";
 import { SessionContext } from "../src/utils";
 import { ZSshUtils } from "../src/ZSshUtils";
@@ -67,6 +67,40 @@ describe("ZSshUtils", () => {
         }
         expect(disposeSpy).toHaveBeenCalledTimes(3);
     });
+
+    it.each(["resolve", "reject"] as const)(
+        "keeps the SSH connection open until permission checks %s",
+        async (outcome) => {
+            vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue(new NodeSSH());
+            const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+            const commandStarted = new DeferredPromise<void>();
+            const commandResult = new DeferredPromise<SSHExecCommandResponse>();
+            const response = { code: 0, stdout: "", stderr: "" };
+            vi.spyOn(NodeSSH.prototype, "execCommand")
+                .mockImplementationOnce(() => {
+                    commandStarted.resolve();
+                    return commandResult.promise;
+                })
+                .mockResolvedValue(response);
+            const session = new SshSession({ hostname: "example.com", user: "admin" });
+            const error = new Error("Permission check failed");
+
+            const result = ZSshUtils.lacksWriteAccess(session, "/tmp");
+            const resultAssertion =
+                outcome === "resolve" ? expect(result).resolves.toBe(false) : expect(result).rejects.toBe(error);
+            await commandStarted.promise;
+            const disposedWhilePending = disposeSpy.mock.calls.length > 0;
+            if (outcome === "resolve") {
+                commandResult.resolve(response);
+            } else {
+                commandResult.reject(error);
+            }
+            await resultAssertion;
+
+            expect(disposedWhilePending).toBe(false);
+            expect(disposeSpy).toHaveBeenCalledOnce();
+        },
+    );
 
     describe("checkIfOutdated", () => {
         it.each([

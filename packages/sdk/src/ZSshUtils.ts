@@ -690,6 +690,6 @@ export class ZSshUtils {
             return callback(await session.getSsh());
         }
         using context = new SessionContext(session);
-        return callback(await context.getSsh());
+        return await callback(await context.getSsh());
     }
 }

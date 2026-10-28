@@ -8,22 +8,23 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 - `c`: Guard against OPEN hanging on a password-protected data set (legacy MVS password protection issues a WTOR with no console to answer it) by failing fast, pre-OPEN, in `zds_read`, `zds_read_streamed`, `zds_write`, `zds_write_streamed`, `zds_write_binary`, the BPAM write path, and `zo system cert export`/`import --dsn`. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
+- `c`: Added `--dsn` to `zo system cert import`/`export`, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
+- `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)
+- `c`: Added additional error logging when zo fails to parse IDCAMS output while attempting to resolve a data set alias. [#1198](https://github.com/zowe/zo/pull/1198)
+- `c`: Added z/OSMF-compatible `execSystem`, `execMember`, `execSubmitted`, `execStarted`, and `execEnded` fields to job list and status JSON responses, enabling submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
+- `python`: Exposed job execution metadata and UTC timestamps through the job bindings. [#1187](https://github.com/zowe/zo/pull/1187)
+- Added the `zo ds delete-vsam` command and the `deleteVsam` RPC method to delete VSAM clusters with optional erase and purge behavior. [#490](https://github.com/zowe/zowex/issues/490)
 
 ## `1.0.2`
 
-- `c`: Added `--dsn` to `zo system cert import`/`export`, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
-- `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)
-- `c`: Fixed the `--encoding` help text for `zo data-set write`, `zo uss write`, and `zo job submit-jcl`, which described reading contents instead of converting the input. [#649](https://github.com/zowe/zowex/issues/649)
 - `c`: Clarified the `zo ds create-member` success message to indicate it creates only the member and not the data set. [#639](https://github.com/zowe/zowex/issues/639)
+- `c`: Fixed the `--encoding` help text for `zo data-set write`, `zo uss write`, and `zo job submit-jcl`, which described reading contents instead of converting the input. [#649](https://github.com/zowe/zowex/issues/649)
 - `c`: `ResultTable` columns are now named (`add_column("name", width)`), and `data-set list`, `data-set list-members`, `job list`, `job list-files`, and `job view-status` accept a new `--response-format-header`/`--rfh` option that prints those names as a header row in table and CSV output.
 - `c`: Added a `--json` option to `zo` commands, which prints the command's result to stdout as a single line of JSON (`success`, `exitCode`, `data`, `stderr`) so callers can parse it without starting `zo server`. [#837](https://github.com/zowe/zowex/issues/837)
 - `c`: Fixed `zo job list-files --response-format-csv` repeating every preceding record's fields at the start of each row, so only the first row had the documented five fields.
 - `c`: Fixed `zo uss list` only returning structured results when `--response-format-csv` was also passed. [#1128](https://github.com/zowe/zowex/pull/1128)
 - `c`: Fixed `plugin::Io::is_redirecting_error()` and `is_redirecting_input()` reporting the state of the output stream instead of their own. [#1128](https://github.com/zowe/zowex/pull/1128)
 - `c`: Fixed a plug-in that registers an argument conflicting with an existing name or alias aborting `zo` for every command instead of being rejected with a logged diagnostic. [#1128](https://github.com/zowe/zowex/pull/1128)
-- `python`: Added `package_precompiled.py` tool to package precompiled binary assets (equivalent to Python wheels) into `zbind_bin_dist.tar.gz` for instant compiler-free installation.
-- `python`: Added `package_zbind.py` tool to package a clean, self-contained source-based distribution bundle (`zbind_src_dist.tar.gz`) containing all necessary headers, sources, and objects to build the bindings on any z/OS host without SWIG.
-- `python`: Fixed compilation of Python bindings on z/OS by passing required Language Environment feature macros `_EXT` and `_OPEN_SYS_FILE_EXT` to the compiler in `setup.py`.
 - Reduced the size of the `zo` binary by over 40% (10MB -> 6MB) by optimizing the codebase. [#1166](https://github.com/zowe/zowex/pull/1166)
 - `python`: Fixed the Python bindings compiling the shared `native/c` sources with `-fzos-le-char-mode=ascii`, which flipped their execution charset to ASCII and broke every data set and job binding. [#1121](https://github.com/zowe/zowex/pull/1121)
 - `python`: `list_data_sets` accepts `show_attributes` so `dsorg`, `volser`, `recfm` and `migrated` can be populated. [#1121](https://github.com/zowe/zowex/pull/1121)
@@ -87,9 +88,6 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: `zowex` plug-in loading is now opt-in: plug-ins are only loaded when the `ZOWEX_PLUGINS_DIR` environment variable is explicitly set, replacing the previous implicit `<exec_dir>/plugins` fallback. Added directory- and file-level ownership/permission checks before a plug-in is loaded, and rejected a plug-in command from registering if its name or an alias collides with a built-in verb or another plug-in's command. [#1074](https://github.com/zowe/zowex/pull/1074)
 - `c`: Added support to return information for current linklist. [#1061](https://github.com/zowe/zowex/pull/1061)
 - `c`: Made handling of control bytes (`0x0`-`0x1f`) in JSON safer. Now when an object is serialized, control bytes are replaced with the Unicode substitution character, and when a string is deserialized, control bytes are rejected as invalid. [#1078](https://github.com/zowe/zowex/pull/1078)
-- `python`: Added `package_precompiled.py` tool to package precompiled binary assets (equivalent to Python wheels) into `zbind_bin_dist.tar.gz` for instant compiler-free installation.
-- `python`: Added `package_zbind.py` tool to package a clean, self-contained source-based distribution bundle (`zbind_src_dist.tar.gz`) containing all necessary headers, sources, and objects to build the bindings on any z/OS host without SWIG.
-- `python`: Fixed compilation of Python bindings on z/OS by passing required Language Environment feature macros `_EXT` and `_OPEN_SYS_FILE_EXT` to the compiler in `setup.py`.
 
 ## `0.6.1`
 

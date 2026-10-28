@@ -172,6 +172,13 @@ ZJSON_SCHEMA(DeleteDatasetRequest,
     FIELD_REQUIRED(dsname, STRING)
 );
 
+struct DeleteVsamRequest {};
+ZJSON_SCHEMA(DeleteVsamRequest,
+    FIELD_REQUIRED(dsname, STRING),
+    FIELD_OPTIONAL(erase, BOOL),
+    FIELD_OPTIONAL(purge, BOOL)
+);
+
 struct RenameDatasetRequest {};
 ZJSON_SCHEMA(RenameDatasetRequest,
     FIELD_REQUIRED(dsnameBefore, STRING),

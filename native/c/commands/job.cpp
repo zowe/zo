@@ -26,6 +26,20 @@ using namespace commands::format;
 namespace job
 {
 
+static void add_job_execution_data(const ZJob &job, const ast::Node &result)
+{
+  if (!job.exec_system.empty())
+    result->set("execSystem", str(job.exec_system));
+  if (!job.exec_member.empty())
+    result->set("execMember", str(job.exec_member));
+  if (!job.exec_submitted.empty())
+    result->set("execSubmitted", str(job.exec_submitted));
+  if (!job.exec_started.empty())
+    result->set("execStarted", str(job.exec_started));
+  if (!job.exec_ended.empty())
+    result->set("execEnded", str(job.exec_ended));
+}
+
 /**
  * @brief Parse a string to determine if it's a regex pattern
  *
@@ -59,6 +73,7 @@ int handle_job_list(InvocationContext &context)
   std::string status_name = context.get<std::string>("status", "*");
   long long max_entries = context.get<long long>("max-entries", 0);
   bool warn = context.get<bool>("warn", true);
+  bool exec_data = context.get<bool>("exec-data", false);
 
   if (max_entries > 0)
   {
@@ -70,12 +85,22 @@ int handle_job_list(InvocationContext &context)
 
   if (RTNCD_SUCCESS == rc || RTNCD_WARNING == rc)
   {
+    // Pad the leading columns only when exec data follows, so the wider rows stay aligned
+    const int id_width = exec_data ? 8 : 0;
     ResultTable table(context);
-    table.add_column("jobid")
-        .add_column("jobname")
-        .add_column("owner")
+    table.add_column("jobid", id_width)
+        .add_column("jobname", id_width)
+        .add_column("owner", id_width)
         .add_column("status", 7)
-        .add_column("retcode");
+        .add_column("retcode", exec_data ? 12 : 0);
+    if (exec_data)
+    {
+      table.add_column("execsystem", id_width)
+          .add_column("execmember", id_width)
+          .add_column("execsubmitted", 24)
+          .add_column("execstarted", 24)
+          .add_column("execended");
+    }
 
     for (const auto &job : jobs)
     {
@@ -99,14 +124,23 @@ int handle_job_list(InvocationContext &context)
         entry->set("correlator", str(trimmed_name));
       entry->set("phase", i64(job.phase));
       entry->set("phaseName", str(job.full_status));
+      add_job_execution_data(job, entry);
 
-      table.row()
-          .add(job.jobid)
+      auto &row = table.row();
+      row.add(job.jobid)
           .add(job.jobname)
           .add(job.owner)
           .add(job.status)
-          .add(job.retcode)
-          .emit(entry);
+          .add(job.retcode);
+      if (exec_data)
+      {
+        row.add(job.exec_system)
+            .add(job.exec_member)
+            .add(job.exec_submitted)
+            .add(job.exec_started)
+            .add(job.exec_ended);
+      }
+      row.emit(entry);
     }
 
     table.finish();
@@ -254,6 +288,7 @@ int handle_job_view_status(InvocationContext &context)
     result->set("correlator", str(trimmed_name));
   result->set("phase", i64(job.phase));
   result->set("phaseName", str(job.full_status));
+  add_job_execution_data(job, result);
   context.set_object(result);
 
   return 0;
@@ -785,6 +820,7 @@ void register_commands(parser::Command &root_command)
   job_list_cmd->add_keyword_arg("owner", make_aliases("--owner", "-o"), "filter by owner", ArgType_Single, false);
   job_list_cmd->add_keyword_arg("prefix", make_aliases("--prefix", "-p"), "filter by prefix", ArgType_Single, false);
   job_list_cmd->add_keyword_arg("status", make_aliases("--status", "-s"), "filter by status", ArgType_Single, false);
+  job_list_cmd->add_keyword_arg("exec-data", make_aliases("--exec-data", "--ed"), "include job execution data", ArgType_Flag, false, ArgValue(false));
   job_list_cmd->add_keyword_arg(MAX_ENTRIES);
   job_list_cmd->add_keyword_arg(WARN);
   job_list_cmd->add_keyword_arg(RESPONSE_FORMAT_CSV);

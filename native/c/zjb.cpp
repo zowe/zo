@@ -18,6 +18,7 @@
 #include <iomanip>
 #include <cstdio>
 #include <ctime>
+#include <utility>
 #include <unistd.h>
 #include <stdio.h>
 #include "iazbtokp.h"
@@ -25,6 +26,7 @@
 #include "iefzb4d2.h"
 #include "zds.hpp"
 #include "zjb.hpp"
+#include "zjbtime.hpp"
 #include "zjbm.h"
 #include "zssitype.h"
 #include "ztype.h"
@@ -950,6 +952,17 @@ void zjb_build_job_response(ZJB_JOB_INFO *PTR64 job_info, int entries, std::vect
 {
   ZJB_JOB_INFO *PTR64 job_info_next = job_info;
   jobs.reserve(entries);
+  if (entries == 0)
+    return;
+
+  struct psa *psa = (struct psa *)0;
+  struct cvt *cvt = (struct cvt *)psa->flccvt;
+  const auto *cvt_extension = reinterpret_cast<const struct cvtxtnt2 *>(static_cast<uintptr_t>(cvt->cvtext2a));
+  int64_t local_offset_tod = 0;
+  memcpy(&local_offset_tod, &cvt_extension->cvtldto, sizeof(local_offset_tod));
+  // Read the full TOD offset; CVTTZ alone loses subsecond precision.
+  constexpr int64_t TOD_UNITS_PER_CS = 40960000;
+  const int64_t utc_offset_cs = local_offset_tod / TOD_UNITS_PER_CS;
 
   for (int i = 0; i < entries; i++)
   {
@@ -1048,7 +1061,21 @@ void zjb_build_job_response(ZJB_JOB_INFO *PTR64 job_info, int entries, std::vect
     zjob.jobclass = jobclass;
     zjob.correlator = correlator;
     zjob.phase = job_info_next[i].statjqtr.sttrphaz;
+    const auto &execution = job_info_next[i].execution;
+    if (execution.system[0] != 0)
+    {
+      zjob.exec_system.assign(execution.system, sizeof(execution.system));
+      zut_rtrim(zjob.exec_system);
+    }
+    if (execution.member[0] != 0)
+    {
+      zjob.exec_member.assign(execution.member, sizeof(execution.member));
+      zut_rtrim(zjob.exec_member);
+    }
+    zjob.exec_submitted = zjb_detail::format_timestamp(execution.submitted.date, execution.submitted.time, utc_offset_cs);
+    zjob.exec_started = zjb_detail::format_timestamp(execution.started.date, execution.started.time, utc_offset_cs);
+    zjob.exec_ended = zjb_detail::format_timestamp(execution.ended.date, execution.ended.time, utc_offset_cs);
 
-    jobs.push_back(zjob);
+    jobs.push_back(std::move(zjob));
   }
 }

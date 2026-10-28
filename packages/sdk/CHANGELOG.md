@@ -6,11 +6,14 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- Added an optional `dsn` field to `exportCertificate`/`importCertificate` (RPC), letting a certificate be exported to, or imported from, a sequential data set or PDS/E member. `importCertificate`'s `file` field is now optional since `dsn` can satisfy it instead. [#1126](https://github.com/zowe/zowex/pull/1126)
+- Added optional z/OSMF-compatible execution fields to job list and status response types, including `execSubmitted` and `execEnded` for submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
 - BugFix: Censored sensitive info when logging RPC request and response details in ZSshClient. [#1190](https://github.com/zowe/zo/pull/1190)
+- Added support for the `deleteVsam` command to delete VSAM clusters with optional erase and purge behavior. [#490](https://github.com/zowe/zowex/issues/490)
+- Fixed SSH utility helper functions closing their connection before asynchronous operations completed when passing an `SshSession`. [#1195](https://github.com/zowe/zo/issues/1195)
 
 ## `1.0.2`
 
-- Added an optional `dsn` field to `exportCertificate`/`importCertificate` (RPC), letting a certificate be exported to, or imported from, a sequential data set or PDS/E member. `importCertificate`'s `file` field is now optional since `dsn` can satisfy it instead. [#1126](https://github.com/zowe/zowex/pull/1126)
 - Fixed an error when issuing streamed RPC requests to a `zo` server running in Bash shell. [#1155](https://github.com/zowe/zowex/pull/1155)
 - Updated RPC command method signatures so that the parameters object is optional when none of the request properties are required. [#1174](https://github.com/zowe/zowex/pull/1174)
 - Added `SessionContext` class to cache SSH connections so they can be reused across utility methods. [#1144](https://github.com/zowe/zowex/pull/1144)

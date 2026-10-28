@@ -30,6 +30,11 @@ struct ZJob
   std::string type;
   std::string jobclass;
   int phase;
+  std::string exec_system;
+  std::string exec_member;
+  std::string exec_submitted;
+  std::string exec_started;
+  std::string exec_ended;
 };
 
 struct ZJobDD

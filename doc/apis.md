@@ -30,6 +30,7 @@
 | Copy data set            | ✅              | ❌   | ✅               | ✅              | ❌                  | ✅              | ✅              | ✅       |
 | Compress data set        | ➖              | ❌   | ✅               | ❌              | ❌                  | ❌              | ❌              | ❌       |
 | Search data sets         | 🚧 <sup>3</sup> | ❌   | 🚧 <sup>3</sup>  | ✅              | ❌                  | ✅              | ❌              | ✅       |
+| Resolve ALIAS data sets  | ✅              | ❌   | ✅               | ✅              | ❌                  | ✅              | ✅              | ✅       |
 | Invoke AMS (VSAM)        | ✅              | ❌   | 🚧 <sup>4</sup>  | ❌              | ❌                  | ❌              | ❌              | ➖       |
 
 1. RECFM=U (undefined record format) data sets are read-only; write attempts return an error.
@@ -82,6 +83,24 @@
 
 1. Does not support force, restart, dump, or purge.
 2. Zowe Explorer does not support the Job Hold/Release operation.
+
+### Job execution metadata
+
+`listJobs` items and `getJobStatus` responses include the following optional z/OSMF-compatible fields:
+
+| Field | Meaning |
+| --- | --- |
+| `execSystem` | z/OS system on which the job ran |
+| `execMember` | JES2 member on which the job ran |
+| `execSubmitted` | Submission timestamp (JES input end time); submitted-date sort key |
+| `execStarted` | Execution start timestamp |
+| `execEnded` | Execution end timestamp; completed-date sort key |
+
+Timestamps use UTC ISO 8601 format (`YYYY-MM-DDTHH:mm:ss.SSSZ`) and preserve JES centisecond precision.
+They can be compared lexicographically for chronological sorting. Unavailable fields are omitted;
+clients should place jobs without the selected timestamp last rather than treating them as epoch dates.
+Execution data requires a verbose JES status request, with additional I/O for each returned job.
+The existing table and CSV columns are unchanged; the execution fields are available in JSON output.
 
 ## Console
 
