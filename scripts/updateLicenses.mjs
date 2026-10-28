@@ -11,13 +11,13 @@
 const ansiColors = (await import("ansi-colors")).default;
 const fancyLog = (await import("fancy-log")).default;
 const fs = await import("fs");
-const fastGlob = (await import("fast-glob")).default;
 const os = await import("os");
+const { globSync } = await import("tinyglobby");
 
 // turn the license file into a multi line comment
 let alreadyContainedCopyright = 0;
 const header = fs.readFileSync("LICENSE_HEADER", "utf-8") + os.EOL + os.EOL;
-const paths = fastGlob.sync(
+const paths = globSync(
   ["{__mocks__,packages,__tests__,jenkins}{/**/*.js,/**/*.ts}"],
   {
     ignore: [
