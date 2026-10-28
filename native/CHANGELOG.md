@@ -7,7 +7,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## Recent Changes 
 
 - `c`: Unified `LOG_*` and `ZLOG_*` logging for command and server handlers using standard C++ file I/O, preserving per-user log paths, truncation, and bounded FIFO rotation while restricting Metal C logging to Debug builds. [#107](https://github.com/zowe/zowex/issues/107)
-- `c`: Validated log directories and file ownership before writing, rejected traversal and linked log targets, preserved the open append stream on rotation failure, and treated fatal exit messages as literal text. [#1204](https://github.com/zowe/zo/pull/1204)
+- `c`: Validated log directories and file ownership before writing, rejected traversal and linked log targets, preserved the open append stream on rotation failure, treated fatal exit messages as literal text, and made Metal C cleanup respect the configured log level. [#1204](https://github.com/zowe/zo/pull/1204)
 - `c`: Added additional error logging when zo fails to parse IDCAMS output while attempting to resolve a data set alias. [#1198](https://github.com/zowe/zo/pull/1198)
 - `c`: Added z/OSMF-compatible `execSystem`, `execMember`, `execSubmitted`, `execStarted`, and `execEnded` fields to job list and status JSON responses, enabling submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
 - `python`: Exposed job execution metadata and UTC timestamps through the job bindings. [#1187](https://github.com/zowe/zo/pull/1187)

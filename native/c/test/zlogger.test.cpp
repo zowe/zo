@@ -18,7 +18,6 @@
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -384,22 +383,45 @@ void fatal_message_tests()
     it("preserves percent sequences as text and exits with the requested status", []()
     {
       ScopedLogger scope;
-      std::fflush(nullptr);
-      const pid_t child = fork();
-      Expect(child).ToBeGreaterThan(static_cast<pid_t>(-1));
-      if (child == 0)
-      {
-        scope.logger.fatal("literal %%s %%n 100%%", 7);
-      }
-      int status = 0;
-      Expect(waitpid(child, &status, 0)).ToBe(child);
-      Expect(WIFEXITED(status)).ToBe(true);
-      Expect(WEXITSTATUS(status)).ToBe(7);
       scope.logger.shutdown();
-      Expect(read_file_contents(scope.command_path())).ToContain("literal %%s %%n 100%%");
+      std::string output;
+      std::string errors;
+      // A post-fork child of a threaded process must exec before using mutexes or stdio.
+      const int status = execute_command("./build-out/ztest_runner --zlogger-fatal", output, errors);
+      ExpectWithContext(status, errors).ToBe(7);
+      Expect(read_file_contents(scope.command_path())).ToContain("literal %s %n 100%");
     });
   });
 }
+
+#if defined(ZLOG_ENABLE) && defined(__MVS__)
+void metal_cleanup_tests()
+{
+  describe("ZLogger Metal cleanup", []()
+  {
+    it("filters cleanup diagnostics at the INFO boundary and at OFF", []()
+    {
+      for (LogLevel level : {ZLOGLEVEL_INFO, ZLOGLEVEL_WARN, ZLOGLEVEL_OFF})
+      {
+        ScopedLogger scope;
+        scope.logger.set_log_level(level);
+        Expect(ZLGGTLVL()).ToBe(static_cast<int>(level));
+        scope.logger.shutdown();
+
+        const std::string contents = read_file_contents(scope.dir + "/zowex_metal.log");
+        if (level == ZLOGLEVEL_INFO)
+        {
+          Expect(contents).ToContain("Metal C logger cleanup");
+        }
+        else
+        {
+          Expect(contents).ToBe(std::string());
+        }
+      }
+    });
+  });
+}
+#endif
 
 } // namespace
 
@@ -410,4 +432,7 @@ void zlogger_tests()
   concurrent_logging_tests();
   logger_shutdown_tests();
   fatal_message_tests();
+#if defined(ZLOG_ENABLE) && defined(__MVS__)
+  metal_cleanup_tests();
+#endif
 }
