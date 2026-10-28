@@ -88,7 +88,7 @@ void zo_tests()
        []() -> void
     {
       std::string response;
-      execute_command_with_output("cat ../build-out/zowex | wc -c", response);
+      execute_command_with_output("cat ../build-out/zo | wc -c", response);
       int file_size = std::stoi(response);
       ExpectWithContext(file_size, response).ToBeLessThan(10 * 1024 * 1024);
     });

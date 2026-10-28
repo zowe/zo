@@ -39,7 +39,7 @@ export interface ISshCallbacks {
 
 export interface IServerOnPathDetails {
     /**
-     * The absolute path of the zowex instance on the user's path, if any was detected.
+     * The absolute path of the zo instance on the user's path, if any was detected.
      */
     serverPath?: string;
     /**
@@ -310,7 +310,7 @@ export class ZSshUtils {
             const foundBin = findBinInOutput();
             if (foundBin) {
                 details.serverPath = foundBin;
-                Logger.getAppLogger().info(`[ZSshUtils] Found zowex executable at ${details.serverPath}`);
+                Logger.getAppLogger().info(`[ZSshUtils] Found zo executable at ${details.serverPath}`);
                 // should not need to use quotePath here since this is not based on user input
                 const testExecuteCmd = await ssh.execCommand(`${details.serverPath} -v`);
                 details.hasExecutePermission = testExecuteCmd.code === 0;

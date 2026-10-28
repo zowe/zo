@@ -178,9 +178,14 @@ export interface ExportCertificateRequest extends common.CommandRequest<"exportC
      */
     format?: string;
     /**
-     * Output file path on z/OS (required for p12)
+     * Output file path on z/OS (required for p12). Mutually exclusive with `dsn`.
      */
     file?: string;
+    /**
+     * Output data set on z/OS (sequential or PDS/E member), created if it does
+     * not exist. Mutually exclusive with `file`.
+     */
+    dsn?: string;
     /**
      * PKCS#12 passphrase (required when format is "p12")
      */
@@ -209,7 +214,11 @@ export interface ExportCertificateResponse extends common.CommandResponse {
      */
     file?: string;
     /**
-     * Number of bytes written to the output file
+     * Output data set name, when written to a data set
+     */
+    dsn?: string;
+    /**
+     * Number of bytes written to the output file or data set
      */
     bytesWritten?: number;
     /**
@@ -236,9 +245,14 @@ export interface ImportCertificateRequest extends common.CommandRequest<"importC
      */
     usage: string;
     /**
-     * Path to the source PKCS#12 file on z/OS
+     * Path to the source PKCS#12 file on z/OS. Mutually exclusive with `dsn`.
      */
-    file: string;
+    file?: string;
+    /**
+     * Source PKCS#12 data set on z/OS (sequential or PDS/E member). Mutually
+     * exclusive with `file`.
+     */
+    dsn?: string;
     /**
      * PKCS#12 passphrase
      */

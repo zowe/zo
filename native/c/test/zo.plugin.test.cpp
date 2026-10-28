@@ -51,7 +51,7 @@ void ensure_dir(const std::string &dir)
 
 void zo_plugin_tests()
 {
-  describe("zowex ZO_PLUGINS_DIR opt-in", []() -> void
+  describe("zo ZO_PLUGINS_DIR opt-in", []() -> void
   {
     it("does not load plug-ins from the legacy <exec_dir>/plugins fallback when ZO_PLUGINS_DIR is unset", []()
     {

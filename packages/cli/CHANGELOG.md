@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- Added `--dsn` to `zo system cert export`/`import`, letting a certificate be exported to, or imported from, a sequential data set or PDS/E member on the server instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - Added the `zowe zo delete vsam` command with `--erase` and `--purge` options to delete VSAM clusters over SSH. [#490](https://github.com/zowe/zowex/issues/490)
 
 ## `1.0.2`

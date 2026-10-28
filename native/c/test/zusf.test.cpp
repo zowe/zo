@@ -310,7 +310,7 @@ void zusf_tests()
 
       zusf_create_uss_file_or_dir(&zusf, source_file, 0664, CreateOptions());
       zusf_create_uss_file_or_dir(&zusf, dest_dir, 0400,
-                                  CreateOptions(true)); // TODO: this does not set permissions to 0400. why? `zowex uss
+                                  CreateOptions(true)); // TODO: this does not set permissions to 0400. why? `zo uss
                                                         // create-dir test_dir --mode 0400` works!
       // chmod must succeed for copy to fail
       ExpectWithContext(zusf_chmod_uss_file_or_dir(&zusf, dest_dir, 0400, true), zusf.diag.e_msg).ToBe(0);

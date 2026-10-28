@@ -14,7 +14,7 @@ chdsect = os.path.abspath(f"{C_PATH}/chdsect")
 ztype = os.path.abspath(C_PATH)
 build_out_path = f"{C_PATH}/build-out"
 
-# These sources are shared with zowex, which compiles them with the ibm-clang default EBCDIC
+# These sources are shared with zo, which compiles them with the ibm-clang default EBCDIC
 # execution charset. The SWIG's default CFLAGS -fzos-le-char-mode=ascii flip the charset and 
 # silently reinterprets every string literal. This break all EBCDIC control blocks it builds
 # and the Metal C routines it calls. Let's compile those translations in EBCDIC and leave the 
