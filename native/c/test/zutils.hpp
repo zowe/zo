@@ -82,6 +82,19 @@ public:
   operator std::string() const;
 };
 
+class TestVsamGuard
+{
+  std::string m_dsn;
+
+public:
+  explicit TestVsamGuard(const std::string &organization = "NONINDEXED", bool retained = false);
+  ~TestVsamGuard();
+  TestVsamGuard(const TestVsamGuard &) = delete;
+  TestVsamGuard &operator=(const TestVsamGuard &) = delete;
+
+  const std::string &name() const;
+};
+
 // Data set creation helpers - convenience wrappers around zds_* functions
 // that use sensible defaults for test data sets
 void create_dsn_with_attrs(ZDS *zds, const std::string &dsn, const DS_ATTRIBUTES &attrs, const std::string &type_name);
