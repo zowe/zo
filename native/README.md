@@ -64,7 +64,7 @@ ZO_LOGS_DIR=/tmp/my-zowex-logs ./zo --it
 
 The `zo server` daemon rolls its log file over once it exceeds 100KB, keeping up to 10 generations (`zowex_server.log`, `zowex_server.log.1`, ..., `zowex_server.log.9`) in FIFO order — the oldest generation is dropped to make room for the newest, bounding total disk usage per user to roughly 1MB.
 
-### PKCS#12 certificate export security
+### PKCS#12 certificate export
 
 `zo system cert export --format p12` protects the private key and certificates with
 PBES2/AES-256-CBC, PBKDF2-HMAC-SHA-256, and a SHA-256 integrity MAC. It does not
@@ -78,17 +78,12 @@ Prerequisites for PKCS#12 export:
 - Active ICSF. Where CSFSERV profiles protect the callable services, the exporting
   user needs READ access to `CSF1GSK`, `CSF1GAV`, and `CSF1TRD`.
 - An 8–128-character passphrase representable in 7-bit ASCII, supplied through
-  `--password`. These are System SSL compatibility bounds, not a strength guarantee.
-  Use a long, unique, randomly generated passphrase; never reuse a published example.
+  `--password`.
 - An importing application that supports PBES2/AES-256 PKCS#12 bundles. System SSL
   importers need the corresponding OA64899 support and active ICSF as well.
 
-An attacker who obtains the bundle can guess its passphrase offline even with
-AES-256. System SSL controls the KDF work factor; this API does not expose an
-iteration-count parameter. Keep exported bundles and backups access-restricted,
-and transmit the passphrase separately through a secure channel. Exported USS
-files remain owner-read/write only (`0600`); permissions do not protect copies
-after they leave that filesystem.
+System SSL controls the KDF work factor; `zo` does not expose an iteration-count
+option. Exported USS files remain owner-read/write only (`0600`).
 
 PEM export contains no private key and does not require these PBES2/ICSF prerequisites.
 See IBM's [`gsk_export_key()` reference](https://www.ibm.com/docs/en/zos/3.2.0?topic=reference-gsk-export-key)
