@@ -60,6 +60,9 @@ void register_ds_commands(CommandDispatcher &dispatcher)
   dispatcher.register_command("deleteDataset",
                               create_ds_builder(ds::handle_data_set_delete)
                                   .validate<DeleteDatasetRequest, DeleteDatasetResponse>());
+  dispatcher.register_command("deleteVsam",
+                              create_ds_builder(ds::handle_vsam_delete)
+                                  .validate<DeleteVsamRequest, DeleteVsamResponse>());
   dispatcher.register_command("listDatasets",
                               CommandBuilder(ds::handle_data_set_list)
                                   .validate<ListDatasetsRequest, ListDatasetsResponse>()
