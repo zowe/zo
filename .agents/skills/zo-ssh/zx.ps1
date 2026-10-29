@@ -381,7 +381,7 @@ function Get-PipeOption([string]$name) {
   return $null
 }
 function New-PipeServer([string]$name) {
-  # Fails closed: the pipe carries commands that run on z/OS, so never fall back to a default DACL.
+  # Fails closed: the pipe carries commands that run on z/OS, so never fall back to a default DACL
   $dir  = [IO.Pipes.PipeDirection]::InOut
   $mode = [IO.Pipes.PipeTransmissionMode]::Byte
   $opts = [IO.Pipes.PipeOptions]::None
