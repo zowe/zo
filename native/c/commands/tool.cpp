@@ -147,6 +147,11 @@ int handle_tool_search(InvocationContext &context)
   }
 
   std::transform(parms.begin(), parms.end(), parms.begin(), ::toupper);
+  // Omit page breaks for programmatic callers like RPC that parse the listing
+  if (context.is_redirecting_output() && parms.find("NOPRTCC") == std::string::npos)
+  {
+    parms += parms.empty() ? "NOPRTCC" : ",NOPRTCC";
+  }
 
   // Perform search
   rc = zut_search(parms);

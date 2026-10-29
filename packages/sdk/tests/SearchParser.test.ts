@@ -159,4 +159,52 @@ describe("parseSearchOutput", () => {
         expect(result.members).toHaveLength(1);
         expect(result.members[0].name).toBe("IEFBR14");
     });
+
+    it("should keep the member name across SuperC page breaks", () => {
+        const output = [
+            "\f  ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/10/05  16.41    PAGE     5",
+            " LINE-#  SOURCE SECTION                    SRCH DSN: SYS1.MACLIB",
+            "",
+            " IHASDWA                     --------- STRING(S) FOUND -------------------",
+            "",
+            "        65  */*     AN ESTAE-TYPE RECOVERY ROUTINE IF REGISTER 0 DOES NOT    */",
+            "      1121  SDWATEST EQU  2        ESTAE/I/X WAS GIVEN CONTROL               @L4A",
+            "\f  ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/10/05  16.41    PAGE     6",
+            " LINE-#  SOURCE SECTION                    SRCH DSN: SYS1.MACLIB",
+            "",
+            "      1146  *                      ON ENTRY TO AN ESTAE: 0                   @G860P38",
+            "      1190  *   FRR PERCOLATION AND ARE ZEROED ON RTM2 ESTAE PERCOLATION.",
+            "\f  ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/10/05  16.41    PAGE     7",
+            "     SEARCH-FOR SUMMARY SECTION            SRCH DSN: SYS1.MACLIB",
+            "",
+            "LINES-FOUND  LINES-PROC  MEMBERS-W/LNS  MEMBERS-WO/LNS  COMPARE-COLS  LONGEST-LINE",
+            "         4          200            1              10           1:80           80",
+        ].join("\n");
+
+        const result = parseSearchOutput(output);
+
+        expect(result.members).toHaveLength(1);
+        expect(result.members[0].name).toBe("IHASDWA");
+        expect(result.members[0].matches.map((m) => m.lineNumber)).toEqual([65, 1121, 1146, 1190]);
+        expect(result.summary.linesFound).toBe(4);
+        expect(result.summary.membersWithLines).toBe(1);
+    });
+
+    it("should keep sequential data set matches together across SuperC page breaks", () => {
+        const output = [
+            " LINE-#  SOURCE SECTION                    SRCH DSN: IBMUSER.SEQ",
+            "",
+            "         1  //IEFBR14$ JOB (IZUACCT),'Some User',REGION=0M",
+            "\f  ASMFSUPC    -     MVS FILE/LINE/WORD/BYTE/SFOR COMPARE UTILITY- V1R6M0  (2021/11/01)  2026/10/05  16.41    PAGE     2",
+            " LINE-#  SOURCE SECTION                    SRCH DSN: IBMUSER.SEQ",
+            "",
+            "         9  //STEP1    EXEC PGM=IEFBR14",
+        ].join("\n");
+
+        const result = parseSearchOutput(output);
+
+        expect(result.members).toHaveLength(1);
+        expect(result.members[0].name).toBeUndefined();
+        expect(result.members[0].matches.map((m) => m.lineNumber)).toEqual([1, 9]);
+    });
 });
