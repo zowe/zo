@@ -11,7 +11,7 @@
 
 #include "worker.hpp"
 #include "rpc_server.hpp"
-#include "logger.hpp"
+#include "../zlogger.hpp"
 #include <thread>
 #include <chrono>
 #include <algorithm>
@@ -781,7 +781,7 @@ void WorkerPool::enforce_detached_worker_limit()
   // Flush the log before leaving. _exit() rather than exit(): we are on the
   // supervisor thread, and the atexit handler would call shutdown(), which joins
   // the supervisor thread and would therefore deadlock on itself.
-  server::Logger::shutdown();
+  ZLogger::get_instance().shutdown();
   _exit(kDetachedWorkerLimitExitCode);
 }
 

@@ -6,11 +6,13 @@ The following sections relate to code in the `native/c` folder.
 
 ### Logging
 
-The C++ application includes a ZLogger singleton class for centralized logging. When `ZLOG_ENABLE` is defined during compilation, the logger automatically creates a `.zowex/logs/` directory in the current user's home directory and writes log output to `~/.zowex/logs/zowex.log`. Logs are written per-user (rather than to a location shared by all users of the binary, such as next to the executable) so that concurrent users of a shared `zo` installation don't contend for the same log file. The `zo server` daemon similarly writes its logs to `~/.zowex/logs/zowex_server.log`.
+The C++ application uses `ZLogger` for command and server logging in every build, without requiring Metal C. Both `LOG_*` and `ZLOG_*` macros are available from `zlogger.hpp`, including in shared command handlers. Ordinary commands write to `~/.zowex/logs/zowex.log`; `ZServer::run` selects server mode before starting workers, so server and handler messages share `~/.zowex/logs/zowex_server.log`. Logs remain per-user, with newly created directories restricted to `0700` and files to `0600`.
 
-`ZLOG_ENABLE` is defined when building in debug mode with `make -DBuildType=DEBUG`. You can exclusively enable logging by passing it directly to the make command: `make -DZLOG_ENABLE=1`
+Only Debug builds (`make -DBuildType=DEBUG`) define `ZLOG_ENABLE`, enabling the Metal C instrumentation macros and linking their logger. Metal C records use a separate `zowex_metal.log` file so BSAM cannot overwrite C++ logs. C++ messages always use standard file I/O, even in Debug builds. The former `make -DZLOG_ENABLE=1` option is no longer needed for C++ logging and does not enable Metal C instrumentation outside Debug builds.
 
-Once enabled, you can insert log statements into your source code by making calls to the logger class:
+When switching build types, force a rebuild with `make -u -DBuildType=DEBUG` or `make -u -DBuildType=RELEASE`; object files share an output directory.
+
+You can call the logger directly:
 
 ```cpp
 int main() {
@@ -21,7 +23,8 @@ int main() {
 Or, you can use the macros:
 
 ```cpp
-ZLOG_TRACE("This is also a trace message");
+LOG_INFO("Command progress: %d records processed", count);
+ZLOG_TRACE("Detailed command diagnostics");
 ```
 
 Metal C has a similar set of macros in the format `ZLOGXMSG`:
@@ -49,11 +52,11 @@ The logger supports the following log levels (in order of verbosity):
 Set the log level for `zo` using the `ZO_LOG_LEVEL` environment variable:
 
 ```bash
-# Start zowex in interactive mode with log level "TRACE"
+# Start zo in interactive mode with log level "TRACE"
 ZO_LOG_LEVEL=TRACE ./zo --it
 ```
 
-To modify the log level programmatically in C++ code, use the `ZLogger::set_log_level` function. To change the log level in Metal C code, use the `ZLGSTLVL` function defined in `zlogger_metal.h`. Both functions take an integer from the enum `zlog_level_t` (also redefined as `LogLevel` in the C++ header file).
+`ZO_LOG_LEVEL` applies to both command and server mode and takes precedence over the server's `--verbose` option. Without an explicit level, the default is `INFO`, or `DEBUG` for `zo server --verbose`. Level names are case-insensitive; `WARNING` is accepted as an alias for `WARN`. `OFF` disables file messages. To change the level programmatically, use `ZLogger::set_log_level(LogLevel)`. In Debug builds this also updates the Metal C level; `ZLGSTLVL` changes only the Metal C level. `ZLOG_FATAL` writes a fatal diagnostic without exiting; `LOG_FATAL` also prints to stderr and exits with status 1.
 
 Override where log files are written using the `ZO_LOGS_DIR` environment variable. This is useful for shared installations where users may not have write access to the default location, or for redirecting logs elsewhere for troubleshooting:
 
@@ -62,7 +65,11 @@ Override where log files are written using the `ZO_LOGS_DIR` environment variabl
 ZO_LOGS_DIR=/tmp/my-zowex-logs ./zo --it
 ```
 
-The `zo server` daemon rolls its log file over once it exceeds 100KB, keeping up to 10 generations (`zowex_server.log`, `zowex_server.log.1`, ..., `zowex_server.log.9`) in FIFO order — the oldest generation is dropped to make room for the newest, bounding total disk usage per user to roughly 1MB.
+Relative log directories are resolved against the current working directory. Paths containing `..` components or control characters are rejected before creating directories. The canonical log directory must belong to the effective user and must not be group- or world-writable; invalid locations disable logging rather than falling back to another directory. C++ log files must be regular, singly linked files owned by that user. Their open descriptors are checked before any truncation or output, so symbolic or hard links cannot redirect log writes.
+
+Both C++ logs append by default and roll over after exceeding 100 KiB, keeping one active file and nine backups (`.1` through `.9`) in FIFO order, roughly 1 MiB per log. If archiving the active file fails, logging continues through the existing append stream rather than reopening or truncating it; data preservation takes precedence over the size limit. A persistent rotation failure warns once after the active file exceeds twice the limit. Formatted C++ messages are bounded to 4095 bytes. The `fatal(message, exit_code)` overload treats its message as literal text, including percent sequences, and exits with the requested status.
+
+`ZLogger::initialize()` selects command mode and appends. `initialize_server(verbose, truncate)` selects server mode; `truncate` defaults to `false`, and explicitly setting it to `true` clears only the active server log, not its backups. `shutdown()` closes logging until either initialization method is called again. The Debug-only Metal C logger retains its BSAM record formatting and truncation behavior; it does not participate in C++ log rotation.
 
 ### Testing
 

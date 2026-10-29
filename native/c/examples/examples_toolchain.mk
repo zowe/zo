@@ -74,10 +74,13 @@ MTL_FLAGS+=-g1
 MTL_FLAGS64+=-g1
 .END
 
-# Apply LOG_FLAGS if enabled
-.IF DEFINED(LOG_FLAGS)
+# Apply the shared DEBUG-only Metal instrumentation convention.
+.IF $(BuildType) == DEBUG
 C_FLAGS+=$(LOG_FLAGS)
 CPP_FLAGS+=$(LOG_FLAGS)
 MTL_FLAGS+=$(LOG_FLAGS)
 MTL_FLAGS64+=$(LOG_FLAGS)
+METAL_LOGGER_OBJ=$(OUT_DIR)/zlogger_metal.o
+.ELSE
+METAL_LOGGER_OBJ=
 .END

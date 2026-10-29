@@ -12,7 +12,7 @@
 #include "worker.test.hpp"
 #include "../ztest.hpp"
 #include "../../server/worker.hpp"
-#include "../../server/logger.hpp"
+#include "../../zlogger.hpp"
 
 #include <string>
 #include <stdexcept>

@@ -85,16 +85,10 @@ CPP_FLAGS_BASE=$(TARGET_FLAGS) -fvisibility=default -c -std=gnu++17 -fno-aligned
 SWIG_FLAGS_BASE=-DSWIG $(CPP_FLAGS_BASE)
 
 #
-# Logging support
-#
-.IF $(ZLOG_ENABLE) == 1
-LOG_FLAGS=-DZLOG_ENABLE
-.END
-
-#
 # Build type handling (DEBUG, RELEASE, or default for dev)
 #
 .IF $(BuildType) == DEBUG
+# Enable only Metal C instrumentation; C++ logging is always available.
 LOG_FLAGS=-DZLOG_ENABLE
 DEBUGGER_FLAGS=-g
 OTHER_C_FLAGS=-H -dM

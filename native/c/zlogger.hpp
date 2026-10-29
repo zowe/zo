@@ -12,158 +12,347 @@
 #ifndef ZLOGGER_HPP
 #define ZLOGGER_HPP
 
-#include <cstdio>
-#include <cstdarg>
-#include <string>
-#include <cstdlib>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <cerrno>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <fcntl.h>
 #include <iostream>
+#include <mutex>
+#include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "singleton.hpp"
 #include "zlogger_metal.h"
 #include "zlog_util.hpp"
 
 typedef zlog_level_t LogLevel;
 
-/**
- * ZLogger singleton class for centralized logging
- */
 class ZLogger : public Singleton<ZLogger>
 {
   friend class Singleton<ZLogger>;
 
 private:
-  bool m_initialized;
+  static constexpr size_t LOG_BUFFER_SIZE = 4096;
+  static constexpr size_t MAX_LOG_FILE_SIZE = 100 * 1024;
+  static constexpr int MAX_LOG_FILES = 10;
 
-protected:
-  ZLogger()
-      : m_initialized(false)
-  {
-#ifdef ZLOG_ENABLE
-    initialize();
+  std::mutex m_log_mutex;
+  FILE *m_log_file = nullptr;
+  std::string m_log_file_path;
+  std::atomic<int> m_level;
+  std::atomic<bool> m_server_mode{false};
+  bool m_initialized = false;
+  bool m_pending_initialization = true;
+  bool m_rotation_stall_warned = false;
+#if defined(ZLOG_ENABLE) && defined(__MVS__)
+  bool m_metal_initialized = false;
 #endif
+
+  static int get_level_from_environment(int default_level)
+  {
+    const char *env_level = std::getenv("ZO_LOG_LEVEL");
+    if (!env_level || !*env_level)
+    {
+      return default_level;
+    }
+
+    std::string level(env_level);
+    std::transform(level.begin(), level.end(), level.begin(),
+                   [](unsigned char ch)
+    { return std::toupper(ch); });
+    if (level == "WARNING")
+    {
+      return ZLOGLEVEL_WARN;
+    }
+    for (int i = ZLOGLEVEL_TRACE; i <= ZLOGLEVEL_OFF; ++i)
+    {
+      if (level == get_level_name(static_cast<LogLevel>(i)))
+      {
+        return i;
+      }
+    }
+    return default_level;
   }
 
-  auto get_level_from_str(const std::string &level_str) -> int
+  static const char *get_level_name(LogLevel level)
   {
-    std::string upper_level = level_str;
-    std::transform(upper_level.begin(), upper_level.end(), upper_level.begin(), ::toupper);
-
-    int new_level = ZLOGLEVEL_INFO;
-    if (upper_level == "TRACE")
-    {
-      new_level = ZLOGLEVEL_TRACE;
-    }
-    else if (upper_level == "DEBUG")
-    {
-      new_level = ZLOGLEVEL_DEBUG;
-    }
-    else if (upper_level == "INFO")
-    {
-      new_level = ZLOGLEVEL_INFO;
-    }
-    else if (upper_level == "WARN" || upper_level == "WARNING")
-    {
-      new_level = ZLOGLEVEL_WARN;
-    }
-    else if (upper_level == "ERROR")
-    {
-      new_level = ZLOGLEVEL_ERROR;
-    }
-    else if (upper_level == "FATAL")
-    {
-      new_level = ZLOGLEVEL_FATAL;
-    }
-    else if (upper_level == "OFF")
-    {
-      new_level = ZLOGLEVEL_OFF;
-    }
-
-    return new_level;
+    static const char *const names[] = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "OFF"};
+    return names[level];
   }
 
-public:
-  /**
-   * Initialize the logger
-   * This function is called by the singleton constructor and should not be called directly unless for re-initialization
-   */
-  auto initialize() -> void
+  void write_timestamp()
   {
-    // Resolve and create the per-user logs directory (honors ZO_LOGS_DIR)
+    const auto now = time(nullptr);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    char timestamp[32];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    std::fputs(timestamp, m_log_file);
+  }
+
+  bool open_log_file(bool truncate)
+  {
+    struct stat previous;
+    const bool existed = lstat(m_log_file_path.c_str(), &previous) == 0;
+    if ((existed && (!S_ISREG(previous.st_mode) || previous.st_uid != geteuid() || previous.st_nlink != 1)) ||
+        (!existed && errno != ENOENT))
+    {
+      std::cerr << "Unsafe log file: " << m_log_file_path << std::endl;
+      return false;
+    }
+
+    // Open once, without truncation, and validate the descriptor before writing.
+    const int flags = O_WRONLY | O_APPEND | O_NONBLOCK | (existed ? 0 : O_CREAT | O_EXCL);
+    const int fd = open(m_log_file_path.c_str(), flags, 0600);
+    if (fd == -1)
+    {
+      std::cerr << "Failed to open log file: " << m_log_file_path << std::endl;
+      return false;
+    }
+    struct stat opened;
+    if (fstat(fd, &opened) != 0 || !S_ISREG(opened.st_mode) || opened.st_uid != geteuid() || opened.st_nlink != 1 ||
+        (existed && (opened.st_dev != previous.st_dev || opened.st_ino != previous.st_ino)))
+    {
+      close(fd);
+      std::cerr << "Log file changed while opening: " << m_log_file_path << std::endl;
+      return false;
+    }
+    if (truncate && ftruncate(fd, 0) != 0)
+    {
+      close(fd);
+      std::cerr << "Failed to truncate log file: " << m_log_file_path << std::endl;
+      return false;
+    }
+    m_log_file = fdopen(fd, "a");
+    if (!m_log_file)
+    {
+      close(fd);
+      std::cerr << "Failed to create log stream: " << m_log_file_path << std::endl;
+      return false;
+    }
+    return true;
+  }
+
+  void initialize_log_file(bool truncate)
+  {
+    m_pending_initialization = false;
     const std::string logs_dir = zlog_util::resolve_logs_dir();
-    if (!zlog_util::make_dirs(logs_dir))
+    if (!zlog_util::is_valid_logs_dir(logs_dir) || !zlog_util::make_dirs(logs_dir))
     {
       std::cerr << "Failed to create logs directory: " << logs_dir << std::endl;
       return;
     }
 
-    const std::string log_path_str = logs_dir + "/zowex.log";
-
-    // Check environment variable for log level
-    const char *env_level = std::getenv("ZO_LOG_LEVEL");
-    int initial_level = ZLOGLEVEL_INFO;
-    if (env_level)
+    char canonical_dir[PATH_MAX];
+    struct stat directory;
+    if (!realpath(logs_dir.c_str(), canonical_dir) || stat(canonical_dir, &directory) != 0 ||
+        !S_ISDIR(directory.st_mode) || directory.st_uid != geteuid() || (directory.st_mode & 0022) != 0)
     {
-      initial_level = get_level_from_str(env_level);
+      std::cerr << "Logs directory must be owned by the current user and not writable by others" << std::endl;
+      return;
     }
-    // Initialize Metal C logger with default path
-    m_initialized = ZLGINIT(log_path_str.c_str(), &initial_level) == 0;
-    if (!m_initialized)
+    m_log_file_path = std::string(canonical_dir) + (m_server_mode ? "/zowex_server.log" : "/zowex.log");
+    m_initialized = open_log_file(truncate);
+#if defined(ZLOG_ENABLE) && defined(__MVS__)
+    // BSAM must not share a file with the C++ append stream.
+    const std::string metal_path = std::string(canonical_dir) + "/zowex_metal.log";
+    int level = m_level.load(std::memory_order_relaxed);
+    m_metal_initialized = ZLGINIT(metal_path.c_str(), &level) == 0;
+    if (!m_metal_initialized)
     {
       std::cerr << "Failed to initialize Metal C logger" << std::endl;
+    }
+#endif
+  }
+
+  void close_log_file()
+  {
+    if (m_log_file)
+    {
+      std::fclose(m_log_file);
+      m_log_file = nullptr;
+    }
+    m_initialized = false;
+#if defined(ZLOG_ENABLE) && defined(__MVS__)
+    if (m_metal_initialized)
+    {
+      ZLGCLEAN();
+      m_metal_initialized = false;
+    }
+#endif
+  }
+
+  void configure(bool server_mode, bool verbose, bool truncate)
+  {
+    close_log_file();
+    m_server_mode.store(server_mode, std::memory_order_relaxed);
+    m_level.store(get_level_from_environment(verbose ? ZLOGLEVEL_DEBUG : ZLOGLEVEL_INFO), std::memory_order_relaxed);
+    m_rotation_stall_warned = false;
+    initialize_log_file(truncate);
+  }
+
+  // Never replace the active log unless it has been archived successfully.
+  bool rotate_log_files()
+  {
+    const std::string oldest = m_log_file_path + "." + std::to_string(MAX_LOG_FILES - 1);
+    unlink(oldest.c_str());
+    for (int i = MAX_LOG_FILES - 2; i >= 1; --i)
+    {
+      const std::string from = m_log_file_path + "." + std::to_string(i);
+      const std::string to = m_log_file_path + "." + std::to_string(i + 1);
+      rename(from.c_str(), to.c_str());
+    }
+
+    const std::string first_backup = m_log_file_path + ".1";
+    if (rename(m_log_file_path.c_str(), first_backup.c_str()) != 0)
+    {
+      std::cerr << "Failed to archive log file to " << first_backup << ": " << strerror(errno) << std::endl;
+      return false;
+    }
+    return true;
+  }
+
+  void check_and_rotate_log_file()
+  {
+    struct stat st;
+    if (fstat(fileno(m_log_file), &st) != 0 || static_cast<size_t>(st.st_size) <= MAX_LOG_FILE_SIZE)
+    {
       return;
+    }
+
+    if (!rotate_log_files())
+    {
+      if (!m_rotation_stall_warned && static_cast<size_t>(st.st_size) > 2 * MAX_LOG_FILE_SIZE)
+      {
+        write_timestamp();
+        std::fprintf(m_log_file, " [WARN] Log rotation has been failing repeatedly; file size (%lld"
+                                 " bytes) exceeds twice the configured limit\n",
+                     static_cast<long long>(st.st_size));
+        std::fflush(m_log_file);
+        m_rotation_stall_warned = true;
+      }
+      return;
+    }
+
+    std::fclose(m_log_file);
+    m_log_file = nullptr;
+    m_rotation_stall_warned = false;
+    m_initialized = open_log_file(true);
+    if (m_initialized)
+    {
+      write_timestamp();
+      std::fputs(" [INFO] Log file rolled over due to size limit\n", m_log_file);
+      std::fflush(m_log_file);
     }
   }
 
-  /**
-   * Set the default log level for the logger
-   */
-  auto set_log_level(LogLevel level) -> void
+  bool should_log(LogLevel level) const
   {
+    return level >= ZLOGLEVEL_TRACE && level < ZLOGLEVEL_OFF && level >= m_level.load(std::memory_order_relaxed);
+  }
+
+  void write_message(LogLevel level, const char *message)
+  {
+    const std::lock_guard<std::mutex> lock(m_log_mutex);
+    if (!should_log(level))
+    {
+      return;
+    }
+    if (m_pending_initialization)
+    {
+      initialize_log_file(false);
+    }
     if (!m_initialized)
     {
       return;
     }
 
-    int level_value = level;
-    ZLGSTLVL(&level_value);
+    write_timestamp();
+    std::fprintf(m_log_file, " [%s] %s\n", get_level_name(level), message);
+    std::fflush(m_log_file);
+    check_and_rotate_log_file();
   }
 
-  /**
-   * Get the current default log level
-   */
-  auto get_log_level() const -> int
+protected:
+  ZLogger() : m_level(get_level_from_environment(ZLOGLEVEL_INFO))
   {
-    if (!m_initialized)
+#if defined(ZLOG_ENABLE) && defined(__MVS__)
+    initialize();
+#endif
+  }
+
+public:
+  ~ZLogger()
+  {
+    shutdown();
+  }
+
+  void initialize()
+  {
+    const std::lock_guard<std::mutex> lock(m_log_mutex);
+    configure(false, false, false);
+  }
+
+  void initialize_server(bool verbose = false, bool truncate = false)
+  {
+    const std::lock_guard<std::mutex> lock(m_log_mutex);
+    configure(true, verbose, truncate);
+  }
+
+  bool is_server_mode() const
+  {
+    return m_server_mode.load(std::memory_order_relaxed);
+  }
+
+  bool is_verbose_logging() const
+  {
+    return get_log_level() <= ZLOGLEVEL_DEBUG;
+  }
+
+  void set_log_level(LogLevel level)
+  {
+    const std::lock_guard<std::mutex> lock(m_log_mutex);
+    m_level.store(level, std::memory_order_relaxed);
+#if defined(ZLOG_ENABLE) && defined(__MVS__)
+    if (m_metal_initialized)
     {
-      return ZLOGLEVEL_OFF;
+      int level_value = level;
+      ZLGSTLVL(&level_value);
     }
-    return ZLGGTLVL();
+#endif
   }
 
-  /**
-   * Log a message at the specified level
-   */
-  /**
-   * Internal logging function that takes va_list
-   */
-  auto vlog(LogLevel level, const char *format, va_list args) -> void
+  int get_log_level() const
   {
-    if (level == ZLOGLEVEL_OFF || level < get_log_level() || !m_initialized)
+    return m_level.load(std::memory_order_relaxed);
+  }
+
+  void shutdown()
+  {
+    const std::lock_guard<std::mutex> lock(m_log_mutex);
+    close_log_file();
+    m_pending_initialization = false;
+    m_level.store(ZLOGLEVEL_OFF, std::memory_order_relaxed);
+  }
+
+  void vlog(LogLevel level, const char *format, va_list args)
+  {
+    if (!format || !should_log(level))
     {
       return;
     }
-
-    int level_value = level;
-    char buffer[4096] = {0};
+    char buffer[LOG_BUFFER_SIZE];
     vsnprintf(buffer, sizeof(buffer), format, args);
-    ZLGWRITE(&level_value, buffer);
+    write_message(level, buffer);
   }
 
-  /**
-   * Main logging function with variadic arguments
-   */
-  auto log(LogLevel level, const char *format, ...) -> void
+  void log(LogLevel level, const char *format, ...)
   {
     va_list args;
     va_start(args, format);
@@ -171,10 +360,7 @@ public:
     va_end(args);
   }
 
-  /**
-   * Log helper functions for each level
-   */
-  auto trace(const char *format, ...) -> void
+  void trace(const char *format, ...)
   {
     va_list args;
     va_start(args, format);
@@ -182,7 +368,7 @@ public:
     va_end(args);
   }
 
-  auto debug(const char *format, ...) -> void
+  void debug(const char *format, ...)
   {
     va_list args;
     va_start(args, format);
@@ -190,7 +376,7 @@ public:
     va_end(args);
   }
 
-  auto info(const char *format, ...) -> void
+  void info(const char *format, ...)
   {
     va_list args;
     va_start(args, format);
@@ -198,7 +384,7 @@ public:
     va_end(args);
   }
 
-  auto warn(const char *format, ...) -> void
+  void warn(const char *format, ...)
   {
     va_list args;
     va_start(args, format);
@@ -206,7 +392,7 @@ public:
     va_end(args);
   }
 
-  auto error(const char *format, ...) -> void
+  void error(const char *format, ...)
   {
     va_list args;
     va_start(args, format);
@@ -214,7 +400,7 @@ public:
     va_end(args);
   }
 
-  auto fatal(const char *format, ...) -> void
+  void fatal(const char *format, ...)
   {
     va_list args;
     va_start(args, format);
@@ -222,33 +408,40 @@ public:
     va_end(args);
   }
 
-  auto fatal(const char *format, int exit_code) -> void
+  void fatal(const char *message, int exit_code)
   {
-    log(ZLOGLEVEL_FATAL, format);
+    if (message)
+    {
+      log(ZLOGLEVEL_FATAL, "%s", message);
+    }
     std::exit(exit_code);
+  }
+
+  [[noreturn]] void fatal_exit(const char *format, ...)
+  {
+    char buffer[LOG_BUFFER_SIZE];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    write_message(ZLOGLEVEL_FATAL, buffer);
+    std::cerr << "FATAL: " << buffer << std::endl;
+    std::exit(1);
   }
 };
 
-/**
- * Convenience macros for easier logging usage
- * These macros are gated by ZLOG_ENABLE - if not defined during compilation,
- * all logging operations become no-ops with zero overhead.
- */
-#ifdef ZLOG_ENABLE
 #define ZLOG_TRACE(...) ZLogger::get_instance().trace(__VA_ARGS__)
 #define ZLOG_DEBUG(...) ZLogger::get_instance().debug(__VA_ARGS__)
 #define ZLOG_INFO(...) ZLogger::get_instance().info(__VA_ARGS__)
 #define ZLOG_WARN(...) ZLogger::get_instance().warn(__VA_ARGS__)
 #define ZLOG_ERROR(...) ZLogger::get_instance().error(__VA_ARGS__)
-#define ZLOG_FATAL(...) ZLogger::get_instance().fatal(__VA_ARGS__)
-#else
-/* When ZLOG_ENABLE is not defined, logging macros become no-ops */
-#define ZLOG_TRACE(...) ((void)0)
-#define ZLOG_DEBUG(...) ((void)0)
-#define ZLOG_INFO(...) ((void)0)
-#define ZLOG_WARN(...) ((void)0)
-#define ZLOG_ERROR(...) ((void)0)
-#define ZLOG_FATAL(...) ((void)0)
-#endif /* ZLOG_ENABLE */
+#define ZLOG_FATAL(...) ZLogger::get_instance().log(ZLOGLEVEL_FATAL, __VA_ARGS__)
+
+#define LOG_TRACE(...) ZLogger::get_instance().trace(__VA_ARGS__)
+#define LOG_DEBUG(...) ZLogger::get_instance().debug(__VA_ARGS__)
+#define LOG_INFO(...) ZLogger::get_instance().info(__VA_ARGS__)
+#define LOG_WARN(...) ZLogger::get_instance().warn(__VA_ARGS__)
+#define LOG_ERROR(...) ZLogger::get_instance().error(__VA_ARGS__)
+#define LOG_FATAL(...) ZLogger::get_instance().fatal_exit(__VA_ARGS__)
 
 #endif // ZLOGGER_HPP

@@ -62,8 +62,8 @@ ADD_GIT_HASH=TRUE
 MTL_FLAGS+=-g1
 MTL_FLAGS64+=-g1
 
-# Apply LOG_FLAGS to all relevant compilation flags if logging is enabled
-.IF DEFINED(LOG_FLAGS)
+# Apply DEBUG-only Metal instrumentation flags, including C++ lifecycle callers.
+.IF $(BuildType) == DEBUG
 C_FLAGS+=$(LOG_FLAGS)
 CPP_FLAGS+=$(LOG_FLAGS)
 MTL_FLAGS+=$(LOG_FLAGS)
@@ -135,7 +135,7 @@ $(OUT_DIR)/zutm31.o: $(OUT_DIR)/zutm31.s
 #
 # Metal C Logger
 #
-.IF DEFINED(LOG_FLAGS)
+.IF $(BuildType) == DEBUG
 $(OUT_DIR)/zlogger_metal.s: zlogger_metal.c
 	@echo 'Building $(OUT_DIR)/zlogger_metal.s'
 	$(CC) $(MTL_FLAGS64) -qlist=$*.mtl.lst $(MTL_HEADERS) -o $@ $^
@@ -157,6 +157,8 @@ libzut.so: $(OUT_DIR) $(OUT_DIR)/libzut.so
 
 $(OUT_DIR)/libzut.a: $(OUT_DIR)/zut.o $(OUT_DIR)/zutm.o $(OUT_DIR)/zam.o $(OUT_DIR)/zam24.o $(OUT_DIR)/zutcall24.o $(OUT_DIR)/zutm31.o $(LIBZUT_LOGGER_OBJ)
 	@echo 'Building $(OUT_DIR)/libzut.a'
+	# Recreate the archive so a Release rebuild cannot retain the Debug-only logger.
+	rm -f $@
 	ar -rv $@ $^
 
 libzut.a: $(OUT_DIR) $(OUT_DIR)/libzut.a

@@ -13,7 +13,9 @@
 #define ZLOG_UTIL_HPP
 
 #include <cerrno>
+#include <cctype>
 #include <cstdlib>
+#include <limits.h>
 #include <pwd.h>
 #include <string>
 #include <sys/stat.h>
@@ -65,13 +67,33 @@ inline std::string to_absolute_path(const std::string &path)
     return path;
   }
 
-  char cwd[1024] = {0};
+  char cwd[PATH_MAX] = {0};
   if (getcwd(cwd, sizeof(cwd)) != nullptr)
   {
     return std::string(cwd) + "/" + path;
   }
 
-  return path;
+  return std::string();
+}
+
+// Reject traversal before mkdir: canonicalizing afterward would already have
+// created directories outside the requested tree.
+inline bool is_valid_logs_dir(const std::string &path)
+{
+  if (path.empty() || path[0] != '/' || path.size() >= PATH_MAX ||
+      path.find("/../") != std::string::npos ||
+      (path.size() >= 3 && path.compare(path.size() - 3, 3, "/..") == 0))
+  {
+    return false;
+  }
+  for (unsigned char ch : path)
+  {
+    if (std::iscntrl(ch))
+    {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Creates each missing directory component of `path`, similar to `mkdir -p`.
@@ -114,7 +136,7 @@ inline bool make_dirs(const std::string &path)
 
 // Resolves the directory zo should write log files to. Honors
 // `ZO_LOGS_DIR` if set, otherwise defaults to `<home>/.zowex/logs`
-// Always returns an absolute path
+// Returns an absolute path, or an empty string if resolution fails.
 inline std::string resolve_logs_dir()
 {
   const char *override_dir = std::getenv("ZO_LOGS_DIR");
@@ -126,7 +148,7 @@ inline std::string resolve_logs_dir()
   const std::string home = get_home_dir();
   if (!home.empty())
   {
-    return strip_trailing_slashes(home) + "/.zowex/logs";
+    return to_absolute_path(strip_trailing_slashes(home) + "/.zowex/logs");
   }
 
   // Last resort if the home directory cannot be determined

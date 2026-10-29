@@ -13,7 +13,7 @@
 #include "rpcio.hpp"
 #include "dispatcher.hpp"
 #include "../json_output.hpp"
-#include "logger.hpp"
+#include "../zlogger.hpp"
 #include <iostream>
 
 ZJSON_DERIVE(RpcNotification, jsonrpc, method, params);
