@@ -27,7 +27,10 @@ The server binary is built once and deployed to every target system, so the targ
   case the server fails to load with `CEE3561S ... was not found in DLL CRTEQCXE`. Required APARs:
   - z/OS 2.5 - the Language Environment C++ runtime service for Open XL C/C++ (the `PH45516` APAR family)
   - z/OS 3.1 - `PH53938`, `PH60056`, `PH62468`, `PH68179`, per the IBM Z Distribution for Zowe program directory
-- An SSH login and a writable z/OS UNIX directory. No other server-side configuration is needed.
+- An SSH login and a writable z/OS UNIX directory.
+- **PKCS#12 certificate export:** System SSL with APAR OA64899 support and active ICSF. This support is available
+  on z/OS 2.5 and 3.1 with the applicable PTFs. See [certificate export security](./native/README.md#pkcs12-certificate-export-security)
+  for authorization and passphrase requirements.
 
 See [Troubleshooting](./doc/troubleshooting.md) if the server fails to start with a `CEE`-prefixed message.
 

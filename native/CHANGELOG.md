@@ -4,9 +4,10 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## Recent Changes
+## `1.1.0`
 
 - `c`: Secured default `zo tool ccnedsct` listings by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned `0700` directories under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
+- **Breaking:** `c`: Protected PKCS#12 certificate exports with PBES2/AES-256-CBC and PBKDF2-HMAC-SHA-256 instead of RC4/SHA-1, without an algorithm downgrade on failure. Export now requires System SSL APAR OA64899 support, active ICSF, and an 8–128-character passphrase; documented the need for strong, unique passphrases against offline guessing. [#1205](https://github.com/zowe/zo/pull/1205)
 - `c`: Added additional error logging when zo fails to parse IDCAMS output while attempting to resolve a data set alias. [#1198](https://github.com/zowe/zo/pull/1198)
 - `c`: Added z/OSMF-compatible `execSystem`, `execMember`, `execSubmitted`, `execStarted`, and `execEnded` fields to job list and status JSON responses, enabling submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
 - `python`: Exposed job execution metadata and UTC timestamps through the job bindings. [#1187](https://github.com/zowe/zo/pull/1187)

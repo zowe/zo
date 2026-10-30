@@ -10,7 +10,7 @@
  */
 
 // Generated via generateConstants.ts
-export const BUNDLED_SSH_SERVER_VERSION = "1.0.2";
+export const BUNDLED_SSH_SERVER_VERSION = "1.1.0";
 export const RUSSH_BINARY_SHA256: Record<string, string> = {
     "darwin-arm64": "0f646d389795d692d54733f8654527ccd5f1980678b5fe564cbef9eaa613065d",
     "darwin-x64": "29593bb59913956ce7c7837f0fc6e733fbb92e2bd863facdc124968fda48df35",

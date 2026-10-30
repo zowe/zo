@@ -1,6 +1,6 @@
 {
   "name": "zowex-for-zowe-cli",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "main": "lib/index.js",
   "scripts": {
     "build": "tsc -b",
@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@zowe/zos-uss-for-zowe-sdk": "^8.39.0",
-    "@zowe/zowex-for-zowe-sdk": "1.0.2",
+    "@zowe/zowex-for-zowe-sdk": "1.1.0",
     "terminal-kit": "^3.1.2"
   },
   "devDependencies": {
