@@ -25,7 +25,8 @@ try {
     execSync("npm install --ignore-scripts", execOptions);
 
     const sdkDir = path.join("node_modules", "@zowe/zowex-for-zowe-sdk");
-    fs.unlinkSync(path.join(tempDir, sdkDir));
+    // npm 12 installs this workspace link as a directory. unlink only removes a symlink.
+    fs.rmSync(path.join(tempDir, sdkDir), { recursive: true, force: true });
     fs.cpSync(fs.realpathSync(sdkDir), path.join(tempDir, sdkDir), { recursive: true });
     fs.rmSync(path.join(tempDir, "node_modules", "cpu-features"), { recursive: true, force: true });
     fs.rmSync(path.join(tempDir, "node_modules", "russh"), { recursive: true, force: true });
