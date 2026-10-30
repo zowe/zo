@@ -392,6 +392,8 @@ function New-PipeServer([string]$name) {
   }
   $sec  = New-Object IO.Pipes.PipeSecurity
   $me   = [Security.Principal.WindowsIdentity]::GetCurrent().User
+  # The client checks the owner SID; an elevated token can default to Administrators.
+  $sec.SetOwner($me)
   $rule = New-Object IO.Pipes.PipeAccessRule(
     $me, [IO.Pipes.PipeAccessRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
   $sec.AddAccessRule($rule)
