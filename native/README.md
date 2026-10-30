@@ -291,6 +291,10 @@ OR:
 - convert the file via `ccnedsct`, e.g. `zo tool ccnedsct --ad "<hlq>.adata(asasymbp)" --cd "<hlq>.chdr(asasymbp)"`
 - copy, download the `.h` file where needed, e.g. `zowe files download ds "<hlq>.chdr(asasymbp)" --file native/c/chdsect/asasymbp.h`
 
+By default, `zo tool ccnedsct` retains its SYSPRINT and SYSOUT listings in unique files under `~/.zowex/ccnedsct` and prints their paths. The `.zowex` and `ccnedsct` directories and the generated files are owned by the current user with mode `0700`.
+Existing output directories must already meet these requirements and must not be symlinks; the command fails rather than changing their permissions. The home directory must be user-owned, with trusted, non-group/world-writable parent directories.
+Use `--sysprint` and `--sysout` to choose explicit output paths; these overrides retain their existing create/truncate behavior. Remove retained listings when no longer needed.
+
 ### Recovery
 
 In order to use `ESTAEX`-type recovery, Language Environment (LE) must be enabled with `TRAP(ON,NOSPIE)`. Otherwise, `ESPIE` recovery will gain control in an

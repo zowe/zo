@@ -15,12 +15,15 @@
 #include "../zds.hpp"
 #include "../zjb.hpp"
 #include "../zuttype.h"
+#include "../zlog_util.hpp"
 #include "ihapsa.h"
 #include "ihaascb.h"
 #include "ihaassb.h"
 #include "iazjsab.h"
 #include <unistd.h>
 #include <map>
+#include <climits>
+#include <cstring>
 #include "../zdbg.h"
 
 using namespace parser;
@@ -29,31 +32,133 @@ using namespace commands::common;
 namespace tool
 {
 
+namespace
+{
+bool prepare_dsect_output_dir(std::string &path, std::ostream &error)
+{
+  const std::string home = zlog_util::get_home_dir();
+  char resolved_home[PATH_MAX];
+  if (home.empty() || realpath(home.c_str(), resolved_home) == nullptr)
+  {
+    error << "Error: cannot resolve the home directory for ccnedsct output" << std::endl;
+    return false;
+  }
+
+  // Validate the resolved home path from the root down.
+  for (char *end = resolved_home + 1;; ++end)
+  {
+    if (*end != '/' && *end != '\0')
+      continue;
+    const char separator = *end;
+    *end = '\0';
+    struct stat info{};
+    const bool trusted = lstat(resolved_home, &info) == 0 && S_ISDIR(info.st_mode) &&
+                         (info.st_uid == geteuid() || (separator != '\0' && info.st_uid == 0)) &&
+                         (info.st_mode & (S_IWGRP | S_IWOTH)) == 0;
+    *end = separator;
+    if (!trusted)
+    {
+      error << "Error: ccnedsct requires a user-owned home with trusted, non-group/world-writable directories"
+            << std::endl;
+      return false;
+    }
+    if (separator == '\0')
+      break;
+  }
+
+  path = zlog_util::strip_trailing_slashes(resolved_home);
+  if (path.find('\'') != std::string::npos)
+  {
+    error << "Error: ccnedsct output directory cannot contain a single quote" << std::endl;
+    return false;
+  }
+  for (const char *suffix : {"/.zowex", "/ccnedsct"})
+  {
+    path += suffix;
+    if (mkdir(path.c_str(), 0700) != 0 && errno != EEXIST)
+    {
+      error << "Error: cannot create ccnedsct output directory '" << path << "': " << strerror(errno) << std::endl;
+      return false;
+    }
+    struct stat info{};
+    if (lstat(path.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != geteuid() ||
+        (info.st_mode & 07777) != 0700)
+    {
+      error << "Error: ccnedsct output directory '" << path << "' must be user-owned, non-symlink, and mode 0700"
+            << std::endl;
+      return false;
+    }
+  }
+  return true;
+}
+
+bool create_dsect_output(std::string &path, std::ostream &error)
+{
+  const int fd = mkstemp(path.data());
+  if (fd == -1)
+  {
+    error << "Error: cannot create ccnedsct output '" << path << "': " << strerror(errno) << std::endl;
+    return false;
+  }
+  const int mode_rc = fchmod(fd, 0700);
+  const int mode_errno = errno;
+  const int close_rc = close(fd);
+  if (mode_rc != 0 || close_rc != 0)
+  {
+    const int saved_errno = mode_rc != 0 ? mode_errno : errno;
+    unlink(path.c_str());
+    error << "Error: cannot secure ccnedsct output '" << path << "': " << strerror(saved_errno) << std::endl;
+    return false;
+  }
+  return true;
+}
+} // namespace
+
 int handle_tool_convert_dsect(InvocationContext &context)
 {
   int rc = 0;
-  std::string resp;
+  const char *explicit_output_opts =
+      " pathopts(owronly,ocreat,otrunc) pathmode(sirusr,siwusr,sirgrp) filedata(text) msg(2)";
+  const char *private_output_opts = " pathopts(owronly) filedata(text) msg(2)";
 
   std::string adata_dsn = context.get<std::string>("adata-dsn", "");
   std::string chdr_dsn = context.get<std::string>("chdr-dsn", "");
   std::string sysprint = context.get<std::string>("sysprint", "");
   std::string sysout = context.get<std::string>("sysout", "");
 
-  const char *user = getlogin();
-  std::string struser(user);
-  std::transform(struser.begin(), struser.end(), struser.begin(), ::tolower);
-
-  if (sysprint.empty())
-    sysprint = "/tmp/" + struser + "_sysprint.txt";
-  if (sysout.empty())
-    sysout = "/tmp/" + struser + "_sysout.txt";
+  const bool default_sysprint = sysprint.empty();
+  const bool default_sysout = sysout.empty();
+  if (default_sysprint || default_sysout)
+  {
+    std::string output_dir;
+    if (!prepare_dsect_output_dir(output_dir, context.error_stream()))
+      return RTNCD_FAILURE;
+    if (default_sysprint)
+    {
+      sysprint = output_dir + "/sysprint.XXXXXX";
+      if (!create_dsect_output(sysprint, context.error_stream()))
+        return RTNCD_FAILURE;
+    }
+    if (default_sysout)
+    {
+      sysout = output_dir + "/sysout.XXXXXX";
+      if (!create_dsect_output(sysout, context.error_stream()))
+      {
+        if (default_sysprint)
+          unlink(sysprint.c_str());
+        return RTNCD_FAILURE;
+      }
+    }
+  }
 
   context.output_stream() << adata_dsn << " " << chdr_dsn << " " << sysprint << " " << sysout << std::endl;
 
   std::vector<std::string> dds;
   dds.reserve(4);
-  dds.push_back("alloc fi(sysprint) path('" + sysprint + "') pathopts(owronly,ocreat,otrunc) pathmode(sirusr,siwusr,sirgrp) filedata(text) msg(2)");
-  dds.push_back("alloc fi(sysout) path('" + sysout + "') pathopts(owronly,ocreat,otrunc) pathmode(sirusr,siwusr,sirgrp) filedata(text) msg(2)");
+  dds.push_back("alloc fi(sysprint) path('" + sysprint + "')" +
+                (default_sysprint ? private_output_opts : explicit_output_opts));
+  dds.push_back("alloc fi(sysout) path('" + sysout + "')" +
+                (default_sysout ? private_output_opts : explicit_output_opts));
   dds.push_back("alloc fi(sysadata) da('" + adata_dsn + "') shr msg(2)");
   dds.push_back("alloc fi(edcdsect) da('" + chdr_dsn + "') shr msg(2)");
 
@@ -484,10 +589,10 @@ void register_commands(parser::Command &root_command)
                                           "output chdr dsn", ArgType_Single, true);
   tool_convert_dsect_cmd->add_keyword_arg("sysprint",
                                           make_aliases("--sysprint", "--sp"),
-                                          "sysprint output", ArgType_Single, false);
+                                          "sysprint output (default: unique file in ~/.zowex/ccnedsct)", ArgType_Single, false);
   tool_convert_dsect_cmd->add_keyword_arg("sysout",
                                           make_aliases("--sysout", "--so"),
-                                          "sysout output", ArgType_Single, false);
+                                          "sysout output (default: unique file in ~/.zowex/ccnedsct)", ArgType_Single, false);
   tool_convert_dsect_cmd->set_handler(handle_tool_convert_dsect);
   tool_cmd->add_command(tool_convert_dsect_cmd);
 
