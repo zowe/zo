@@ -688,6 +688,113 @@ void zds_tests()
       });
     });
 
+    // Binary data has no line delimiters: a PDS member write must split it into
+    // LRECL-sized records instead of treating the payload as a single line.
+    describe("binary member write", [&]() -> void
+    {
+      // 3 FB/80 records of non-repeating bytes that include 0x15 (the native newline)
+      // to prove the payload is not split on newline bytes.
+      std::string binary_input;
+      for (int i = 0; i < 240; i++)
+      {
+        binary_input.push_back(static_cast<char>((i * 7 + 1) & 0xFF));
+      }
+      binary_input[10] = '\x15';
+      binary_input[100] = '\x15';
+
+      auto read_member_binary = [](const std::string &member) -> std::string
+      {
+        ZDS rzds = {0};
+        rzds.encoding_opts.data_type = eDataTypeBinary;
+        std::string out;
+        ZDSReadOpts ropts{.zds = &rzds, .dsname = member};
+        int rrc = zds_read(ropts, out);
+        ExpectWithContext(rrc, rzds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+        return out;
+      };
+
+      it("should write all records of a multi-record binary payload to a member (buffered)", [&]() -> void
+      {
+        ZDS zds = {0};
+        std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+        create_pds(&zds, dsn); // FB/80 PDS
+        std::string member = dsn + "(BIN)";
+
+        zds.encoding_opts.data_type = eDataTypeBinary;
+        ZDSWriteOpts wopts{.zds = &zds, .dsname = member};
+        int wrc = zds_write(wopts, binary_input);
+        ExpectWithContext(wrc, zds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+
+        const std::string out = read_member_binary(member);
+        Expect(out.size()).ToBe(binary_input.size());
+        Expect(out == binary_input).ToBe(true);
+      });
+
+      it("should write all records of a multi-record binary payload to a member (streamed)", [&]() -> void
+      {
+        ZDS zds = {0};
+        std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+        create_pds(&zds, dsn);
+        std::string member = dsn + "(BIN)";
+
+        std::string temp_file = "/tmp/zds_bin_stream_" + std::to_string(getpid());
+        std::ofstream temp_out(temp_file);
+        temp_out << zbase64::encode(binary_input);
+        temp_out.close();
+
+        zds.encoding_opts.data_type = eDataTypeBinary;
+        size_t content_len = 0;
+        ZDSWriteOpts wopts{.zds = &zds, .dsname = member};
+        int wrc = zds_write_streamed(wopts, temp_file, &content_len);
+        unlink(temp_file.c_str());
+        ExpectWithContext(wrc, zds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+        Expect(content_len).ToBe(binary_input.size());
+
+        const std::string out = read_member_binary(member);
+        Expect(out.size()).ToBe(binary_input.size());
+        Expect(out == binary_input).ToBe(true);
+      });
+
+      it("should keep records that exactly fill a VB block (BLKSIZE = LRECL + 4)", [&]() -> void
+      {
+        ZDS zds = {0};
+        std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        DS_ATTRIBUTES vb_attr{};
+        vb_attr.dsorg = "PO";
+        vb_attr.recfm = "VB";
+        vb_attr.lrecl = 80;
+        vb_attr.blksize = 84;
+        vb_attr.alcunit = "TRACKS";
+        vb_attr.primary = 5;
+        vb_attr.secondary = 5;
+        vb_attr.dirblk = 10;
+        std::string response;
+        ExpectWithContext(zds_create_dsn(&zds, dsn, vb_attr, response), zds.diag.e_msg).ToBe(0);
+        std::string member = dsn + "(BIN)";
+
+        // 3 records of 76 bytes, each one plus its RDW exactly fills a block after the BDW
+        std::string vb_input;
+        for (int i = 0; i < 228; i++)
+        {
+          vb_input.push_back(static_cast<char>((i * 7 + 1) & 0xFF));
+        }
+
+        zds.encoding_opts.data_type = eDataTypeBinary;
+        ZDSWriteOpts wopts{.zds = &zds, .dsname = member};
+        int wrc = zds_write(wopts, vb_input);
+        ExpectWithContext(wrc, zds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+
+        const std::string out = read_member_binary(member);
+        Expect(out.size()).ToBe(vb_input.size());
+        Expect(out == vb_input).ToBe(true);
+      });
+
+    });
+
     describe("copy datasets", [&]() -> void
     {
       DS_ATTRIBUTES pds_attr{};
