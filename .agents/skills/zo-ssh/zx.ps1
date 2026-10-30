@@ -290,9 +290,17 @@ function Test-Live {
   return ($proc.ProcessName -match '^(powershell|pwsh)$')
 }
 function Send-Pipe([string]$line, [int]$connectMs = 5000) {
-  $pipe = New-Object IO.Pipes.NamedPipeClientStream('.', (Get-PipeName), [IO.Pipes.PipeDirection]::InOut)
+  $cuo = Get-PipeOption 'CurrentUserOnly'
+  $copts = [IO.Pipes.PipeOptions]::None
+  if ($null -ne $cuo) { $copts = $cuo }
+  $pipe = New-Object IO.Pipes.NamedPipeClientStream('.', (Get-PipeName), [IO.Pipes.PipeDirection]::InOut, $copts)
   try {
     try { $pipe.Connect($connectMs) } catch { Die "cannot reach the session on pipe $(Get-PipeName) - try 'zx stop' then 'zx start'" }
+    if ($null -eq $cuo) {
+      $me    = [Security.Principal.WindowsIdentity]::GetCurrent().Owner
+      $owner = $pipe.GetAccessControl().GetOwner([Security.Principal.SecurityIdentifier])
+      if ($owner -ne $me) { Die "pipe $(Get-PipeName) is not owned by the current user; refusing to talk to it" }
+    }
     $w = New-Object IO.StreamWriter($pipe, $script:Utf8)
     $w.AutoFlush = $true
     $w.NewLine = "`n"
@@ -367,22 +375,29 @@ function Stop-Session {
   Remove-Item -LiteralPath $script:PidFile, $script:ReadyFile, $script:ErrFile, $sshPidFile -Force -ErrorAction SilentlyContinue
 }
 
+function Get-PipeOption([string]$name) {
+  if ([Enum]::IsDefined([IO.Pipes.PipeOptions], $name)) { return [Enum]::Parse([IO.Pipes.PipeOptions], $name) }
+  return $null
+}
 function New-PipeServer([string]$name) {
+  # Fails closed: the pipe carries commands that run on z/OS, so never fall back to a default DACL
   $dir  = [IO.Pipes.PipeDirection]::InOut
   $mode = [IO.Pipes.PipeTransmissionMode]::Byte
   $opts = [IO.Pipes.PipeOptions]::None
-  try {
-    # Restrict the pipe to this user: it carries commands that run on z/OS.
-    $sec = New-Object IO.Pipes.PipeSecurity
-    $me  = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    $rule = New-Object IO.Pipes.PipeAccessRule(
-      $me, [IO.Pipes.PipeAccessRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
-    $sec.AddAccessRule($rule)
-    return (New-Object IO.Pipes.NamedPipeServerStream($name, $dir, 1, $mode, $opts, 0, 0, $sec))
-  } catch {
-    # PipeSecurity is unavailable on .NET Core hosts; fall back to the default DACL.
-    return (New-Object IO.Pipes.NamedPipeServerStream($name, $dir, 1, $mode, $opts))
+  $first = Get-PipeOption 'FirstPipeInstance'
+  if ($null -ne $first) { $opts = $opts -bor $first }
+  $cuo = Get-PipeOption 'CurrentUserOnly'
+  if ($null -ne $cuo) {
+    return (New-Object IO.Pipes.NamedPipeServerStream($name, $dir, 1, $mode, ($opts -bor $cuo)))
   }
+  $sec  = New-Object IO.Pipes.PipeSecurity
+  # Match CurrentUserOnly: use the token owner SID, which can be Administrators.
+  $me   = [Security.Principal.WindowsIdentity]::GetCurrent().Owner
+  $sec.SetOwner($me)
+  $rule = New-Object IO.Pipes.PipeAccessRule(
+    $me, [IO.Pipes.PipeAccessRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
+  $sec.AddAccessRule($rule)
+  return (New-Object IO.Pipes.NamedPipeServerStream($name, $dir, 1, $mode, $opts, 0, 0, $sec))
 }
 
 # The background session host: owns one long-lived `zo server` over ssh and
@@ -421,9 +436,9 @@ function Invoke-Serve([string]$stateDir, [string]$zhost, [string]$zbin) {
     }
     Write-TextFile $script:ReadyFile $banner
     $pipeName = Get-PipeName
+    $pipe = New-PipeServer $pipeName
     while ($true) {
       if ($proc.HasExited) { break }
-      $pipe = New-PipeServer $pipeName
       $stop = $false
       try {
         $pipe.WaitForConnection()
@@ -452,10 +467,11 @@ function Invoke-Serve([string]$stateDir, [string]$zhost, [string]$zbin) {
           }
         }
       } finally {
-        try { $pipe.Dispose() } catch { }
+        try { if ($pipe.IsConnected) { $pipe.Disconnect() } } catch { }
       }
       if ($stop) { break }
     }
+    try { $pipe.Dispose() } catch { }
     try { $proc.Kill() } catch { }
     if ($errTask.Wait(2000)) { Write-TextFile $sshErrFile $errTask.Result }
   } catch {
