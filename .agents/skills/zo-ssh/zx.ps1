@@ -297,7 +297,7 @@ function Send-Pipe([string]$line, [int]$connectMs = 5000) {
   try {
     try { $pipe.Connect($connectMs) } catch { Die "cannot reach the session on pipe $(Get-PipeName) - try 'zx stop' then 'zx start'" }
     if ($null -eq $cuo) {
-      $me    = [Security.Principal.WindowsIdentity]::GetCurrent().User
+      $me    = [Security.Principal.WindowsIdentity]::GetCurrent().Owner
       $owner = $pipe.GetAccessControl().GetOwner([Security.Principal.SecurityIdentifier])
       if ($owner -ne $me) { Die "pipe $(Get-PipeName) is not owned by the current user; refusing to talk to it" }
     }
@@ -391,8 +391,8 @@ function New-PipeServer([string]$name) {
     return (New-Object IO.Pipes.NamedPipeServerStream($name, $dir, 1, $mode, ($opts -bor $cuo)))
   }
   $sec  = New-Object IO.Pipes.PipeSecurity
-  $me   = [Security.Principal.WindowsIdentity]::GetCurrent().User
-  # The client checks the owner SID; an elevated token can default to Administrators.
+  # Match CurrentUserOnly: use the token owner SID, which can be Administrators.
+  $me   = [Security.Principal.WindowsIdentity]::GetCurrent().Owner
   $sec.SetOwner($me)
   $rule = New-Object IO.Pipes.PipeAccessRule(
     $me, [IO.Pipes.PipeAccessRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
