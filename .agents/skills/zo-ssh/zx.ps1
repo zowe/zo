@@ -376,8 +376,7 @@ function Stop-Session {
 }
 
 function Get-PipeOption([string]$name) {
-  $v = $null
-  if ([Enum]::TryParse([IO.Pipes.PipeOptions], $name, [ref]$v)) { return $v }
+  if ([Enum]::IsDefined([IO.Pipes.PipeOptions], $name)) { return [Enum]::Parse([IO.Pipes.PipeOptions], $name) }
   return $null
 }
 function New-PipeServer([string]$name) {
