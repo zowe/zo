@@ -1014,6 +1014,53 @@ void zds_tests()
             .ToContain("Failed to allocate data set '" + dsname + "(NOEXIST)' for deletion (errno=91)");
       });
 
+      it("should delete a member with the library allocated shared", [&]() -> void
+      {
+        ZDS zds = {0};
+        std::string dsname = get_random_ds(3);
+        created_dsns.push_back(dsname);
+        create_pds(&zds, dsname);
+        write_to_dsn(dsname + "(DEL1)", "delete me");
+        write_to_dsn(dsname + "(KEEP1)", "keep me");
+
+        int rc = zds_delete_member_shared(&zds, dsname + "(DEL1)");
+        ExpectWithContext(rc, zds.diag.e_msg).ToBe(0);
+        Expect(zds_member_exists(dsname, "DEL1")).ToBe(false);
+        Expect(zds_member_exists(dsname, "KEEP1")).ToBe(true);
+      });
+
+      it("should not recreate a member that was deleted with the library allocated shared", [&]() -> void
+      {
+        ZDS zds = {0};
+        std::string dsname = get_random_ds(3);
+        created_dsns.push_back(dsname);
+        create_pds(&zds, dsname);
+        write_to_dsn(dsname + "(DEL1)", "delete me");
+
+        int rc = zds_delete_member_shared(&zds, dsname + "(del1)");
+        ExpectWithContext(rc, zds.diag.e_msg).ToBe(0);
+
+        std::vector<ZDSMem> members;
+        ZDS list_zds = {0};
+        zds_list_members(&list_zds, dsname, members);
+        Expect(members.size()).ToBe(0);
+      });
+
+      it("should report a missing member as not found when deleting with the library allocated shared", [&]() -> void
+      {
+        ZDS zds = {0};
+        std::string dsname = get_random_ds(3);
+        created_dsns.push_back(dsname);
+        create_pds(&zds, dsname);
+        write_to_dsn(dsname + "(KEEP1)", "keep me");
+
+        int rc = zds_delete_member_shared(&zds, dsname + "(NOEXIST)");
+        Expect(rc).ToBe(RTNCD_FAILURE);
+        Expect(zds.diag.detail_rc).ToBe(ZDS_RTNCD_NOT_FOUND);
+        Expect(zds_member_exists(dsname, "NOEXIST")).ToBe(false);
+        Expect(zds_member_exists(dsname, "KEEP1")).ToBe(true);
+      });
+
       it("should delete data set successfully when valid", [&]() -> void
       {
         ZDS zds = {0};

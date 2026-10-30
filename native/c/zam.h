@@ -69,9 +69,11 @@ void read_dcb(IHADCB *, READ_PL *, char *) ATTRIBUTE(amode31);
 #pragma map(open_output_bpam, "OPNOBPAM")
 #pragma map(close_output_bpam, "CLSOBPAM")
 #pragma map(write_output_bpam, "WRTOBPAM")
+#pragma map(delete_member_bpam, "DELMBPAM")
 #endif
 
 int open_output_bpam(ZDIAG *PTR32, IO_CTRL * PTR32 * PTR32, const char *PTR32) ATTRIBUTE(amode31);
+int delete_member_bpam(ZDIAG *PTR32, IO_CTRL *PTR32) ATTRIBUTE(amode31);
 int write_output_bpam(ZDIAG *PTR32, IO_CTRL *PTR32, const char *PTR32, int length) ATTRIBUTE(amode31);
 int close_output_bpam(ZDIAG *PTR32, IO_CTRL *PTR32) ATTRIBUTE(amode31);
 

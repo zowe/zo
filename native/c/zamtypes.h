@@ -199,6 +199,7 @@ typedef struct
   unsigned int has_reserve : 1; // not reserved space... indicates RESERVE is outstanding
   unsigned int eof : 1;
   unsigned int dcb_abend : 1;
+  unsigned int skip_finalize : 1; // do not update ISPF stats or STOW on close (member was deleted)
   unsigned int ucb;
   int buffer_size;
   char *PTR32 buffer;
