@@ -85,6 +85,8 @@ export function parseSearchOutput(output: string): SearchResult {
             if (line.includes("SOURCE SECTION")) {
                 // Parse member name from dataset name if present; sequential data sets have no member
                 const memParse = dsMatch[1].match(/^([^()]+)\(([^)]+)\)\s*$/);
+                // After a page break inside a member, SuperC repeats this header without the member name
+                if (currentMember && !memParse) continue;
                 closeCurrentMember();
                 currentMember = {
                     name: memParse?.[2],
