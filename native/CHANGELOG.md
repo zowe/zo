@@ -4,6 +4,10 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- `c`: Secured default listings for the `zo tool ccnedsct` command by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned directories (`0700` UNIX permissions) under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
+
 ## `1.1.0`
 
 - `c`: Fixed binary writes (`--encoding binary`) to PDS and PDSE members keeping only the first record. The data is now written as record-sized pieces instead of being split on newline bytes. [#1207](https://github.com/zowe/zowex/issues/1207)
