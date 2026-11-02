@@ -4,13 +4,18 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## Recent Changes 
+## Recent Changes
 
 - `c`: Unified `LOG_*` and `ZLOG_*` logging for command and server handlers using standard C++ file I/O, preserving per-user log paths, truncation, and bounded FIFO rotation while restricting Metal C logging to Debug builds. [#107](https://github.com/zowe/zowex/issues/107)
 - `c`: Validated log directories and file ownership before writing, rejected traversal and linked log targets, preserved the open append stream on rotation failure, treated fatal exit messages as literal text, and made Metal C cleanup respect the configured log level. [#1204](https://github.com/zowe/zo/pull/1204)
+
+## `1.1.0`
+
+- **Breaking:** `c`: Protected PKCS#12 certificate exports with PBES2/AES-256-CBC and PBKDF2-HMAC-SHA-256 instead of RC4/SHA-1, without an algorithm downgrade on failure. Export now requires System SSL APAR OA64899 support, active ICSF, and an 8–128-character passphrase; documented the need for strong, unique passphrases against offline guessing. [#1205](https://github.com/zowe/zo/pull/1205)
 - `c`: Added additional error logging when zo fails to parse IDCAMS output while attempting to resolve a data set alias. [#1198](https://github.com/zowe/zo/pull/1198)
 - `c`: Added z/OSMF-compatible `execSystem`, `execMember`, `execSubmitted`, `execStarted`, and `execEnded` fields to job list and status JSON responses, enabling submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
 - `python`: Exposed job execution metadata and UTC timestamps through the job bindings. [#1187](https://github.com/zowe/zo/pull/1187)
+- Added the `zo ds delete-vsam` command and the `deleteVsam` RPC method to delete VSAM clusters with optional erase and purge behavior. [#490](https://github.com/zowe/zowex/issues/490)
 
 ## `1.0.2`
 

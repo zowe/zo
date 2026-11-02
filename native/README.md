@@ -71,6 +71,31 @@ Both C++ logs append by default and roll over after exceeding 100 KiB, keeping o
 
 `ZLogger::initialize()` selects command mode and appends. `initialize_server(verbose, truncate)` selects server mode; `truncate` defaults to `false`, and explicitly setting it to `true` clears only the active server log, not its backups. `shutdown()` closes logging until either initialization method is called again. The Debug-only Metal C logger retains its BSAM record formatting and truncation behavior; it does not participate in C++ log rotation.
 
+### PKCS#12 certificate export
+
+`zo system cert export --format p12` protects the private key and certificates with
+PBES2/AES-256-CBC, PBKDF2-HMAC-SHA-256, and a SHA-256 integrity MAC. It does not
+fall back to RC4 or 3DES when AES export fails.
+
+Prerequisites for PKCS#12 export:
+
+- System SSL with [APAR OA64899](https://www.ibm.com/support/pages/apar/OA64899) support.
+  IBM introduced this support on z/OS 2.5 and 3.1 through the applicable PTFs.
+  Build hosts also need the updated System SSL headers.
+- Active ICSF. Where CSFSERV profiles protect the callable services, the exporting
+  user needs READ access to `CSF1GSK`, `CSF1GAV`, and `CSF1TRD`.
+- An 8–128-character passphrase representable in 7-bit ASCII, supplied through
+  `--password`.
+- An importing application that supports PBES2/AES-256 PKCS#12 bundles. System SSL
+  importers need the corresponding OA64899 support and active ICSF as well.
+
+System SSL controls the KDF work factor; `zo` does not expose an iteration-count
+option. Exported USS files remain owner-read/write only (`0600`).
+
+PEM export contains no private key and does not require these PBES2/ICSF prerequisites.
+See IBM's [`gsk_export_key()` reference](https://www.ibm.com/docs/en/zos/3.2.0?topic=reference-gsk-export-key)
+for the algorithm and passphrase requirements.
+
 ### Testing
 
 Longer term, we may be able to make use of [Catch2](https://github.com/catchorg/Catch2). However, with our testing of Metal C code, we are exploring custom-written infrastructure with the ability to handle abends or other z-specific scenarios. So, in the near term, we will use custom testing infrastructure found in `native/c/test`:

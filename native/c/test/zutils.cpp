@@ -267,6 +267,54 @@ void create_seq(ZDS *zds, const std::string &dsn)
   create_dsn_with_attrs(zds, dsn, attrs, "sequential data set");
 }
 
+TestVsamGuard::TestVsamGuard(const std::string &organization, bool retained)
+    : m_dsn(get_random_ds(3) + ".VSAM")
+{
+  // Supported VSAM cluster organizations: INDEXED (KSDS), NONINDEXED (ESDS), NUMBERED (RRDS), LINEAR (LDS)
+  if (organization != "INDEXED" && organization != "NONINDEXED" && organization != "NUMBERED" && organization != "LINEAR")
+    throw std::invalid_argument("Invalid VSAM organization: '" + organization + "'");
+
+  ZDS zds{};
+  const std::string temporary_dsn = get_random_ds(3);
+  create_seq(&zds, temporary_dsn);
+  std::vector<ZDSEntry> entries;
+  const int list_rc = zds_list_data_sets(&zds, temporary_dsn, entries, true);
+  const int delete_rc = zds_delete_dsn(&zds, temporary_dsn);
+  if (list_rc != 0 || entries.empty() || delete_rc != 0)
+    throw std::runtime_error("Could not determine a volume for the VSAM test cluster");
+
+  std::string input = " DEFINE CLUSTER ( -\n NAME(" + m_dsn + ") -\n " + organization + " -\n TRACKS(1 1) -\n VOLUMES(" + entries[0].volser + ") -\n ";
+  if (organization != "LINEAR")
+    input += "RECORDSIZE(80 80) -\n ";
+  if (organization == "INDEXED")
+    input += "KEYS(8 0) -\n ";
+  if (retained)
+    input += "FOR(1) -\n ";
+  input += "SHAREOPTIONS(2 3))\n";
+  std::string output;
+  std::string error;
+  const int rc = zds_idcams(input, output, error);
+  if (rc != 0)
+  {
+    std::string cleanup_output;
+    std::string cleanup_error;
+    zds_idcams(" DELETE " + m_dsn + " CLUSTER NOERASE PURGE\n", cleanup_output, cleanup_error);
+    throw std::runtime_error("Could not define VSAM test cluster: " + error + "\n" + output);
+  }
+}
+
+TestVsamGuard::~TestVsamGuard()
+{
+  std::string output;
+  std::string error;
+  zds_idcams(" DELETE " + m_dsn + " CLUSTER NOERASE PURGE\n SET MAXCC = 0\n", output, error);
+}
+
+const std::string &TestVsamGuard::name() const
+{
+  return m_dsn;
+}
+
 void write_to_dsn(const std::string &dsn, const std::string &content)
 {
   ZDS zds{};

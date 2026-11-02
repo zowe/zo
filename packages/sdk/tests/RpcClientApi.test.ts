@@ -115,6 +115,12 @@ describe("RpcClientApi", () => {
             command: "resolveDsAlias",
             dsname: "MY.ALIAS",
         });
+
+        await client.ds.deleteVsam({ dsname: "MY.VSAM" });
+        expect(client.request).toHaveBeenCalledWith({
+            command: "deleteVsam",
+            dsname: "MY.VSAM",
+        });
     });
 
     it("should route jobs commands correctly", async () => {

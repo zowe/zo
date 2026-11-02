@@ -275,6 +275,11 @@ ZJSON_SCHEMA(DeleteDatasetResponse,
     FIELD_REQUIRED(success, BOOL)
 );
 
+struct DeleteVsamResponse {};
+ZJSON_SCHEMA(DeleteVsamResponse,
+    FIELD_REQUIRED(success, BOOL)
+);
+
 struct RenameDatasetResponse {};
 ZJSON_SCHEMA(RenameDatasetResponse,
     FIELD_REQUIRED(success, BOOL)

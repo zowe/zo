@@ -10,6 +10,8 @@
  */
 
 #include <cstddef>
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <ctime>
 #include <fcntl.h>
@@ -93,6 +95,7 @@ void zo_ds_tests()
       Expect(response).ToContain("create-member");
       Expect(response).ToContain("create-vb");
       Expect(response).ToContain("delete");
+      Expect(response).ToContain("delete-vsam");
       Expect(response).ToContain("list");
       Expect(response).ToContain("list-members");
       Expect(response).ToContain("restore");
@@ -684,6 +687,114 @@ void zo_ds_tests()
       xit("should delete a specific generation of a GDG", []() -> void {});
       xit("should error when attempting to delete a GDG base with generations without the PURGE or FORCE option",
           []() -> void {});
+    });
+    describe("delete VSAM", [&]() -> void
+    {
+      for (const std::string organization : {"INDEXED", "NONINDEXED", "NUMBERED", "LINEAR"})
+      {
+        it("should delete a " + organization + " cluster with default options", [organization]() -> void
+        {
+          TestVsamGuard cluster(organization);
+          std::string response;
+          const int rc = execute_command_with_output(zo_command + " ds delete-vsam '" + cluster.name() + "'", response);
+          ExpectWithContext(rc, response).ToBe(0);
+          Expect(response).ToContain("VSAM cluster '" + cluster.name() + "' deleted");
+
+          const int list_rc = execute_command_with_output(zo_command + " ds list '" + cluster.name() + "' --exact-match", response);
+          ExpectWithContext(list_rc, response).Not().ToBe(0);
+        });
+      }
+
+      for (const std::string options : {"--erase true", "--erase false", "--purge", "--erase true --purge"})
+      {
+        it("should delete a cluster with " + options, [options]() -> void
+        {
+          TestVsamGuard cluster;
+          std::string response;
+          const int rc = execute_command_with_output(zo_command + " ds delete-vsam '" + cluster.name() + "' " + options, response);
+          ExpectWithContext(rc, response).ToBe(0);
+          Expect(response).ToContain("VSAM cluster '" + cluster.name() + "' deleted");
+        });
+      }
+
+      it("should accept lowercase cluster names", []() -> void
+      {
+        TestVsamGuard cluster;
+        std::string lower_name = cluster.name();
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), [](unsigned char c)
+        { return std::tolower(c); });
+        std::string response;
+        const int rc = execute_command_with_output(zo_command + " ds delete-vsam '" + lower_name + "'", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain("VSAM cluster '" + cluster.name() + "' deleted");
+      });
+
+      it("should forward erase options to IDCAMS and require purge for a retained cluster", []() -> void
+      {
+        TestVsamGuard cluster("NONINDEXED", true);
+        std::string response;
+        int rc = execute_command_with_output(zo_command + " ds delete-vsam '" + cluster.name() + "'", response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain("IDCAMS returned nonzero RC");
+        Expect(response).Not().ToContain("ERASE");
+
+        rc = execute_command_with_output(zo_command + " ds delete-vsam '" + cluster.name() + "' --erase false", response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain(" NOERASE -");
+
+        rc = execute_command_with_output(zo_command + " ds delete-vsam '" + cluster.name() + "' --erase true", response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain("IDCAMS returned nonzero RC");
+        Expect(response).ToContain(" ERASE -");
+        Expect(response).Not().ToContain(" NOERASE -");
+
+        rc = execute_command_with_output(zo_command + " ds delete-vsam '" + cluster.name() + "' --purge", response);
+        ExpectWithContext(rc, response).ToBe(0);
+      });
+
+      it("should report IDCAMS diagnostics for a missing cluster", []() -> void
+      {
+        std::string response;
+        const int rc = execute_command_with_output(zo_command + " ds delete-vsam '" + get_random_ds(3) + ".VSAM'", response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain("IDCAMS returned nonzero RC");
+        Expect(response).ToContain("IDC3012I");
+      });
+
+      it("should reject empty names and dangerous IDCAMS characters", []() -> void
+      {
+        const std::vector<std::string> invalid_names = {
+            "", "USER.*", "USER.VSAM(MEMBER)", "USER.VSAM,OTHER.VSAM", "USER.VSAM;DELETE",
+            "USER.VSAM CLUSTER PURGE", "USER.VSAM\n DELETE USER.OTHER CLUSTER PURGE"};
+        for (const auto &dsn : invalid_names)
+        {
+          std::string response;
+          const int rc = execute_command_with_output(zo_command + " ds delete-vsam '" + dsn + "'", response);
+          ExpectWithContext(rc, response).Not().ToBe(0);
+          Expect(response).ToContain("invalid VSAM cluster name");
+        }
+      });
+
+      it("should let IDCAMS validate data set naming rules", []() -> void
+      {
+        const std::string dsn = get_random_ds(3) + ".LONGQUALIFIER";
+        std::string response;
+        const int rc = execute_command_with_output(zo_command + " ds delete-vsam '" + dsn + "'", response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain("IDCAMS returned nonzero RC");
+      });
+
+      it("should leave a non-VSAM data set intact", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        _ds.push_back(dsn);
+        _create_ds(dsn, "--dsorg PS");
+        std::string response;
+        const int rc = execute_command_with_output(zo_command + " ds delete-vsam '" + dsn + "' --purge", response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        const int list_rc = execute_command_with_output(zo_command + " ds list '" + dsn + "' --exact-match", response);
+        Expect(list_rc).ToBe(0);
+      });
     });
     describe("list", [&]() -> void
     {

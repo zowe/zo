@@ -860,6 +860,50 @@ int handle_data_set_delete(InvocationContext &context)
   return rc;
 }
 
+int handle_vsam_delete(InvocationContext &context)
+{
+  std::string dsn = context.get<std::string>("dsn", "");
+  std::transform(dsn.begin(), dsn.end(), dsn.begin(), [](unsigned char c)
+  { return std::toupper(c); });
+  context.set_object(obj());
+  if (dsn.empty() || dsn.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$.-") != std::string::npos)
+  {
+    context.error_stream() << "Error: invalid VSAM cluster name. Only letters, digits, @, #, $, periods and hyphens are allowed." << std::endl;
+    return RTNCD_FAILURE;
+  }
+
+  // ERASE/NOERASE overrides how the cluster was defined, so omit both when the user gave no preference
+  std::string erase_option;
+  if (const bool *erase = context.get_if<bool>("erase"))
+  {
+    erase_option = *erase ? "ERASE -\n " : "NOERASE -\n ";
+  }
+  else if (const std::string *erase_str = context.get_if<std::string>("erase"))
+  {
+    if (*erase_str != "true" && *erase_str != "false")
+    {
+      context.error_stream() << "Error: --erase must be 'true' or 'false'." << std::endl;
+      return RTNCD_FAILURE;
+    }
+    erase_option = *erase_str == "true" ? "ERASE -\n " : "NOERASE -\n ";
+  }
+
+  std::string idcams_input = " DELETE -\n " + dsn + " -\n CLUSTER -\n " + erase_option;
+  idcams_input += context.get<bool>("purge", false) ? "PURGE\n" : "NOPURGE\n";
+  std::string idcams_output;
+  std::string idcams_error;
+  const int rc = zds_idcams(idcams_input, idcams_output, idcams_error);
+  if (rc != 0)
+  {
+    context.error_stream() << "Error: could not delete VSAM cluster: '" << dsn << "' rc: '" << rc << "'" << std::endl;
+    context.error_stream() << "  Details: " << idcams_error << '\n'
+                           << idcams_output << std::endl;
+    return RTNCD_FAILURE;
+  }
+  context.output_stream() << "VSAM cluster '" << dsn << "' deleted" << std::endl;
+  return RTNCD_SUCCESS;
+}
+
 int handle_data_set_rename(InvocationContext &context)
 {
   int rc = 0;
@@ -1213,6 +1257,13 @@ void register_commands(parser::Command &root_command)
   ds_delete_cmd->add_positional_arg(DSN);
   ds_delete_cmd->set_handler(handle_data_set_delete);
   data_set_cmd->add_command(ds_delete_cmd);
+
+  auto ds_delete_vsam_cmd = command_ptr(new Command("delete-vsam", "delete a VSAM cluster"));
+  ds_delete_vsam_cmd->add_positional_arg("dsn", "VSAM cluster name", ArgType_Single, true);
+  ds_delete_vsam_cmd->add_keyword_arg("erase", make_aliases("--erase"), "Overwrite the cluster's data component with binary zeros before deletion (true|false). Defaults to the cluster's definition", ArgType_Single, false, ArgValue(), true);
+  ds_delete_vsam_cmd->add_keyword_arg("purge", make_aliases("--purge"), "Delete the cluster even if its retention period has not expired", ArgType_Flag, false, ArgValue(false));
+  ds_delete_vsam_cmd->set_handler(handle_vsam_delete);
+  data_set_cmd->add_command(ds_delete_vsam_cmd);
 
   // Restore subcommand
   auto ds_restore_cmd = command_ptr(new Command("restore", "restore/recall data set"));
