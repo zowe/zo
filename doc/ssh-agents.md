@@ -4,7 +4,7 @@ An SSH agent holds your signing identities so Zowe Remote SSH can authenticate w
 
 The examples use `mainframe.example.com`, SSH port `22`, and user `IBMUSER`. Replace these with your host, port, and SSH login name. Run workstation commands from the same terminal so Zowe inherits the agent environment. You need Zowe CLI and a version of the Remote SSH plug-in that supports `identityAgent`.
 
-## Authenticate with a key in an agent
+## Authenticating with a key in an agent
 
 ### 1. Start or select an agent
 
@@ -92,11 +92,11 @@ In this version, `agentForward` is an underlying `ssh2` connection option, not a
 
 If a separate OpenSSH connection forwards an agent into the shell where you run Zowe, the `"SSH_AUTH_SOCK"` profile value can use that socket. Enable forwarding only to hosts you trust: processes with access to the forwarded socket can request signatures from your agent.
 
-## Use an OpenSSH user certificate with an agent
+## Using an OpenSSH user certificate with an agent
 
 A user certificate lets the server trust a certificate authority (CA) that signs users' public keys. The matching private key is still needed in the agent to sign authentication requests. These are OpenSSH certificates, distinct from the X.509 certificates used by z/OSMF and RACF certificate commands. See [OpenSSH certificate creation](https://man.openbsd.org/ssh-keygen#CERTIFICATES).
 
-**Current CLI limitation:** the plug-in uses `ssh2`, which skips certificate identities returned by the agent. The following steps configure and verify certificate authentication with the OpenSSH client; they do not enable certificate authentication in `zowe zo` by setting `identityAgent`. A successful CLI connection using the accompanying plain key does not prove that the certificate was used. The SDK's `useNativeSsh` option is not exposed as a CLI team-profile setting.
+**Current CLI limitation:** The plug-in uses `ssh2`, which skips certificate identities returned by the agent. The following steps configure and verify certificate authentication with the OpenSSH client; they do not enable certificate authentication in `zowe zo` by setting `identityAgent`. A successful CLI connection using the accompanying plain key does not prove that the certificate was used. The SDK's `useNativeSsh` option is not exposed as a CLI team-profile setting.
 
 ### 1. Create a separate user key and have it signed
 
@@ -170,7 +170,8 @@ In verbose output, confirm that the server accepts the certificate identity (`ED
 
 ## Troubleshooting
 
-- **Cannot connect to the agent:** run `ssh-add -l` in the same terminal as Zowe. A new terminal or desktop-launched client may not inherit `SSH_AUTH_SOCK`.
-- **Agent has no identities:** load the intended key with `ssh-add`, or unlock your agent.
-- **All configured authentication methods failed:** confirm the profile's user and host, the authorized public key, and server-side file ownership and permissions. For certificates, check the CLI limitation above before changing server policy.
+- **Cannot connect to the agent:** Run `ssh-add -l` in the same terminal as Zowe. A new terminal or desktop-launched client may not inherit `SSH_AUTH_SOCK`.
+- **Agent has no identities:** Load the intended key with `ssh-add`, or unlock your agent.
+- **All configured authentication methods failed:** Confirm the profile's user and host, the authorized public key, and server-side file ownership and permissions.
+  - **Note:** The `ssh2` backend used by `zo` client packages does not support OpenSSH certificate authentication. See the [CLI certificate authentication limitation](#using-an-openssh-user-certificate-with-an-agent) for details.
 - **Testing removal:** `ssh-add -d ~/.ssh/zos-agent-key.pub` removes just the example key. Avoid `ssh-add -D` unless you intend to remove every identity from the current agent.
