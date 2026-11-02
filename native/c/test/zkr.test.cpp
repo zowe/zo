@@ -369,26 +369,29 @@ void zkr_tests()
     });
 
     // ---------------------------------------------------------------------
-    // Export option validation. gsk_export_key rejects an empty password
-    // (z/OS System SSL Programming, SC14-7495), so a PKCS#12 export without
-    // one must fail fast, before any key ring is even opened. No authority
-    // needed.
+    // PBES2/AES-256 requires an 8-128-character passphrase. Reject invalid
+    // lengths before opening a key ring; no authority is needed.
     // ---------------------------------------------------------------------
     describe("export option validation (no authority required)", [&]() -> void
     {
-      it("rejects a p12 export with an empty password before touching the key ring", []() -> void
+      it("rejects p12 passphrases outside the AES length bounds before opening the key ring", []() -> void
       {
-        ZKRExportOptions ex;
-        ex.owner = "TESTUSER";
-        ex.ring = "RING01";
-        ex.label = "ANYLABEL";
-        ex.format = "p12";
-        ex.password = "";
+        const size_t invalid_lengths[] = {0, 7, 129};
+        for (size_t length : invalid_lengths)
+        {
+          ZKRExportOptions ex;
+          ex.owner = "TESTUSER";
+          ex.ring = "RING01";
+          ex.label = "ANYLABEL";
+          ex.format = "p12";
+          ex.password.assign(length, 'x');
 
-        ZKR z{};
-        std::string data;
-        Expect(zkr_export_cert(&z, ex, data)).Not().ToBe(0);
-        Expect(z.diag.e_msg).ToContain("passphrase");
+          ZKR z{};
+          std::string data;
+          Expect(zkr_export_cert(&z, ex, data)).Not().ToBe(0);
+          Expect(z.diag.service).ToBe("EXPORT");
+          Expect(z.diag.gsk_rc).ToBe(0);
+        }
       });
     });
 

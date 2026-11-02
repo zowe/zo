@@ -548,8 +548,8 @@ int zkr_export_cert(ZKR *zkr, const ZKRExportOptions &opts, std::string &data)
     return record_message(zkr, "EXPORT", "Certificate label is required");
 
   const bool want_p12 = (opts.format == "p12" || opts.format == "P12");
-  if (want_p12 && opts.password.empty())
-    return record_message(zkr, "EXPORT", "A PKCS#12 passphrase is required (gsk_export_key rejects an empty password)");
+  if (want_p12 && (opts.password.size() < 8 || opts.password.size() > 128))
+    return record_message(zkr, "EXPORT", "PKCS#12 AES-256 export requires a passphrase of 8 to 128 characters");
 
   gsk_handle handle = NULL;
   int num_records = 0;
@@ -593,7 +593,7 @@ int zkr_export_cert(ZKR *zkr, const ZKRExportOptions &opts, std::string &data)
   {
     gsk_buffer key_stream = {0, 0};
     rc = gsk_export_key(handle, const_cast<char *>(opts.label.c_str()),
-                        gskdb_export_pkcs12v3_binary, x509_alg_pbeWithSha1And128BitRc4,
+                        gskdb_export_pkcs12v3_binary, x509_alg_pbes2WithSha256AndAesCbc256,
                         const_cast<char *>(opts.password.c_str()), &key_stream);
     if (rc != 0)
     {

@@ -174,7 +174,8 @@ export interface ExportCertificateRequest extends common.CommandRequest<"exportC
      */
     label: string;
     /**
-     * Export format: "pem" (certificate) or "p12" (certificate + private key)
+     * Export format: "pem" (certificate) or "p12" (certificate + private key,
+     * protected with PBES2/AES-256-CBC; requires System SSL APAR OA64899 support and active ICSF)
      */
     format?: string;
     /**
@@ -182,7 +183,8 @@ export interface ExportCertificateRequest extends common.CommandRequest<"exportC
      */
     file?: string;
     /**
-     * PKCS#12 passphrase (required when format is "p12")
+     * Strong, unique PKCS#12 passphrase of 8-128 ASCII characters (required when format is "p12").
+     * Exported bundles permit offline password guessing even with AES-256.
      */
     password?: string;
 }

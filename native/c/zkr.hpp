@@ -131,7 +131,7 @@ struct ZKRExportOptions
   std::string ring;     // key ring name
   std::string label;    // certificate label
   std::string format;   // "pem" (certificate) or "p12" (certificate + private key)
-  std::string password; // PKCS#12 passphrase (used only when format == "p12")
+  std::string password; // Strong, unique 8-128-character ASCII passphrase (p12 only)
 };
 
 // Options for importing a certificate into a key ring from a PKCS#12 file.
@@ -206,7 +206,8 @@ std::vector<ZKRCertInfo> zkr_filter_certs(const std::vector<ZKRCertInfo> &certs,
 
 /**
  * @brief Export a certificate from a key ring.
- *        format "pem" returns PEM text; format "p12" returns raw PKCS#12 bytes.
+ *        format "pem" returns PEM text; format "p12" returns PBES2/AES-256-CBC PKCS#12 bytes.
+ *        PKCS#12 export requires System SSL APAR OA64899 support and active ICSF.
  * @param data receives the exported certificate bytes
  * @return 0 on success; non-zero otherwise (details in zkr->diag)
  */
