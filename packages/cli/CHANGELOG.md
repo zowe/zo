@@ -4,7 +4,7 @@ All notable changes to the Client code for "zowex-for-zowe-cli" are documented i
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## Recent Changes
+## `1.1.0`
 
 - Documented PBES2/AES-256 certificate exports, their System SSL/ICSF prerequisites, and the requirement for strong, unique 8–128-character passphrases in command help. [#1205](https://github.com/zowe/zo/pull/1205)
 - Added the `zowe zo delete vsam` command with `--erase` and `--purge` options to delete VSAM clusters over SSH. [#490](https://github.com/zowe/zowex/issues/490)

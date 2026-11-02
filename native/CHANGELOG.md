@@ -4,7 +4,7 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## Recent Changes
+## `1.1.0`
 
 - `c`: Fixed binary writes (`--encoding binary`) to PDS and PDSE members keeping only the first record. The data is now written as record-sized pieces instead of being split on newline bytes. [#1207](https://github.com/zowe/zowex/issues/1207)
 - **Breaking:** `c`: Protected PKCS#12 certificate exports with PBES2/AES-256-CBC and PBKDF2-HMAC-SHA-256 instead of RC4/SHA-1, without an algorithm downgrade on failure. Export now requires System SSL APAR OA64899 support, active ICSF, and an 8–128-character passphrase; documented the need for strong, unique passphrases against offline guessing. [#1205](https://github.com/zowe/zo/pull/1205)
