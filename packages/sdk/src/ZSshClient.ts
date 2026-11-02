@@ -13,6 +13,7 @@ import { posix } from "node:path";
 import type { Stream } from "node:stream";
 import { Censor, ImperativeError, Logger } from "@zowe/imperative";
 import type { SshSession } from "@zowe/zos-uss-for-zowe-sdk";
+import type { ClientErrorExtensions } from "ssh2";
 import type {
     ClientOptions,
     CommandRequest,
@@ -25,7 +26,7 @@ import type {
 } from "./doc";
 import { RpcClientApi } from "./RpcClientApi";
 import { RpcStreamManager } from "./RpcStreamManager";
-import { matchLeRuntimeFailure } from "./SshErrors";
+import { matchLeRuntimeFailure, SshAuthenticationError } from "./SshErrors";
 import { type Client, type ClientChannel, createClient } from "./ssh-rs";
 import { ZSshUtils } from "./ZSshUtils";
 
@@ -75,6 +76,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         try {
             client.mSshStream = await new Promise<ClientChannel>((resolve, reject) => {
                 let established = false;
+                let handshakeComplete = false;
                 const onStartupError = (err: Error) => {
                     if (established) {
                         return;
@@ -96,10 +98,17 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                         }),
                     );
                 }, serverStartupTimeoutS * 1000);
-                client.mSshClient.on("error", (err) => {
+                client.mSshClient.on("handshake", () => {
+                    handshakeComplete = true;
+                });
+                client.mSshClient.on("error", (err: Error & ClientErrorExtensions) => {
                     if (!established) {
                         Logger.getAppLogger().error(`Error connecting to SSH: ${err}`);
-                        onStartupError(err);
+                        const authenticationFailed =
+                            handshakeComplete &&
+                            ZSshUtils.isHostVerified(session) &&
+                            err.level === "client-authentication";
+                        onStartupError(authenticationFailed ? new SshAuthenticationError(err) : err);
                         return;
                     }
                     // Socket errors during teardown are noise; the disconnect was already

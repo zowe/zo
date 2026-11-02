@@ -9,6 +9,7 @@
  *
  */
 
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
     type AgentConnectionSpec,
@@ -20,7 +21,7 @@ import {
     SshTransport,
 } from "russh";
 import type { Subscription } from "rxjs";
-import type { ConnectConfig } from "ssh2";
+import type { ConnectConfig, HostFingerprintVerifier, HostVerifier } from "ssh2";
 import { ClientChannel } from "./ClientChannel";
 
 type DebugFn = (message: string) => void;
@@ -86,7 +87,7 @@ export class Client extends EventEmitter {
             transport,
             async (key: SshPublicKey) => {
                 this.debug(`russh: server key ${key.algorithm()} fingerprint=${key.fingerprint()}`);
-                return true;
+                return this.verifyHostKey(key, config);
             },
             {
                 connectionTimeoutSeconds: (config.readyTimeout ?? Client.DEFAULT_CONNECT_TIMEOUT_MS) / 1000,
@@ -96,6 +97,7 @@ export class Client extends EventEmitter {
             },
         );
         this.debug("russh: SSH handshake complete");
+        this.emit("handshake");
 
         this.disconnectSub = unauthClient.disconnect$.subscribe(() => {
             this.debug("russh: disconnect event received from server");
@@ -118,6 +120,29 @@ export class Client extends EventEmitter {
         this.sshClient = authClient;
         this.debug("russh: emitting ready");
         this.emit("ready");
+    }
+
+    private verifyHostKey(key: SshPublicKey, config: ConnectConfig): Promise<boolean> {
+        if (config.hostVerifier == null) {
+            return Promise.resolve(false);
+        }
+        return new Promise<boolean>((resolve, reject) => {
+            try {
+                const rawKey = Buffer.from(key.bytes());
+                const verify = (valid: boolean) => resolve(valid === true);
+                const result = config.hostHash
+                    ? (config.hostVerifier as HostFingerprintVerifier)(
+                          createHash(config.hostHash).update(rawKey).digest("hex"),
+                          verify,
+                      )
+                    : (config.hostVerifier as HostVerifier)(rawKey, verify);
+                if (typeof result === "boolean") {
+                    verify(result);
+                }
+            } catch (error) {
+                reject(error);
+            }
+        });
     }
 
     /**
@@ -195,7 +220,9 @@ export class Client extends EventEmitter {
     private assertAuthSuccess(result: AuthenticatedSSHClient | AuthFailure, method: string): AuthenticatedSSHClient {
         if ("remainingMethods" in result) {
             const remaining = (result as AuthFailure).remainingMethods.join(", ");
-            throw new Error(`${method} authentication failed. Remaining methods: ${remaining}`);
+            throw Object.assign(new Error(`${method} authentication failed. Remaining methods: ${remaining}`), {
+                level: "client-authentication",
+            });
         }
         this.debug(`russh: ${method.toLowerCase()} authentication succeeded`);
         return result as AuthenticatedSSHClient;

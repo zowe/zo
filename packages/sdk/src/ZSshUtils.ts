@@ -13,7 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { ImperativeError, type IProfile, Logger } from "@zowe/imperative";
-import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
+import { type ISshSession, Shell, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import type { NodeSSH, SSHExecCommandResponse } from "node-ssh";
 import * as semver from "semver";
 import type { ConnectConfig, SFTPWrapper } from "ssh2";
@@ -77,6 +77,7 @@ export interface AvailableMBResponse {
 export class ZSshUtils {
     private static readonly SERVER_PAX_FILE = "server.pax.Z";
     private static readonly EXPIRED_PASSWORD_CODES = ["FOTS1668", "FOTS1669"];
+    private static readonly hostVerification = new WeakMap<SshSession, { verified: boolean }>();
 
     /**
      * Routes an expired-password error through `onError` when a callback is registered,
@@ -188,11 +189,21 @@ export class ZSshUtils {
             password: args.privateKey ? undefined : args.password,
             handshakeTimeout: args.handshakeTimeout,
             identityAgent: args.identityAgent,
+            hostKey: args.hostKey,
+            insecure: args.insecure,
         };
         return new SshSession(sshSessCfg);
     }
 
+    /** Whether host key validation succeeded for the session's latest connection attempt. */
+    public static isHostVerified(session: SshSession): boolean {
+        return ZSshUtils.hostVerification.get(session)?.verified === true;
+    }
+
     public static buildSshConfig(session: SshSession, configProps?: ConnectConfig): ConnectConfig {
+        const verification = { verified: false };
+        ZSshUtils.hostVerification.set(session, verification);
+        const verifyHost = Shell.hostVerifier(session);
         const resolvedAgent =
             session.ISshSession.identityAgent === "SSH_AUTH_SOCK"
                 ? process.env.SSH_AUTH_SOCK
@@ -212,6 +223,14 @@ export class ZSshUtils {
             // ssh2 debug messages are extremely verbose so log at TRACE level
             debug: (msg) => Logger.getAppLogger().trace(msg),
             ...configProps,
+            // The USS SDK verifier expects the raw key and must run before authentication.
+            hostHash: undefined,
+            hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => {
+                verifyHost(key, (trusted) => {
+                    verification.verified = trusted && session.ISshSession.insecure !== true;
+                    callback(trusted);
+                });
+            },
         };
     }
 

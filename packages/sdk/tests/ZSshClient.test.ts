@@ -15,6 +15,7 @@ import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import { Client, type ClientCallback, type ConnectConfig } from "ssh2";
 import type { ReadableStreamRpc } from "../lib";
 import type { CommandRequest, RpcRequest, RpcResponse } from "../src/doc";
+import { SshAuthenticationError } from "../src/SshErrors";
 import * as sshRs from "../src/ssh-rs";
 import { ZSshClient } from "../src/ZSshClient";
 import { ZSshUtils } from "../src/ZSshUtils";
@@ -34,11 +35,15 @@ const fakeSession: ISshSession = {
 function setupMockSshClient(options?: {
     connectEvent?: "ready" | "error" | "close" | "closeBeforeReady";
     connectError?: Error;
+    handshakeComplete?: boolean;
     sshStream?: any;
     mockExecAsync?: boolean;
 }) {
     const sshStream = options?.sshStream ?? new EventEmitter();
     const connectSpy = vi.spyOn(Client.prototype, "connect").mockImplementation(function (_config: ConnectConfig) {
+        if (options?.handshakeComplete) {
+            this.emit("handshake", {} as any);
+        }
         if (options?.connectEvent === "error") {
             this.emit("error", options.connectError ?? new Error("bad ssh"));
         } else if (options?.connectEvent === "close") {
@@ -99,6 +104,29 @@ describe("ZSshClient", () => {
             setupMockSshClient({ connectEvent: "error", connectError: sshError });
             await expect(ZSshClient.create(new SshSession(fakeSession))).rejects.toThrow(sshError);
         });
+
+        it.each([
+            { handshakeComplete: false, verified: true, level: "client-authentication", classified: false },
+            { handshakeComplete: true, verified: false, level: "client-authentication", classified: false },
+            { handshakeComplete: true, verified: true, level: undefined, classified: false },
+            { handshakeComplete: true, verified: true, level: "handshake", classified: false },
+            { handshakeComplete: true, verified: true, level: "client-authentication", classified: true },
+        ])(
+            "classifies startup authentication errors only with a trusted handshake: %j",
+            async ({ handshakeComplete, verified, level, classified }) => {
+                const error = Object.assign(new Error("All configured authentication methods failed"), { level });
+                vi.spyOn(ZSshUtils, "isHostVerified").mockReturnValue(verified);
+                setupMockSshClient({ connectEvent: "error", connectError: error, handshakeComplete });
+
+                const result = ZSshClient.create(new SshSession(fakeSession));
+                if (classified) {
+                    await expect(result).rejects.toBeInstanceOf(SshAuthenticationError);
+                    await expect(result).rejects.toMatchObject({ cause: error, message: error.message });
+                } else {
+                    await expect(result).rejects.toBe(error);
+                }
+            },
+        );
 
         it("should handle error in SSH exec callback", async () => {
             const sshError = new Error("bad ssh");

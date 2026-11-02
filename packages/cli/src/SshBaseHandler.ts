@@ -15,6 +15,7 @@ import {
     type ClientOptions,
     type CommandResponse,
     type ISshErrorDefinition,
+    SshAuthenticationError,
     ZSshClient,
     ZSshUtils,
 } from "@zowe/zowex-for-zowe-sdk";
@@ -24,34 +25,7 @@ export abstract class SshBaseHandler implements ICommandHandler {
     public async process(commandParameters: IHandlerParameters) {
         const session = ZSshUtils.buildSession(commandParameters.arguments);
 
-        try {
-            await this._processCommandWithClient(commandParameters, session);
-        } catch (error) {
-            const errorMessage = `${error}`;
-
-            // Check if this is a private key authentication failure
-            if (ZSshUtils.isPrivateKeyAuthFailure(errorMessage, !!session.ISshSession.privateKey)) {
-                commandParameters.response.console.log(
-                    TextUtils.chalk.yellow(
-                        "Private key authentication failed. Falling back to password authentication...",
-                    ),
-                );
-
-                // Prompt for password
-                const password = await this.promptForPassword(commandParameters, session);
-                if (password) {
-                    // Create a new session with password authentication
-                    const passwordSession = this.createPasswordSession(session, password);
-
-                    // Retry the connection with password
-                    await this._processCommandWithClient(commandParameters, passwordSession);
-                } else {
-                    throw error; // Re-throw if user cancelled password prompt
-                }
-            } else {
-                throw error; // Re-throw for other types of errors
-            }
-        }
+        await this._processCommandWithClient(commandParameters, session);
     }
 
     /**
@@ -72,12 +46,15 @@ export abstract class SshBaseHandler implements ICommandHandler {
             }
 
             // Test the password by attempting a connection
+            const testSession = this.createPasswordSession(session, password);
             try {
-                const testSession = this.createPasswordSession(session, password);
                 using _testClient = await ZSshClient.create(testSession, this.buildSshClientOptions(commandParameters));
                 // If we get here, the password is valid
                 return password;
             } catch (error) {
+                if (!(error instanceof SshAuthenticationError) || !ZSshUtils.isHostVerified(testSession)) {
+                    throw error;
+                }
                 const errorMessage = `${error}`;
                 if (errorMessage.includes("FOTS1668")) {
                     commandParameters.response.console.error("Password expired on target system");
@@ -103,7 +80,9 @@ export abstract class SshBaseHandler implements ICommandHandler {
             keyPassphrase: undefined as string | undefined,
             identityAgent: undefined as string | undefined,
         };
-        return new SshSession(newSessionConfig);
+        const session = new SshSession(newSessionConfig);
+        session.hostKeyVerifier = originalSession.hostKeyVerifier;
+        return session;
     }
 
     public abstract processWithClient(
@@ -122,7 +101,7 @@ export abstract class SshBaseHandler implements ICommandHandler {
             // Return as an object when using --response-format-json
             commandParameters.response.data.setObj(response);
         } catch (error) {
-            const translatedError = translateCliError(error as Error);
+            const translatedError = error instanceof SshAuthenticationError ? error : translateCliError(error as Error);
 
             if ("summary" in translatedError) {
                 // This is an ISshErrorDefinition
@@ -130,10 +109,11 @@ export abstract class SshBaseHandler implements ICommandHandler {
                 return;
             }
 
-            const errorMessage = `${translatedError}`;
-
-            // Check if this is a private key authentication failure
-            if (ZSshUtils.isPrivateKeyAuthFailure(errorMessage, !!session.ISshSession.privateKey)) {
+            if (
+                error instanceof SshAuthenticationError &&
+                ZSshUtils.isHostVerified(session) &&
+                session.ISshSession.privateKey
+            ) {
                 commandParameters.response.console.log(
                     TextUtils.chalk.yellow(
                         "Private key authentication failed. Falling back to password authentication...",

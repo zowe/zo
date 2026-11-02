@@ -11,6 +11,7 @@
 
 import { KeyPair, SSHClient, SshTransport } from "russh";
 import { Subject } from "rxjs";
+import type { ConnectConfig } from "ssh2";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "../../src/ssh-rs/Client";
 import { ClientChannel } from "../../src/ssh-rs/ClientChannel";
@@ -96,6 +97,7 @@ describe("Client", () => {
             debug: debugMock,
             readyTimeout: 15000,
             keepaliveInterval: 5000,
+            hostVerifier: (key) => key.equals(Buffer.from("server-key")),
         });
 
         await readyPromise;
@@ -109,10 +111,88 @@ describe("Client", () => {
         const mockKey = {
             algorithm: () => "ssh-ed25519",
             fingerprint: () => "SHA256:fingerprint_data",
+            bytes: () => Buffer.from("server-key"),
         };
         const result = await verifyCallback(mockKey as any);
         expect(result).toBe(true);
         expect(debugMock).toHaveBeenCalledWith("russh: server key ssh-ed25519 fingerprint=SHA256:fingerprint_data");
+    });
+
+    describe("host key validation before authentication", () => {
+        const rawKey = Buffer.from("server-key");
+        const key = {
+            algorithm: () => "ssh-ed25519",
+            fingerprint: () => "SHA256:fingerprint_data",
+            bytes: () => rawKey,
+        };
+
+        beforeEach(() => {
+            vi.mocked(SSHClient.connect).mockImplementation(async (_transport, verify) => {
+                if (!(await verify(key as any))) {
+                    throw new Error("Host key verification failed");
+                }
+                return mockUnauthClient;
+            });
+        });
+
+        it.each([
+            { name: "missing verifier", config: {} },
+            { name: "rejected key", config: { hostVerifier: () => false } },
+            { name: "asynchronously rejected key", config: { hostVerifier: (_key, cb) => cb(false) } },
+            {
+                name: "verifier error",
+                config: {
+                    hostVerifier: () => {
+                        throw new Error("verification error");
+                    },
+                },
+            },
+        ] satisfies { name: string; config: ConnectConfig }[])(
+            "rejects $name before sending credentials",
+            async ({ config }) => {
+                const client = new Client();
+                const error = new Promise<Error>((resolve) => client.once("error", resolve));
+                client.connect({ password: "pwd", ...config });
+                expect(await error).toBeInstanceOf(Error);
+                expect(mockUnauthClient.authenticateWithPassword).not.toHaveBeenCalled();
+                expect(mockUnauthClient.authenticateWithKeyPair).not.toHaveBeenCalled();
+                expect(mockUnauthClient.authenticateWithAgent).not.toHaveBeenCalled();
+            },
+        );
+
+        it("waits for asynchronous validation before sending a password", async () => {
+            let accept!: (valid: boolean) => void;
+            const client = new Client();
+            const ready = new Promise<void>((resolve) => client.once("ready", resolve));
+            const checking = new Promise<void>((resolve) => {
+                client.connect({
+                    password: "pwd",
+                    hostVerifier: (presented, callback) => {
+                        expect(presented).toEqual(rawKey);
+                        accept = callback;
+                        resolve();
+                    },
+                });
+            });
+            mockUnauthClient.authenticateWithPassword.mockResolvedValue(mockAuthClient);
+            await checking;
+            expect(mockUnauthClient.authenticateWithPassword).not.toHaveBeenCalled();
+            accept(true);
+            await ready;
+            expect(mockUnauthClient.authenticateWithPassword).toHaveBeenCalledWith("root", "pwd");
+            client.end();
+        });
+
+        it("supports synchronous fingerprint verifiers", async () => {
+            const { createHash } = await import("node:crypto");
+            const verifier = vi.fn().mockReturnValue(true);
+            const client = await createAndConnectClient({ hostHash: "sha256", hostVerifier: verifier });
+            expect(verifier).toHaveBeenCalledWith(
+                createHash("sha256").update(rawKey).digest("hex"),
+                expect.any(Function),
+            );
+            client.end();
+        });
     });
 
     it("should connect using privateKey successfully (string and buffer, with passphrase)", async () => {
@@ -201,7 +281,52 @@ describe("Client", () => {
 
         const err = await errorPromise;
         expect(err.message).toContain("Password authentication failed. Remaining methods: keyboard-interactive");
+        expect(err.level).toBe("client-authentication");
         expect(mockUnauthClient.disconnect).toHaveBeenCalled();
+    });
+
+    it("emits handshake before reporting a local authentication rejection", async () => {
+        const client = new Client();
+        const events: string[] = [];
+        client.on("handshake", () => events.push("handshake"));
+        mockUnauthClient.authenticateWithKeyPair.mockResolvedValue({ remainingMethods: ["password"] });
+        vi.mocked(KeyPair.parse).mockResolvedValue({} as any);
+        const error = new Promise<Error & { level?: string }>((resolve) => {
+            client.on("error", (err) => {
+                events.push("error");
+                resolve(err);
+            });
+        });
+        client.connect({ privateKey: "private-key" });
+
+        expect(await error).toMatchObject({ level: "client-authentication" });
+        expect(events).toEqual(["handshake", "error"]);
+    });
+
+    it("does not emit handshake or classify peer errors when key exchange fails", async () => {
+        const client = new Client();
+        const handshake = vi.fn();
+        client.on("handshake", handshake);
+        const peerError = new Error("All configured authentication methods failed");
+        vi.mocked(SSHClient.connect).mockRejectedValue(peerError);
+        const error = new Promise<Error>((resolve) => client.once("error", resolve));
+        client.connect({ privateKey: "private-key" });
+
+        expect(await error).toBe(peerError);
+        expect(handshake).not.toHaveBeenCalled();
+        expect(peerError).not.toHaveProperty("level");
+        expect(mockUnauthClient.authenticateWithKeyPair).not.toHaveBeenCalled();
+    });
+
+    it("does not classify an unstructured disconnect during authentication", async () => {
+        const client = new Client();
+        const peerError = new Error("Authentication failed");
+        mockUnauthClient.authenticateWithPassword.mockRejectedValue(peerError);
+        const error = new Promise<Error>((resolve) => client.once("error", resolve));
+        client.connect({ password: "pwd" });
+
+        expect(await error).toBe(peerError);
+        expect(peerError).not.toHaveProperty("level");
     });
 
     it("should handle missing authentication credentials", async () => {

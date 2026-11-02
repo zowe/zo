@@ -11,8 +11,9 @@
 
 import * as fs from "node:fs";
 import { DeferredPromise, ImperativeError, Logger } from "@zowe/imperative";
-import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
+import { type ISshSession, SshKnownHosts, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import { NodeSSH, type SSHExecCommandResponse } from "node-ssh";
+import type { HostVerifier } from "ssh2";
 import { SshErrors } from "../src/SshErrors";
 import { SessionContext } from "../src/utils";
 import { ZSshUtils } from "../src/ZSshUtils";
@@ -901,6 +902,17 @@ describe("ZSshUtils", () => {
         });
     });
     describe("buildSession", () => {
+        it("should preserve host key validation settings from the profile", () => {
+            const session = ZSshUtils.buildSession({
+                host: "example.com",
+                user: "testuser",
+                hostKey: "pinned-key",
+                insecure: false,
+            });
+            expect(session.ISshSession.hostKey).toBe("pinned-key");
+            expect(session.ISshSession.insecure).toBe(false);
+        });
+
         it("should preserve identityAgent when building a session from a profile", () => {
             const session = ZSshUtils.buildSession({
                 host: "example.com",
@@ -945,6 +957,101 @@ describe("ZSshUtils", () => {
     });
 
     describe("buildSshConfig", () => {
+        describe("host key validation", () => {
+            const key = Buffer.from("server-public-key");
+            let session: SshSession;
+
+            beforeEach(() => {
+                session = new SshSession({ hostname: "example.com", port: 2222, user: "testuser" });
+                vi.spyOn(SshKnownHosts, "verify").mockReturnValue({ status: "unknown" });
+            });
+
+            const verify = (config = ZSshUtils.buildSshConfig(session)) =>
+                new Promise<boolean>((resolve) => (config.hostVerifier as HostVerifier)(key, resolve));
+
+            it("rejects unknown keys without marking the server as verified", async () => {
+                expect(await verify()).toBe(false);
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+
+            it("accepts keys pinned in the profile and clears trust for the next attempt", async () => {
+                session.ISshSession.hostKey = key.toString("base64");
+                expect(await verify()).toBe(true);
+                expect(ZSshUtils.isHostVerified(session)).toBe(true);
+                ZSshUtils.buildSshConfig(session);
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+
+            it("accepts matching known_hosts keys using the session host and port", async () => {
+                vi.mocked(SshKnownHosts.verify).mockReturnValue({ status: "trusted" });
+                expect(await verify()).toBe(true);
+                expect(SshKnownHosts.verify).toHaveBeenCalledWith("example.com", key, 2222);
+                expect(ZSshUtils.isHostVerified(session)).toBe(true);
+            });
+
+            it("rejects a mismatched profile pin even if known_hosts trusts the key", async () => {
+                session.ISshSession.hostKey = "different-key";
+                vi.mocked(SshKnownHosts.verify).mockReturnValue({ status: "trusted" });
+                expect(await verify()).toBe(false);
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+
+            it.each(["changed", "revoked"] as const)("rejects %s known_hosts keys", async (status) => {
+                vi.mocked(SshKnownHosts.verify).mockReturnValue({ status });
+                expect(await verify()).toBe(false);
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+
+            it("rejects revoked keys even when pinned", async () => {
+                session.ISshSession.hostKey = key.toString("base64");
+                vi.mocked(SshKnownHosts.verify).mockReturnValue({ status: "revoked" });
+                expect(await verify()).toBe(false);
+            });
+
+            it("rejects known_hosts read errors", async () => {
+                vi.mocked(SshKnownHosts.verify).mockImplementation(() => {
+                    throw new Error("cannot read known_hosts");
+                });
+                expect(await verify()).toBe(false);
+            });
+
+            it("preserves the USS SDK session trust hook", async () => {
+                session.hostKeyVerifier = vi.fn().mockResolvedValue(true);
+                expect(await verify()).toBe(true);
+                expect(session.hostKeyVerifier).toHaveBeenCalledWith(
+                    expect.objectContaining({ key: key.toString("base64"), changed: false }),
+                );
+                expect(ZSshUtils.isHostVerified(session)).toBe(true);
+            });
+
+            it("does not carry a delayed verification result into a newer connection attempt", async () => {
+                let accept!: (trusted: boolean) => void;
+                session.hostKeyVerifier = () =>
+                    new Promise<boolean>((resolve) => {
+                        accept = resolve;
+                    });
+                const result = verify();
+                ZSshUtils.buildSshConfig(session);
+                accept(true);
+                expect(await result).toBe(true);
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+
+            it("does not count explicitly insecure connections as verified", async () => {
+                session.ISshSession.insecure = true;
+                expect(await verify()).toBe(true);
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+
+            it("keeps validation enabled with raw keys when config overrides are supplied", async () => {
+                const bypass = vi.fn().mockReturnValue(true);
+                const config = ZSshUtils.buildSshConfig(session, { hostHash: "sha256", hostVerifier: bypass });
+                expect(config.hostHash).toBeUndefined();
+                expect(await verify(config)).toBe(false);
+                expect(bypass).not.toHaveBeenCalled();
+            });
+        });
+
         it("should build basic config without private key", () => {
             const session = new SshSession({
                 hostname: "example.com",

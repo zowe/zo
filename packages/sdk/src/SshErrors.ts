@@ -16,6 +16,14 @@ export interface ISshErrorDefinition {
     resources?: { href: string; title: string }[];
 }
 
+/** Authentication failed after a trusted server completed the SSH handshake. */
+export class SshAuthenticationError extends Error {
+    public constructor(cause: Error) {
+        super(cause.message, { cause });
+        this.name = "SshAuthenticationError";
+    }
+}
+
 export const SshErrors: Record<string, ISshErrorDefinition> = {
     // Request Timeout
     REQUEST_TIMEOUT: {
