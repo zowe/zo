@@ -4,7 +4,7 @@ All notable changes to the Client code for "@zowe/zowex-for-zowe-sdk" are docume
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## Recent Changes
+## `1.1.0`
 
 - Documented the PBES2/AES-256 certificate export prerequisites and strong, unique 8–128-character passphrase requirement. [#1205](https://github.com/zowe/zo/pull/1205)
 - Added optional z/OSMF-compatible execution fields to job list and status response types, including `execSubmitted` and `execEnded` for submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
