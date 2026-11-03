@@ -46,6 +46,8 @@ const size_t MAX_VOLSER_LENGTH = 6u;
 const char CR_CHAR = '\x0D';
 // form feed character, used for stripping off lines in ASA mode
 const char FF_CHAR = '\x0C';
+// size of the record descriptor word that prefixes each variable-length record
+const int RDW_SIZE = 4;
 
 /**
  * Helper function to check if codepage encoding should be used.
@@ -63,10 +65,10 @@ static inline bool zds_use_codepage(const ZDS *zds)
 static int get_effective_lrecl(IO_CTRL *ioc)
 {
   int lrecl = ioc->dcb.dcblrecl;
-  // For variable records, subtract RDW size (4 bytes)
+  // For variable records, subtract RDW size
   if (ioc->dcb.dcbrecfm & dcbrecv)
   {
-    lrecl -= 4;
+    lrecl -= RDW_SIZE;
   }
   // For ASA control characters, subtract 1 byte for the control character
   if (ioc->dcb.dcbrecfm & dcbrecca)
@@ -706,10 +708,10 @@ static std::string zds_build_text_write_flags(const DscbAttributes &attrs)
 static int get_effective_lrecl_from_attrs(const DscbAttributes &attrs)
 {
   int lrecl = attrs.lrecl;
-  // For variable records, subtract RDW size (4 bytes)
+  // For variable records, subtract RDW size
   if (attrs.recfm.find('V') != std::string::npos)
   {
-    lrecl -= 4;
+    lrecl -= RDW_SIZE;
   }
   // For ASA control characters, subtract 1 byte
   if (attrs.is_asa)
@@ -1570,7 +1572,7 @@ static int write_asa_overflow_records(ZDS *zds, IO_CTRL *ioc, int overflow_count
  */
 static int get_binary_record_len(IO_CTRL *ioc)
 {
-  return ioc->dcb.dcblrecl - ((ioc->dcb.dcbrecfm & dcbrecv) ? 4 : 0);
+  return ioc->dcb.dcblrecl - ((ioc->dcb.dcbrecfm & dcbrecv) ? RDW_SIZE : 0);
 }
 
 /**
