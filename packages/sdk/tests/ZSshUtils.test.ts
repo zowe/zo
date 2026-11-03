@@ -43,6 +43,45 @@ function setupSftpMocks(
 }
 
 describe("ZSshUtils", () => {
+    it("keeps an owned connection open until all asynchronous commands finish", async () => {
+        vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as NodeSSH);
+        const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+        const firstCommand = new DeferredPromise<Awaited<ReturnType<NodeSSH["execCommand"]>>>();
+        const response = { code: 0, stdout: "", stderr: "", signal: null };
+        const execSpy = vi
+            .spyOn(NodeSSH.prototype, "execCommand")
+            .mockReturnValueOnce(firstCommand.promise)
+            .mockImplementation(async () => {
+                expect(disposeSpy).not.toHaveBeenCalled();
+                return response;
+            });
+        const operation = ZSshUtils.lacksWriteAccess(
+            new SshSession({ hostname: "example.com", user: "admin" }),
+            "/tmp",
+        );
+
+        await vi.waitFor(() => expect(execSpy).toHaveBeenCalledTimes(1));
+        firstCommand.resolve(response);
+        await expect(operation).resolves.toBe(false);
+        expect(execSpy).toHaveBeenCalledTimes(2);
+        expect(disposeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("disposes an owned connection after an asynchronous command rejects", async () => {
+        vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as NodeSSH);
+        const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
+        vi.spyOn(NodeSSH.prototype, "execCommand").mockImplementation(async () => {
+            await Promise.resolve();
+            expect(disposeSpy).not.toHaveBeenCalled();
+            throw new Error("command failed");
+        });
+
+        await expect(
+            ZSshUtils.lacksWriteAccess(new SshSession({ hostname: "example.com", user: "admin" }), "/tmp"),
+        ).rejects.toThrow("command failed");
+        expect(disposeSpy).toHaveBeenCalledTimes(1);
+    });
+
     it("reuses a connection only while a SessionContext is in scope", async () => {
         const connectSpy = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as any);
         const execSpy = vi

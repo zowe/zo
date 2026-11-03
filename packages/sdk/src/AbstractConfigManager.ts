@@ -40,6 +40,7 @@ import {
     type qpOpts,
 } from "./doc";
 import { type ISshConfigExt, SshConfigUtils } from "./SshConfigUtils";
+import { SshProxyConnection, SshProxyError } from "./SshProxyConnection";
 import { ZSshUtils } from "./ZSshUtils";
 
 export abstract class AbstractConfigManager {
@@ -169,6 +170,7 @@ export abstract class AbstractConfigManager {
                     user: foundProfile?.profile?.user,
                     password: foundProfile?.profile?.password,
                     identityAgent: foundProfile?.profile?.identityAgent,
+                    proxyJump: foundProfile?.profile?.proxyJump,
                 });
 
                 if (validConfig === undefined) {
@@ -445,6 +447,10 @@ export abstract class AbstractConfigManager {
                 await this.attemptConnection(authConfig);
                 return configModifications;
             } catch (err) {
+                if (err instanceof SshProxyError) {
+                    this.showMessage(err.message, MESSAGE_TYPE.ERROR);
+                    return undefined;
+                }
                 Logger.getAppLogger().warn(`[AbstractConfigManager] SSH ${authType} authentication attempt failed.`);
                 const errorMessage = `${err}`;
                 if (errorMessage.includes("Invalid username")) {
@@ -524,12 +530,14 @@ export abstract class AbstractConfigManager {
 
     private async attemptConnection(config: ISshConfigExt): Promise<void> {
         const ssh = new NodeSSH();
+        using proxy = new SshProxyConnection();
 
         try {
             // Prepare connection configuration
-            const connectionConfig = ZSshUtils.buildSshConfig(new SshSession(config), {
+            let connectionConfig = ZSshUtils.buildSshConfig(new SshSession(config), {
                 readyTimeout: config.handshakeTimeout || this.getClientSetting("handshakeTimeout") || 30000,
             });
+            if (connectionConfig.jumpHosts?.length) connectionConfig = await proxy.open(connectionConfig);
 
             // Attempt connection
             await ssh.connect(connectionConfig as NodeSSHConfig);
@@ -570,6 +578,10 @@ export abstract class AbstractConfigManager {
                 });
                 return { password: testPassword };
             } catch (error) {
+                if (error instanceof SshProxyError) {
+                    this.showMessage(error.message, MESSAGE_TYPE.ERROR);
+                    return undefined;
+                }
                 Logger.getAppLogger().debug(
                     `[AbstractConfigManager] SSH password authentication attempt failed (${attempts + 1}/3).`,
                 );
@@ -666,6 +678,7 @@ export abstract class AbstractConfigManager {
                 keyPassphrase: selectedConfig.keyPassphrase,
                 password: selectedConfig.password,
                 identityAgent: selectedConfig.identityAgent,
+                proxyJump: selectedConfig.proxyJump,
             },
             //if user, password, or KP is defined, make them secure
             secure: ["user", "password", "keyPassphrase"].filter((key) => selectedConfig[key as keyof ISshConfigExt]),

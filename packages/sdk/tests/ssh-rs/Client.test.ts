@@ -22,6 +22,7 @@ vi.mock("russh", () => {
         },
         SshTransport: {
             newSocket: vi.fn(),
+            newSshChannel: vi.fn(),
         },
         KeyPair: {
             parse: vi.fn(),
@@ -72,6 +73,74 @@ describe("Client", () => {
         });
         return client;
     };
+
+    it("connects native SSH through every explicit jump without opening a target TCP socket", async () => {
+        const channel = { take: vi.fn().mockReturnValue({ native: true }) };
+        mockAuthClient.openTCPForwardChannel = vi.fn().mockResolvedValue(channel);
+        vi.mocked(SshTransport.newSshChannel).mockResolvedValue(mockTransport);
+        const client = await createAndConnectClient({
+            host: "target.internal",
+            username: "target",
+            password: "target-password",
+            jumpHosts: [{ host: "bastion", username: "jump", password: "jump-password" }],
+        });
+        expect(SshTransport.newSocket).toHaveBeenCalledExactlyOnceWith("bastion:22");
+        expect(mockUnauthClient.authenticateWithPassword.mock.calls).toEqual([
+            ["jump", "jump-password"],
+            ["target", "target-password"],
+        ]);
+        expect(mockAuthClient.openTCPForwardChannel).toHaveBeenCalledWith({
+            addressToConnectTo: "target.internal",
+            portToConnectTo: 22,
+            originatorAddress: "127.0.0.1",
+            originatorPort: 0,
+        });
+        expect(SshTransport.newSshChannel).toHaveBeenCalledWith({ native: true });
+        client.end();
+        expect(mockAuthClient.disconnect).toHaveBeenCalledTimes(2);
+    });
+
+    it("cleans up native jump connections if forwarding fails", async () => {
+        mockUnauthClient.authenticateWithPassword.mockResolvedValue(mockAuthClient);
+        mockAuthClient.openTCPForwardChannel = vi.fn().mockRejectedValue(new Error("forwarding denied"));
+        const client = new Client();
+        const error = new Promise<Error>((resolve) => client.once("error", resolve));
+        client.connect({ host: "target", password: "pwd", jumpHosts: [{ host: "jump", password: "pwd" }] });
+        expect((await error).message).toBe("forwarding denied");
+        expect(mockAuthClient.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it("labels native jump authentication errors and does not try target credentials", async () => {
+        mockUnauthClient.authenticateWithPassword.mockResolvedValue({ remainingMethods: ["publickey"] });
+        const client = new Client();
+        const error = new Promise<Error>((resolve) => client.once("error", resolve));
+        client.connect({
+            host: "target",
+            password: "target-password",
+            jumpHosts: [{ host: "jump", password: "jump-password" }],
+        });
+        expect((await error).message).toContain("SSH jump host 1 failed");
+        expect(mockUnauthClient.authenticateWithPassword).toHaveBeenCalledTimes(1);
+        expect(mockUnauthClient.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it("disconnects a handshake completing after the native client has been disposed", async () => {
+        let finish: (client: typeof mockUnauthClient) => void;
+        vi.mocked(SSHClient.connect).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        const client = new Client();
+        const handshake = vi.spyOn(client as any, "connectTransport");
+        client.connect({ host: "target", password: "pwd" });
+        await vi.waitFor(() => expect(handshake).toHaveBeenCalled());
+        client.end();
+        finish!(mockUnauthClient);
+        await vi.waitFor(() => expect(mockUnauthClient.disconnect).toHaveBeenCalledOnce());
+        expect(mockUnauthClient.authenticateWithPassword).not.toHaveBeenCalled();
+    });
 
     it("should throw error if attempting to connect a closed client", () => {
         const client = new Client();

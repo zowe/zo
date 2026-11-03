@@ -4,6 +4,10 @@ All notable changes to the Client code for "zowex-for-zowe-cli" are documented i
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## TBD Release
+
+- Added the `--proxy-jump` SSH option for explicit jump routes. Imported SSH connections copy `ProxyJump` into team configuration; omitted or `none` connects directly.
+
 ## `1.1.0`
 
 - Documented PBES2/AES-256 certificate exports, their System SSL/ICSF prerequisites, and the requirement for strong, unique 8–128-character passphrases in command help. [#1205](https://github.com/zowe/zo/pull/1205)

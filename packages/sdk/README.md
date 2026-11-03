@@ -80,6 +80,29 @@ npx tsx sample.ts IBMUSER
 
 ## API Overview
 
+### SSH jump hosts
+
+Set `proxyJump` explicitly on an SSH team-config profile to route deployment and `zo server` connections through one or more SSH hosts:
+
+```json
+{
+  "type": "ssh",
+  "properties": {
+    "host": "mainframe.example.com",
+    "port": 22,
+    "user": "DEMO001",
+    "privateKey": "/path/to/mainframe_key",
+    "proxyJump": "bastion"
+  }
+}
+```
+
+Use `ZSshUtils.buildSession(profileProperties)` to preserve the route when constructing an SDK session. Jump entries accept `[user@]host[:port]`, bracketed IPv6 addresses, and `ssh://` URIs. Separate multiple hops with commas. Jump aliases are resolved from `~/.ssh/config`, including `Host` patterns and `Include` files. Each hop uses its own user, port, identity file, and agent; explicit users and ports override the alias settings. An unconfigured hop uses the local user and available SSH agent or a default private key. Passwords and private-key passphrases for jump hosts are not imported; use an unlocked SSH agent for encrypted jump keys.
+
+An omitted `proxyJump`, or `"proxyJump": "none"`, always connects directly, even if SSH config defines `ProxyJump` for the target. A jump host's own `ProxyJump` is also ignored: every hop must be explicitly listed. Importing an SSH connection explicitly copies its effective `ProxyJump` into the saved team-config profile. `ProxyCommand` is not executed by the transport.
+
+The CLI accepts the same setting as `--proxy-jump` (`-J`). Both SSH backends support these routes. Connections and forwarding channels are owned by their target session and closed when it is disposed. A failed jump is reported without falling back to a direct connection or retrying the target's credentials against the jump.
+
 `ZSshClient` extends `RpcClientApi`, grouping commands into dedicated namespaces such as `ds`, `jobs`, and `uss`. For detailed method interfaces and type definitions, see the [doc/rpc directory](./src/doc/rpc/).
 
 Pass `ClientOptions` like `serverPath` as the second argument to `ZSshClient.create(session, options)`. For available options, see the [doc/client.ts file](./src/doc/client.ts).

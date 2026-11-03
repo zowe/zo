@@ -13,11 +13,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { ImperativeError, type IProfile, Logger } from "@zowe/imperative";
-import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
+import { SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import type { NodeSSH, SSHExecCommandResponse } from "node-ssh";
 import * as semver from "semver";
 import type { ConnectConfig, SFTPWrapper } from "ssh2";
+import { type ISshConfigExt, SshConfigUtils } from "./SshConfigUtils";
 import { matchLeRuntimeFailure, PrivateKeyFailurePatterns, SshErrors } from "./SshErrors";
+import type { SshConnectConfig } from "./SshProxyConnection";
 import { SessionContext } from "./utils";
 import { ZSshClient } from "./ZSshClient";
 import { BUNDLED_SSH_SERVER_VERSION } from "./ZSshConstants";
@@ -170,6 +172,7 @@ export class ZSshUtils {
      * @returns True if the error indicates a private key authentication failure
      */
     public static isPrivateKeyAuthFailure(errorMessage: string, hasPrivateKey?: boolean): boolean {
+        if (errorMessage.includes("SSH jump host")) return false;
         // If no private key is configured, this can't be a private key failure
         if (hasPrivateKey === false) {
             return false;
@@ -179,7 +182,7 @@ export class ZSshUtils {
     }
 
     public static buildSession(args: IProfile): SshSession {
-        const sshSessCfg: ISshSession = {
+        const sshSessCfg: ISshConfigExt = {
             hostname: args.host,
             port: args.port ?? 22,
             user: args.user,
@@ -188,15 +191,18 @@ export class ZSshUtils {
             password: args.privateKey ? undefined : args.password,
             handshakeTimeout: args.handshakeTimeout,
             identityAgent: args.identityAgent,
+            proxyJump: args.proxyJump,
         };
         return new SshSession(sshSessCfg);
     }
 
-    public static buildSshConfig(session: SshSession, configProps?: ConnectConfig): ConnectConfig {
+    public static buildSshConfig(session: SshSession, configProps?: ConnectConfig): SshConnectConfig {
         const resolvedAgent =
             session.ISshSession.identityAgent === "SSH_AUTH_SOCK"
                 ? process.env.SSH_AUTH_SOCK
                 : session.ISshSession.identityAgent;
+        const proxyJump = (session.ISshSession as ISshConfigExt).proxyJump;
+        const hops = SshConfigUtils.resolveJumpHosts(proxyJump);
         return {
             host: session.ISshSession.hostname,
             port: session.ISshSession.port,
@@ -211,6 +217,11 @@ export class ZSshUtils {
             agent: resolvedAgent,
             // ssh2 debug messages are extremely verbose so log at TRACE level
             debug: (msg) => Logger.getAppLogger().trace(msg),
+            ...(hops.length
+                ? {
+                      jumpHosts: hops.map((hop) => ZSshUtils.buildSshConfig(new SshSession(hop))),
+                  }
+                : {}),
             ...configProps,
         };
     }

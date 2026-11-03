@@ -11,15 +11,18 @@
 
 import type { ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import { type Config, NodeSSH } from "node-ssh";
+import { SshProxyConnection } from "../SshProxyConnection";
 import { ZSshUtils } from "../ZSshUtils";
 
 export class SessionContext implements Disposable {
     private sshConn?: NodeSSH;
     private connectPromise?: Promise<NodeSSH>;
+    private proxy?: SshProxyConnection;
 
     constructor(private readonly session: SshSession) {}
 
     public [Symbol.dispose](): void {
+        this.proxy?.[Symbol.dispose]();
         if (this.sshConn != null) {
             this.sshConn.dispose();
         } else if (this.connectPromise != null) {
@@ -41,17 +44,24 @@ export class SessionContext implements Disposable {
     public async getSsh(): Promise<NodeSSH> {
         if (this.sshConn != null && !this.sshConn.isConnected()) {
             this.sshConn.dispose();
+            this.proxy?.[Symbol.dispose]();
             this.sshConn = undefined;
             this.connectPromise = undefined;
         }
         this.connectPromise ??= (async () => {
             const ssh = new NodeSSH();
             try {
-                await ssh.connect(ZSshUtils.buildSshConfig(this.session) as Config);
+                let config = ZSshUtils.buildSshConfig(this.session);
+                if (config.jumpHosts?.length) {
+                    this.proxy = new SshProxyConnection();
+                    config = await this.proxy.open(config);
+                }
+                await ssh.connect(config as Config);
                 this.sshConn = ssh;
                 return ssh;
             } catch (error) {
                 ssh.dispose();
+                this.proxy?.[Symbol.dispose]();
                 throw error;
             }
         })();

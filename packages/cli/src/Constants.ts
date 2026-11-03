@@ -14,6 +14,13 @@ import { ZSshClient } from "@zowe/zowex-for-zowe-sdk";
 
 // biome-ignore lint/complexity/noStaticOnlyClass: Constants class has static properties
 export class Constants {
+    public static readonly OPT_PROXY_JUMP: ICommandOptionDefinition = {
+        name: "proxy-jump",
+        aliases: ["J"],
+        description:
+            "Explicit SSH jump hosts as [user@]host[:port], separated by commas. SSH aliases are resolved from ~/.ssh/config. Omitted or 'none' connects directly; SSH-config ProxyJump is never inherited.",
+        type: "string",
+    };
     public static readonly OPT_IDENTITY_AGENT: ICommandOptionDefinition = {
         name: "identity-agent",
         aliases: ["agent"],
@@ -46,6 +53,7 @@ export class Constants {
      * Options appended to every zowex command definition on top of SshSession.SSH_CONNECTION_OPTIONS.
      */
     public static readonly ZSSH_EXTRA_OPTIONS: ICommandOptionDefinition[] = [
+        Constants.OPT_PROXY_JUMP,
         Constants.OPT_IDENTITY_AGENT,
         Constants.OPT_RESPONSE_TIMEOUT,
         Constants.OPT_SERVER_PATH,

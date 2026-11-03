@@ -26,6 +26,7 @@ import type {
 import { RpcClientApi } from "./RpcClientApi";
 import { RpcStreamManager } from "./RpcStreamManager";
 import { matchLeRuntimeFailure } from "./SshErrors";
+import { SshProxyConnection } from "./SshProxyConnection";
 import { type Client, type ClientChannel, createClient } from "./ssh-rs";
 import { ZSshUtils } from "./ZSshUtils";
 
@@ -40,6 +41,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
     private mResponseTimeout: number;
     private mServerInfo: { version?: string };
     private mSshClient: Client;
+    private mProxy?: SshProxyConnection;
     private mSshStream: ClientChannel;
     private mStreamMgr: RpcStreamManager;
     private mClosed = false;
@@ -73,6 +75,15 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         client.mResponseTimeout = opts.responseTimeout ? opts.responseTimeout * 1000 : 60e3;
         client.mSshClient = createClient(opts.useNativeSsh);
         try {
+            const keepAliveMsec = opts.keepAliveInterval != null ? opts.keepAliveInterval * 1000 : 30e3;
+            let config = ZSshUtils.buildSshConfig(session, {
+                keepaliveInterval: keepAliveMsec,
+                keepaliveCountMax: opts.keepAliveCountMax ?? 3,
+            });
+            if (!opts.useNativeSsh && config.jumpHosts?.length) {
+                client.mProxy = new SshProxyConnection();
+                config = await client.mProxy.open(config);
+            }
             client.mSshStream = await new Promise<ClientChannel>((resolve, reject) => {
                 let established = false;
                 const onStartupError = (err: Error) => {
@@ -131,6 +142,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     }, onStartupError);
                 });
                 client.mSshClient.on("close", () => {
+                    client.mProxy?.[Symbol.dispose]();
                     Logger.getAppLogger().debug("Client disconnected");
                     if (!established) {
                         onStartupError(
@@ -143,19 +155,14 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     }
                     client.handleDisconnect("SSH connection closed", opts.onClose);
                 });
-                const keepAliveMsec = opts.keepAliveInterval != null ? opts.keepAliveInterval * 1000 : 30e3;
-                client.mSshClient.connect(
-                    ZSshUtils.buildSshConfig(session, {
-                        keepaliveInterval: keepAliveMsec,
-                        keepaliveCountMax: opts.keepAliveCountMax ?? 3,
-                    }),
-                );
+                client.mSshClient.connect(config);
             });
         } catch (err) {
             // Clean up the SSH connection so failed startups do not leak connections,
             // keep-alive traffic, or remote server processes
             client.mSshClient.removeAllListeners();
             client.mSshClient.end();
+            client.mProxy?.[Symbol.dispose]();
             throw err;
         }
         client.mStreamMgr = new RpcStreamManager(client.mSshClient);
@@ -208,6 +215,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         });
         this.mRequestMap.clear();
         this.mSshClient?.end();
+        this.mProxy?.[Symbol.dispose]();
     }
 
     public [Symbol.dispose](): void {

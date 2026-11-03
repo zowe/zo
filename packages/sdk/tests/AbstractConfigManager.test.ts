@@ -1944,6 +1944,17 @@ describe("AbstractConfigManager", async () => {
             vi.spyOn(testManager as any, "showMenu").mockResolvedValue("Yes");
         });
 
+        it("preserves an imported ProxyJump as an explicit non-secure team property", async () => {
+            await (testManager as any).setProfile({ name: "imported", hostname: "target", proxyJump: "bastion" });
+            expect(mockProfiles.set).toHaveBeenCalledWith(
+                "imported",
+                expect.objectContaining({
+                    properties: expect.objectContaining({ proxyJump: "bastion" }),
+                    secure: [],
+                }),
+            );
+        });
+
         it("should create profile with keyPassphrase and mark it as secure", async () => {
             const config = {
                 user: "user1",

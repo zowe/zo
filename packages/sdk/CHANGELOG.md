@@ -4,6 +4,10 @@ All notable changes to the Client code for "@zowe/zowex-for-zowe-sdk" are docume
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## TBD Release
+
+- Added explicit `proxyJump` routes for deployment, validation, and runtime SSH connections, including native SSH, SSH-alias resolution, and importing jump routes into team configuration.
+
 ## `1.1.0`
 
 - Documented the PBES2/AES-256 certificate export prerequisites and strong, unique 8–128-character passphrase requirement. [#1205](https://github.com/zowe/zo/pull/1205)

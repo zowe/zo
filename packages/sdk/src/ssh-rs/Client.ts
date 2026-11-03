@@ -21,6 +21,7 @@ import {
 } from "russh";
 import type { Subscription } from "rxjs";
 import type { ConnectConfig } from "ssh2";
+import { type SshConnectConfig, SshProxyError } from "../SshProxyConnection";
 import { ClientChannel } from "./ClientChannel";
 
 type DebugFn = (message: string) => void;
@@ -29,17 +30,21 @@ const noop: DebugFn = () => {};
 export class Client extends EventEmitter {
     private static readonly DEFAULT_CONNECT_TIMEOUT_MS = 30e3;
     private sshClient: AuthenticatedSSHClient | null = null;
+    private pendingClient: SSHClient | null = null;
     private disconnectSub: Subscription | null = null;
+    private readonly jumpClients: AuthenticatedSSHClient[] = [];
+    private readonly jumpSubscriptions: Subscription[] = [];
     private closed = false;
     private debug: DebugFn = noop;
 
-    public connect(config: ConnectConfig): void {
+    public connect(config: SshConnectConfig): void {
         if (this.closed) {
             throw new Error("Cannot reuse a closed SSH client — create a new instance");
         }
         this.debug = config.debug ?? noop;
         this.connectAsync(config).catch((err) => {
-            this.emit("error", err);
+            this.cleanup();
+            if (!this.closed) this.emit("error", err);
         });
     }
 
@@ -60,6 +65,11 @@ export class Client extends EventEmitter {
     }
 
     private cleanup(): void {
+        const pending = this.pendingClient;
+        this.pendingClient = null;
+        pending?.disconnect().catch(() => {});
+        for (const subscription of this.jumpSubscriptions.splice(0)) subscription.unsubscribe();
+        for (const jump of this.jumpClients.splice(0).reverse()) jump.disconnect().catch(() => {});
         this.disconnectSub?.unsubscribe();
         this.disconnectSub = null;
         const client = this.sshClient;
@@ -76,11 +86,51 @@ export class Client extends EventEmitter {
         this.emit("close");
     }
 
-    private async connectAsync(config: ConnectConfig): Promise<void> {
-        const address = `${config.host ?? "localhost"}:${config.port ?? 22}`;
+    private async connectAsync(config: SshConnectConfig): Promise<void> {
+        const hops = [...(config.jumpHosts ?? []), config];
+        const first = hops[0];
+        const firstHost = first.host ?? "localhost";
+        const address = `${firstHost.includes(":") ? `[${firstHost}]` : firstHost}:${first.port ?? 22}`;
         this.debug(`russh: opening TCP connection to ${address}`);
-        const transport = await this.openTransport(address, config.readyTimeout);
+        let transport = await this.openTransport(address, first.readyTimeout ?? config.readyTimeout);
+        for (const [index, hop] of hops.entries()) {
+            if (this.closed) throw new Error("SSH connection was disposed");
+            let authenticated: AuthenticatedSSHClient;
+            try {
+                authenticated = await this.connectTransport(transport, hop);
+            } catch (error) {
+                if (index < hops.length - 1) throw new SshProxyError(index + 1, error);
+                throw error;
+            }
+            if (this.closed) {
+                await authenticated.disconnect();
+                throw new Error("SSH connection was disposed");
+            }
+            if (index === hops.length - 1) {
+                this.sshClient = authenticated;
+            } else {
+                this.jumpClients.push(authenticated);
+                this.jumpSubscriptions.push(this.disconnectSub!);
+                this.disconnectSub = null;
+                const next = hops[index + 1];
+                const channel = await this.withTimeout(
+                    authenticated.openTCPForwardChannel({
+                        addressToConnectTo: next.host!,
+                        portToConnectTo: next.port ?? 22,
+                        originatorAddress: "127.0.0.1",
+                        originatorPort: 0,
+                    }),
+                    hop.readyTimeout ?? config.readyTimeout,
+                    `Timed out forwarding through SSH jump host ${index + 1}`,
+                );
+                transport = await SshTransport.newSshChannel(channel.take());
+            }
+        }
+        this.debug("russh: emitting ready");
+        this.emit("ready");
+    }
 
+    private async connectTransport(transport: SshTransport, config: ConnectConfig): Promise<AuthenticatedSSHClient> {
         this.debug("russh: starting SSH handshake");
         const unauthClient = await SSHClient.connect(
             transport,
@@ -96,12 +146,18 @@ export class Client extends EventEmitter {
             },
         );
         this.debug("russh: SSH handshake complete");
+        if (this.closed) {
+            await unauthClient.disconnect();
+            throw new Error("SSH connection was disposed");
+        }
+        this.pendingClient = unauthClient;
 
-        this.disconnectSub = unauthClient.disconnect$.subscribe(() => {
+        const disconnectSub = unauthClient.disconnect$.subscribe(() => {
             this.debug("russh: disconnect event received from server");
             this.cleanup();
             this.emitClose();
         });
+        this.disconnectSub = disconnectSub;
 
         let authClient: AuthenticatedSSHClient;
         try {
@@ -109,15 +165,15 @@ export class Client extends EventEmitter {
             authClient = await this.authenticate(unauthClient, username, config);
         } catch (err) {
             this.debug("russh: post-handshake error, tearing down connection");
-            this.disconnectSub.unsubscribe();
+            disconnectSub.unsubscribe();
             this.disconnectSub = null;
             unauthClient.disconnect().catch(() => {});
             throw err;
+        } finally {
+            this.pendingClient = null;
         }
 
-        this.sshClient = authClient;
-        this.debug("russh: emitting ready");
-        this.emit("ready");
+        return authClient;
     }
 
     /**
@@ -125,19 +181,21 @@ export class Client extends EventEmitter {
      * hang the client indefinitely. Falls back to `readyTimeout` when configured.
      */
     private async openTransport(address: string, readyTimeout?: number): Promise<SshTransport> {
+        return this.withTimeout(
+            SshTransport.newSocket(address),
+            readyTimeout,
+            `Timed out opening TCP connection to ${address}`,
+        );
+    }
+
+    private async withTimeout<T>(operation: Promise<T>, readyTimeout: number | undefined, message: string): Promise<T> {
         const timeoutMs = readyTimeout ?? Client.DEFAULT_CONNECT_TIMEOUT_MS;
         let timeoutId: NodeJS.Timeout;
         const timeoutPromise = new Promise<never>((_resolve, reject) => {
-            timeoutId = setTimeout(
-                () => reject(new Error(`Timed out opening TCP connection to ${address}`)),
-                timeoutMs,
-            );
+            timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
         });
         try {
-            const socketPromise = SshTransport.newSocket(address);
-            // Avoid unhandled rejection if the socket settles after the timeout wins
-            socketPromise.catch(() => {});
-            return await Promise.race([socketPromise, timeoutPromise]);
+            return await Promise.race([operation, timeoutPromise]);
         } finally {
             clearTimeout(timeoutId!);
         }

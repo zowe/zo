@@ -17,4 +17,5 @@ export class Client extends EventEmitter {
     public end() {}
     public exec(_command: string, _callback: ClientCallback) {}
     public shell(_callback: ClientCallback) {}
+    public forwardOut(_src: string, _srcPort: number, _dest: string, _destPort: number, _callback: ClientCallback) {}
 }

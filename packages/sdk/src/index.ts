@@ -16,6 +16,7 @@ export * from "./doc";
 export * from "./RpcClientApi";
 export * from "./SshConfigUtils";
 export * from "./SshErrors";
+export { type SshConnectConfig, SshProxyError } from "./SshProxyConnection";
 export * from "./UtilsApi";
 export * from "./utils";
 export * from "./ZSshClient";
