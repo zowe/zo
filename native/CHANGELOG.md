@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `c`: Fixed JSON-RPC responses of 16 MB or more from `getJcl`, `unixCommand`, `tsoCommand`, `consoleCommand`, `toolSearch`, and `viewSyslog` being emitted without JSON escaping. [#XXXX](https://github.com/zowe/zowex/pull/XXXX)
+- `c`: Fixed JSON-RPC responses of 16 MB or more from `getJcl`, `unixCommand`, `tsoCommand`, `consoleCommand`, `toolSearch`, and `viewSyslog` being emitted without JSON escaping. [#1217](https://github.com/zowe/zo/pull/1217)
 - `c`: Secured default listings for the `zo tool ccnedsct` command by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned directories (`0700` UNIX permissions) under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
 
 ## `1.1.0`
