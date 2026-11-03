@@ -374,11 +374,19 @@ void CommandBuilder::apply_output_transforms(MiddlewareContext &context) const
 
         if (data.size() >= LARGE_DATA_THRESHOLD)
         {
+          // Free captured stdout before escaping so peak memory stays at two copies
+          std::stringstream().swap(context.get_output_stream());
+
+          // add_large_data_to_json splices this verbatim, so escape it exactly as zjson
+          // escapes the sub-threshold value below.
+          // TODO(v4): Register every read_stdout transform with b64_encode=true (breaking
+          // change for text-returning RPC methods) and remove this escape.
+          if (!transform.base64)
+          {
+            data = zjson::escape_json_string(data);
+          }
           context.store_large_data(transform.arg_name, std::move(data));
           obj->set(transform.arg_name, ast::str(""));
-
-          // Clear output buffer to free memory ASAP
-          std::stringstream().swap(context.get_output_stream());
         }
         else
         {
