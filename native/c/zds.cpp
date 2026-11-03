@@ -46,7 +46,7 @@ const size_t MAX_VOLSER_LENGTH = 6u;
 const char CR_CHAR = '\x0D';
 // form feed character, used for stripping off lines in ASA mode
 const char FF_CHAR = '\x0C';
-// size of the record descriptor word that prefixes each variable-length record
+// record descriptor word size in variable-length records
 const int RDW_SIZE = 4;
 
 /**
@@ -1566,19 +1566,13 @@ static int write_asa_overflow_records(ZDS *zds, IO_CTRL *ioc, int overflow_count
   return RTNCD_SUCCESS;
 }
 
-/**
- * Record length used when writing binary data, which has no line delimiters:
- * the full LRECL, minus the RDW for variable records.
- */
+/** Binary record length: LRECL minus the RDW for variable records. */
 static int get_binary_record_len(IO_CTRL *ioc)
 {
   return ioc->dcb.dcblrecl - ((ioc->dcb.dcbrecfm & dcbrecv) ? RDW_SIZE : 0);
 }
 
-/**
- * Write binary data from buf[pos..] as fixed-size records via BPAM and advance pos.
- * A trailing partial record is only written when flush_partial is set.
- */
+/** Write buf[pos..] as record_len-sized records via BPAM; a trailing partial record needs flush_partial. */
 static int write_binary_records(ZDS *zds, IO_CTRL *ioc, const std::string &buf, size_t &pos, size_t record_len, bool flush_partial)
 {
   while (buf.size() - pos >= record_len || (flush_partial && pos < buf.size()))
@@ -1609,7 +1603,7 @@ static int zds_write_member_bpam(ZDS *zds, const std::string &dsn, const std::st
     return rc;
   }
 
-  // Binary data has no newlines: split it into LRECL-sized records instead of lines
+  // Binary: write LRECL-sized records, not newline-split lines
   if (zds->encoding_opts.data_type == eDataTypeBinary)
   {
     size_t pos = 0;
@@ -4223,7 +4217,7 @@ static int zds_write_member_bpam_streamed(ZDS *zds, const std::string &dsn, cons
     return rc;
   }
 
-  // Binary data has no newlines: split it into LRECL-sized records instead of lines
+  // Binary: write LRECL-sized records, not newline-split lines
   if (zds->encoding_opts.data_type == eDataTypeBinary)
   {
     const size_t record_len = get_binary_record_len(ioc);

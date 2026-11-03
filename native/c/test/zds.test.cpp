@@ -688,12 +688,9 @@ void zds_tests()
       });
     });
 
-    // Binary data has no line delimiters: a PDS member write must split it into
-    // LRECL-sized records instead of treating the payload as a single line.
     describe("binary member write", [&]() -> void
     {
-      // 3 FB/80 records of non-repeating bytes that include 0x15 (the native newline)
-      // to prove the payload is not split on newline bytes.
+      // 3 FB/80 records including 0x15 (newline) to prove no newline splitting
       std::string binary_input;
       for (int i = 0; i < 240; i++)
       {
@@ -776,7 +773,7 @@ void zds_tests()
         ExpectWithContext(zds_create_dsn(&zds, dsn, vb_attr, response), zds.diag.e_msg).ToBe(0);
         std::string member = dsn + "(BIN)";
 
-        // 3 records of 76 bytes, each one plus its RDW exactly fills a block after the BDW
+        // 3 records of 76 bytes + RDW exactly fill a block after the BDW
         std::string vb_input;
         for (int i = 0; i < 228; i++)
         {
