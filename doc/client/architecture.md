@@ -65,9 +65,8 @@ The Zowe CLI plug-in harnesses the SDK to access mainframe resources over SSH. T
 
 ## VS Code Extension
 
-This extension replicates the core functionality of Zowe Explorer using the SSH backend. The `src` directory is structured as follows:
+The VS Code integration provides Data Sets, USS, and Jobs functionality in Zowe Explorer using the SSH backend. It lives in [`packages/zowex-for-zowe-explorer`](https://github.com/zowe/zowe-explorer-vscode/tree/main/packages/zowex-for-zowe-explorer) in the `zowe/zowe-explorer-vscode` repository.
 
-- `extension.ts` - Main entry point of the extension that registers VS Code commands and loads SSH profiles in Zowe Explorer
-- `SshClientCache.ts` - Manages persistent SSH sessions for multiple z/OS servers so they can be reused for subsequent commands
-- `SshConfigUtils.ts` - Defines utility methods to interact with VS Code UI such as prompting for SSH profile
-- `api/Ssh*Api.ts` - Classes that extend the Zowe Explorer API to implement functionality for the Data Sets, USS, and Jobs trees
+To build a Zowe Explorer VSIX with this repository's changes, add the `build-vsix` label to your PR. The [Build workflow](../../.github/workflows/build.yml) packages Zowe Explorer with the PR's SDK and server artifacts, uploading the VSIX as the `zowe-explorer-vsix` artifact and posting a download link in a PR comment for branches in this repository.
+
+The build uses the default `main` branch of `zowe/zowe-explorer-vscode` unless an open PR there links to this repository's PR in its description or a comment; then it uses that Zowe Explorer PR's branch. Set the label and any cross-reference before pushing a new commit to this repository's PR, since adding the label alone does not trigger a build.

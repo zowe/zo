@@ -60,12 +60,12 @@ jobs:
           ref: ${{ github.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
 
       - name: Setup JFrog CLI
-        uses: jfrog/setup-jfrog-cli@68c0efdc951dd2359bbbfa15c48bc67b3ae8e4d6 # v5.2.0
+        uses: jfrog/setup-jfrog-cli@6ed45ef1a24199bd4c94d3fd55a7e8cb7e45985d # v5.3.2
         env:
           JF_ENV_1: ${{ secrets.JF_ARTIFACTORY_TOKEN }}
 
@@ -105,7 +105,7 @@ jobs:
 
       - name: Run Octorelease
         if: ${{ env.TRAIN == 'Release' }}
-        uses: zowe-actions/octorelease@6cf71bdb7ca82117775295e076d63fe7a812f3c8 # v1
+        uses: zowe-actions/octorelease@e4c509e08c4dfca0186571e937c605284a50de06 # v1
         env:
           ALLOW_MAJOR_VERSION: ${{ vars.ALLOW_MAJOR_VERSION }}
           GIT_COMMITTER_NAME: ${{ secrets.ZOWE_ROBOT_USER }}
