@@ -1248,10 +1248,24 @@ std::string zut_read_input(std::istream &input_stream)
 
 int zut_write_file_private(const std::string &path, const std::string &data, std::string &error)
 {
-  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_EXCL, S_IRUSR | S_IWUSR);
   if (fd == -1)
   {
     error = "could not open '" + path + "': " + strerror(errno);
+    return RTNCD_FAILURE;
+  }
+  struct stat file_stats;
+  if (fstat(fd, &file_stats) == -1)
+  {
+    error = "could not stat '" + path + "': " + strerror(errno);
+    close(fd);
+    return RTNCD_FAILURE;
+  }
+
+  if (!S_ISREG(file_stats.st_mode) || file_stats.st_nlink != 1 || file_stats.st_uid != geteuid())
+  {
+    error = "Refusing to use '" + path + "'. The file must be a regular file owned by you, and not a symbolic link.";
+    close(fd);
     return RTNCD_FAILURE;
   }
 
