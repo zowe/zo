@@ -1941,7 +1941,9 @@ describe("AbstractConfigManager", async () => {
             (testManager as any).mProfilesCache.isSecured = mockIsSecured;
 
             vi.spyOn(testManager as any, "fetchDefaultProfile").mockReturnValue({ name: "default" });
-            vi.spyOn(testManager as any, "showMenu").mockResolvedValue("Yes");
+            vi.spyOn(testManager as any, "showMenu").mockImplementation(async (opts: qpOpts) =>
+                opts.items[0].label === "Save Credentials" ? "Save Credentials" : "Yes",
+            );
         });
 
         it("should create profile with keyPassphrase and mark it as secure", async () => {
@@ -1972,12 +1974,16 @@ describe("AbstractConfigManager", async () => {
                 name: "testProfile",
             });
 
-            it("should save credentials when the user accepts plaintext storage", async () => {
-                const showMenuSpy = vi.spyOn(testManager as any, "showMenu").mockResolvedValue("Yes");
+            it("should save credentials when the user selects Save Credentials", async () => {
+                const showMenuSpy = vi.spyOn(testManager as any, "showMenu").mockResolvedValue("Save Credentials");
 
                 await (testManager as any).setProfile(baseConfig());
 
                 expect(showMenuSpy).toHaveBeenCalledTimes(1);
+                expect(showMenuSpy).toHaveBeenCalledWith({
+                    items: [{ label: "Save Credentials" }],
+                    placeholder: expect.stringContaining("profile testProfile"),
+                });
                 expect(mockProfiles.set).toHaveBeenCalledWith(
                     "testProfile",
                     expect.objectContaining({
@@ -1987,7 +1993,7 @@ describe("AbstractConfigManager", async () => {
                 );
             });
 
-            it.each(["No", undefined])("should omit credentials when the user answers %s", async (answer) => {
+            it.each([undefined, "other"])("should omit credentials when the user answers %s", async (answer) => {
                 vi.spyOn(testManager as any, "showMenu").mockResolvedValue(answer);
 
                 await (testManager as any).setProfile(baseConfig());
@@ -1996,6 +2002,16 @@ describe("AbstractConfigManager", async () => {
                 expect(saved.properties.password).toBeUndefined();
                 expect(saved.properties.keyPassphrase).toBeUndefined();
                 expect(saved.secure).toEqual(["user"]);
+            });
+
+            it("should name the existing profile in the prompt when updating", async () => {
+                const showMenuSpy = vi.spyOn(testManager as any, "showMenu").mockResolvedValue(undefined);
+
+                await (testManager as any).setProfile(baseConfig(), "existing");
+
+                expect(showMenuSpy).toHaveBeenCalledWith(
+                    expect.objectContaining({ placeholder: expect.stringContaining("profile existing") }),
+                );
             });
 
             it("should not prompt when secure storage is available", async () => {
@@ -2020,7 +2036,7 @@ describe("AbstractConfigManager", async () => {
             });
 
             it("should not update credential properties on an existing profile when declined", async () => {
-                vi.spyOn(testManager as any, "showMenu").mockResolvedValue("No");
+                vi.spyOn(testManager as any, "showMenu").mockResolvedValue(undefined);
 
                 await (testManager as any).setProfile(baseConfig(), "existing");
 
