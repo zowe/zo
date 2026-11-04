@@ -688,6 +688,53 @@ void zds_tests()
       });
     });
 
+    describe("write validation", [&]() -> void
+    {
+      it("should reject buffered writes to a missing data set without creating it", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          Expect(zds_write(ZDSWriteOpts{.zds = &zds, .dsname = target}, "data")).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
+      });
+
+      it("should reject binary writes to a missing data set without creating it", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          Expect(zds_write_binary(ZDSWriteOpts{.zds = &zds, .dsname = target}, "data")).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
+      });
+
+      it("should reject streamed writes to a missing data set before opening the input", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          size_t content_len = 0;
+          Expect(zds_write_streamed(ZDSWriteOpts{.zds = &zds, .dsname = target}, "", &content_len)).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(content_len).ToBe(0);
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
+      });
+    });
+
     describe("binary member write", [&]() -> void
     {
       it("should keep records that exactly fill a VB block (LRECL 84, BLKSIZE 88)", [&]() -> void

@@ -656,11 +656,10 @@ bool zds_is_valid_member_name(const std::string &name)
 
 /**
  * Helper function to get data set attributes (RECFM, LRECL) from DSCB.
- * Returns a DscbAttributes struct with recfm, lrecl, and is_asa flag.
+ * Returns false if the catalog lookup fails or finds no data set.
  */
-static DscbAttributes zds_get_dscb_attributes(const std::string &dsn)
+static bool zds_get_dscb_attributes(const std::string &dsn, DscbAttributes &attrs)
 {
-  DscbAttributes attrs;
   const std::string base_dsn = dsn.find('(') != std::string::npos ? dsn.substr(0, dsn.find('(')) : dsn;
 
   ZDS zds{};
@@ -670,7 +669,7 @@ static DscbAttributes zds_get_dscb_attributes(const std::string &dsn)
   int rc = zds_list_data_sets(&zds, base_dsn, datasets, true);
   if (rc != RTNCD_SUCCESS || datasets.empty())
   {
-    return attrs;
+    return false;
   }
 
   attrs.recfm = datasets[0].recfm;
@@ -680,6 +679,13 @@ static DscbAttributes zds_get_dscb_attributes(const std::string &dsn)
   attrs.read_password = datasets[0].read_password;
   attrs.write_password = datasets[0].write_password;
 
+  return true;
+}
+
+static DscbAttributes zds_get_dscb_attributes(const std::string &dsn)
+{
+  DscbAttributes attrs;
+  zds_get_dscb_attributes(dsn, attrs);
   return attrs;
 }
 
@@ -1788,22 +1794,15 @@ int zds_validate_etag(ZDS *zds, const std::string &dsn, bool has_encoding)
   return RTNCD_SUCCESS;
 }
 
-/**
- * Validate dataset existence.
- * Consolidates dataset existence validation logic used in write entry points.
- *
- * @param dsn Dataset name to validate
- * @param diag Diagnostic context for error messages
- * @return RTNCD_SUCCESS on success, RTNCD_FAILURE if dataset doesn't exist
- */
-static int validate_dataset_exists(const std::string &dsn, ZDIAG &diag)
+// Reuse the catalog lookup for existence and password validation without OPEN.
+static int validate_write_dataset(const std::string &dsn, DscbAttributes &attrs, ZDIAG &diag)
 {
-  if (!zds_dataset_exists(dsn))
+  if (!zds_get_dscb_attributes(dsn, attrs))
   {
     ZDIAG_SET_MSG(&diag, "Could not access '%s'", dsn.c_str());
     return RTNCD_FAILURE;
   }
-  return RTNCD_SUCCESS;
+  return validate_no_password(attrs, dsn, true, diag);
 }
 
 /**
@@ -1866,15 +1865,8 @@ int zds_write(const ZDSWriteOpts &opts, const std::string &data)
   // DSN writes: full validation and logic from zds_write_to_dsn
   const std::string &dsn = opts.dsname;
 
-  // Before validate_dataset_exists: its fopen() would hit the password prompt.
-  const DscbAttributes attrs = zds_get_dscb_attributes(dsn);
-  int rc = validate_no_password(attrs, dsn, true, zds->diag);
-  if (rc != RTNCD_SUCCESS)
-  {
-    return rc;
-  }
-
-  rc = validate_dataset_exists(dsn, zds->diag);
+  DscbAttributes attrs;
+  int rc = validate_write_dataset(dsn, attrs, zds->diag);
   if (rc != RTNCD_SUCCESS)
   {
     return rc;
@@ -1939,15 +1931,8 @@ int zds_write_binary(const ZDSWriteOpts &opts, const std::string &data)
   ZDS *zds = opts.zds;
   const std::string &dsn = opts.dsname;
 
-  // Before validate_dataset_exists: its fopen() would hit the password prompt.
-  const DscbAttributes attrs = zds_get_dscb_attributes(dsn);
-  int rc = validate_no_password(attrs, dsn, true, zds->diag);
-  if (rc != RTNCD_SUCCESS)
-  {
-    return rc;
-  }
-
-  rc = validate_dataset_exists(dsn, zds->diag);
+  DscbAttributes attrs;
+  int rc = validate_write_dataset(dsn, attrs, zds->diag);
   if (rc != RTNCD_SUCCESS)
   {
     return rc;
@@ -2026,15 +2011,8 @@ int zds_write_streamed(const ZDSWriteOpts &opts, const std::string &pipe, size_t
   // DSN writes: full validation and logic from zds_write_to_dsn_streamed
   const std::string &dsn = opts.dsname;
 
-  // Before validate_dataset_exists: its fopen() would hit the password prompt.
-  const DscbAttributes attrs = zds_get_dscb_attributes(dsn);
-  int rc = validate_no_password(attrs, dsn, true, zds->diag);
-  if (rc != RTNCD_SUCCESS)
-  {
-    return rc;
-  }
-
-  rc = validate_dataset_exists(dsn, zds->diag);
+  DscbAttributes attrs;
+  int rc = validate_write_dataset(dsn, attrs, zds->diag);
   if (rc != RTNCD_SUCCESS)
   {
     return rc;
