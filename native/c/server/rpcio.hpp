@@ -106,7 +106,8 @@ public:
     return m_large_data;
   }
 
-  // Store large data to optimize JSON serialization
+  // Data is spliced verbatim between quotes into the serialized response, so it must
+  // already be safe as JSON string content (base64 or zjson-escaped).
   void store_large_data(const std::string &field_name, const std::string &data);
 
 private:

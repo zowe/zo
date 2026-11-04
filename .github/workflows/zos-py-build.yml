@@ -106,7 +106,7 @@ jobs:
       # pull_request runs from forks, so skip it there rather than failing the job on a
       # permissions error. The JUnit XML is still in the job log.
       - name: Python Test Report
-        uses: dorny/test-reporter@df6247429542221bc30d46a036ee47af1102c451 # v2.7.0
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         with:
           name: Python binding test results
