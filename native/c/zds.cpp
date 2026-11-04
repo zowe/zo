@@ -4249,6 +4249,14 @@ static int zds_write_member_bpam_streamed(ZDS *zds, const std::string &dsn, cons
       pending.erase(0, pos);
     }
 
+    if (ferror(fin))
+    {
+      ZDIAG_SET_MSG(&zds->diag, "Error reading input pipe '%s', errno %d", pipe.c_str(), errno);
+      DiagMsgGuard guard(&zds->diag);
+      zds_close_output_bpam(zds, ioc);
+      return RTNCD_FAILURE;
+    }
+
     size_t pos = 0;
     rc = write_binary_records(zds, ioc, pending, pos, record_len, true);
     if (rc != RTNCD_SUCCESS)
