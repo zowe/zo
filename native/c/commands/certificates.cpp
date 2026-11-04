@@ -901,17 +901,17 @@ void register_commands(parser::Command &parent)
   export_cmd->add_positional_arg("owner", "key ring owner (userid)", ArgType_Single, true);
   export_cmd->add_positional_arg("keyring", "key ring name, or '*' for the owner's virtual key ring", ArgType_Single, true);
   export_cmd->add_keyword_arg("label", make_aliases("--label", "-l"), "certificate label", ArgType_Single, true);
-  export_cmd->add_keyword_arg("format", make_aliases("--format", "-F"), "export format: pem (certificate) or p12 (certificate + private key)", ArgType_Single, false, ArgValue(std::string("pem")));
+  export_cmd->add_keyword_arg("format", make_aliases("--format", "-F"), "export format: pem (certificate) or p12 (certificate + private key, PBES2/AES-256; requires OA64899 support and active ICSF)", ArgType_Single, false, ArgValue(std::string("pem")));
   export_cmd->add_keyword_arg("file", make_aliases("--file", "-f"), "output file path (p12 requires --file or --dsn; PEM prints to stdout when neither is supplied); mutually exclusive with --dsn", ArgType_Single, false);
   export_cmd->add_keyword_arg("dsn", make_aliases("--dsn"),
                               "output data set (sequential or PDS/E member), created if absent; mutually exclusive with --file. "
                               "Protection is the RACF DATASET profile, not file permissions.",
                               ArgType_Single, false);
-  export_cmd->add_keyword_arg("password", make_aliases("--password", "-p"), "PKCS#12 passphrase (required with --format p12)", ArgType_Single, false);
+  export_cmd->add_keyword_arg("password", make_aliases("--password", "-p"), "strong, unique PKCS#12 passphrase: 8-128 ASCII characters (required with --format p12)", ArgType_Single, false);
   export_cmd->set_handler(handle_cert_export);
   export_cmd->add_example("Export a certificate as PEM", "zo system cert export USER01 RING02 -l CERT03 -f ./CERT03.pem");
-  export_cmd->add_example("Export a certificate + key as PKCS#12", "zo system cert export USER01 RING02 -l CERT03 -F p12 -f ./CERT03.p12 -p secret");
-  export_cmd->add_example("Export a certificate + key as PKCS#12 to a data set", "zo system cert export USER01 RING02 -l CERT03 -F p12 -p secret --dsn USER01.CERT03.P12");
+  export_cmd->add_example("Export a certificate + key as PKCS#12 (replace the example passphrase)", "zo system cert export USER01 RING02 -l CERT03 -F p12 -f ./CERT03.p12 -p 'REPLACE-WITH-A-STRONG-UNIQUE-PASSPHRASE'");
+  export_cmd->add_example("Export a certificate + key as PKCS#12 to a data set (replace the example passphrase)", "zo system cert export USER01 RING02 -l CERT03 -F p12 -p 'REPLACE-WITH-A-STRONG-UNIQUE-PASSPHRASE' --dsn USER01.CERT03.P12");
   certops_cmd->add_command(export_cmd);
 
   // cert import <owner> <keyring> --label L --usage U --file F --password P

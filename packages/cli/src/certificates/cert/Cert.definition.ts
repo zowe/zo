@@ -36,19 +36,21 @@ const ExportCertDefinition: ICommandDefinition = {
         "private key) format, to a file, a data set, or (PEM only) stdout. With --file the certificate is " +
         "written to a USS file on the server; with --dsn it is written to a sequential data set or PDS/E " +
         "member (created if it does not exist); PEM with neither is printed to stdout. The private key is " +
-        "only available in the p12 format.",
+        "only available in the p12 format, protected with " +
+        "PBES2/AES-256. PKCS#12 export requires System SSL APAR OA64899 support and active ICSF.",
     examples: [
         {
             description: "Export a certificate as PEM to a file on the server",
             options: "USER01 RING02 -l CERT03 -f /tmp/CERT03.pem",
         },
         {
-            description: "Export a certificate and key as PKCS#12",
-            options: "USER01 RING02 -l CERT03 -F p12 -f /tmp/CERT03.p12 -p secret",
+            description: "Export a certificate and key as PKCS#12 (replace the example passphrase)",
+            options: "USER01 RING02 -l CERT03 -F p12 -f /tmp/CERT03.p12 -p 'REPLACE-WITH-A-STRONG-UNIQUE-PASSPHRASE'",
         },
         {
-            description: "Export a certificate and key as PKCS#12 to a data set",
-            options: "USER01 RING02 -l CERT03 -F p12 -p secret --dsn USER01.CERT03.P12",
+            description: "Export a certificate and key as PKCS#12 to a data set (replace the example passphrase)",
+            options:
+                "USER01 RING02 -l CERT03 -F p12 -p 'REPLACE-WITH-A-STRONG-UNIQUE-PASSPHRASE' --dsn USER01.CERT03.P12",
         },
     ],
     positionals: [OWNER_POSITIONAL, KEYRING_POSITIONAL],
@@ -83,7 +85,7 @@ const ExportCertDefinition: ICommandDefinition = {
         {
             name: "password",
             aliases: ["p"],
-            description: "PKCS#12 passphrase (used with --format p12).",
+            description: "Strong, unique PKCS#12 passphrase: 8-128 ASCII characters (required with --format p12).",
             type: "string",
         },
     ],
