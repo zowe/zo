@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- Prompt user for saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
+- Added prompt for user for saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
 
 ## `1.1.0`
 
