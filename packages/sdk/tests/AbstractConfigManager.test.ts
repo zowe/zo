@@ -1963,6 +1963,76 @@ describe("AbstractConfigManager", async () => {
             expect(mockTeamConfig.save).toHaveBeenCalled();
         });
 
+        describe("plaintext credential confirmation", () => {
+            const baseConfig = () => ({
+                user: "user1",
+                host: "example.com",
+                password: "secret123",
+                keyPassphrase: "passphrase123",
+                name: "testProfile",
+            });
+
+            it("should save credentials when the user accepts plaintext storage", async () => {
+                const showMenuSpy = vi.spyOn(testManager as any, "showMenu").mockResolvedValue("Yes");
+
+                await (testManager as any).setProfile(baseConfig());
+
+                expect(showMenuSpy).toHaveBeenCalledTimes(1);
+                expect(mockProfiles.set).toHaveBeenCalledWith(
+                    "testProfile",
+                    expect.objectContaining({
+                        properties: expect.objectContaining({ password: "secret123", keyPassphrase: "passphrase123" }),
+                        secure: ["user", "password", "keyPassphrase"],
+                    }),
+                );
+            });
+
+            it.each(["No", undefined])("should omit credentials when the user answers %s", async (answer) => {
+                vi.spyOn(testManager as any, "showMenu").mockResolvedValue(answer);
+
+                await (testManager as any).setProfile(baseConfig());
+
+                const [, saved] = mockProfiles.set.mock.calls[0];
+                expect(saved.properties.password).toBeUndefined();
+                expect(saved.properties.keyPassphrase).toBeUndefined();
+                expect(saved.secure).toEqual(["user"]);
+            });
+
+            it("should not prompt when secure storage is available", async () => {
+                (testManager as any).mProfilesCache.isSecured.mockReturnValue(true);
+                const showMenuSpy = vi.spyOn(testManager as any, "showMenu");
+
+                await (testManager as any).setProfile(baseConfig());
+
+                expect(showMenuSpy).not.toHaveBeenCalled();
+                expect(mockProfiles.set).toHaveBeenCalledWith(
+                    "testProfile",
+                    expect.objectContaining({ secure: ["user", "password", "keyPassphrase"] }),
+                );
+            });
+
+            it("should not prompt when no credentials are present", async () => {
+                const showMenuSpy = vi.spyOn(testManager as any, "showMenu");
+
+                await (testManager as any).setProfile({ user: "user1", host: "example.com", name: "testProfile" });
+
+                expect(showMenuSpy).not.toHaveBeenCalled();
+            });
+
+            it("should not update credential properties on an existing profile when declined", async () => {
+                vi.spyOn(testManager as any, "showMenu").mockResolvedValue("No");
+
+                await (testManager as any).setProfile(baseConfig(), "existing");
+
+                const updatedKeys = (testManager as any).mProfilesCache.updateProperty.mock.calls.map(
+                    ([arg]: [{ property: string }]) => arg.property,
+                );
+                expect(updatedKeys).not.toContain("password");
+                expect(updatedKeys).not.toContain("keyPassphrase");
+                expect(updatedKeys).toContain("user");
+            });
+        });
+
         it("should store identityAgent as a non-secure property", async () => {
             const config = {
                 user: "user1",
