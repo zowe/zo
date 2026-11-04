@@ -367,13 +367,6 @@ std::string &zut_ltrim(std::string &s, const char *t = " ");
 std::string &zut_trim(std::string &s, const char *t = " ");
 
 /**
- * @brief Function to dynamically allocate output debug DD
- *
- * @return int rc Return code (0 for success, non-zero for error)
- */
-int zut_alloc_debug();
-
-/**
  * @brief Get current PSW key
  *
  * @return unsigned char The current PSW key

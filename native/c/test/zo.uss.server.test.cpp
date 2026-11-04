@@ -299,6 +299,27 @@ void zo_uss_server_tests()
         Expect(response).ToContain("\"id\":" + std::to_string(req_id));
         Expect(response).ToContain("\"data\":\"hello\\n\"");
       });
+
+      TEST_OPTIONS large_output_options = {.timeout_sec = 120};
+      it("should JSON-escape large text output via RPC", [&]() -> void
+      {
+        const std::string big_path = get_random_uss(ussTestDir) + "_large_out";
+        std::string out;
+        int rc = execute_command_with_output(
+            "awk 'BEGIN{for(i=0;i<3000000;i++)print \"a\\\"b\\\\c\"}' > '" + big_path + "'", out);
+        ExpectWithContext(rc, out).ToBe(0);
+
+        int req_id;
+        std::string request = make_rpc_request("unixCommand", "{\"commandText\":\"cat '" + big_path + "'\"}", req_id);
+        write_to_server(server, request);
+        const std::string response = read_rpc_response(server, 60000);
+
+        Expect(response.size()).ToBeGreaterThan(18000000);
+        Expect(response.compare(response.size() - 2, 2, "}\n")).ToBe(0);
+        Expect(response.find("\"id\":" + std::to_string(req_id))).Not().ToBe(std::string::npos);
+        Expect(response.find("\"data\":\"a\\\"b\\\\c\\na\\\"b\\\\c\\n")).Not().ToBe(std::string::npos);
+        Expect(response.find("a\"b\\c\n")).ToBe(std::string::npos);
+      }, large_output_options);
     });
 
     describe("list", [&]() -> void
