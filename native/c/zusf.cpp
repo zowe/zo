@@ -1878,9 +1878,8 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
  */
 int zusf_chmod_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode, bool recursive)
 {
-  // TODO(zFernand0): Add recursive option for directories
   struct stat file_stats;
-  if (stat(file.c_str(), &file_stats) == -1)
+  if (lstat(file.c_str(), &file_stats) == -1)
   {
     ZDIAG_SET_MSG(&zusf->diag, "Path '%s' does not exist", file.c_str());
     return RTNCD_FAILURE;
@@ -1892,7 +1891,18 @@ int zusf_chmod_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode,
     return RTNCD_FAILURE;
   }
 
-  chmod(file.c_str(), mode);
+  if (S_ISLNK(file_stats.st_mode))
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Refusing to change permissions through symbolic link '%s'", file.c_str());
+    return RTNCD_FAILURE;
+  }
+
+  if (chmod(file.c_str(), mode) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "chmod operation failed on path '%s'. reason: %s", file.c_str(), strerror(errno));
+    return RTNCD_FAILURE;
+  }
+
   if (recursive && S_ISDIR(file_stats.st_mode))
   {
     DIR *dir = opendir(file.c_str());
@@ -1908,7 +1918,18 @@ int zusf_chmod_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode,
       {
         const std::string child_path = zusf_join_path(file, std::string((const char *)entry->d_name));
         struct stat file_stats;
-        stat(child_path.c_str(), &file_stats);
+        if (lstat(child_path.c_str(), &file_stats) == -1)
+        {
+          closedir(dir);
+          ZDIAG_SET_MSG(&zusf->diag, "Could not stat child path '%s'", child_path.c_str());
+          return RTNCD_FAILURE;
+        }
+
+        // Skip traversing symbolic links
+        if (S_ISLNK(file_stats.st_mode))
+        {
+          continue;
+        }
 
         const auto rc = zusf_chmod_uss_file_or_dir(zusf, child_path, mode, S_ISDIR(file_stats.st_mode));
         if (0 != rc)
@@ -2081,7 +2102,7 @@ int zusf_chown_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::s
 {
   struct stat file_stats;
   // Verify target exists and capture current metadata
-  if (stat(file.c_str(), &file_stats) == -1)
+  if (lstat(file.c_str(), &file_stats) == -1)
   {
     ZDIAG_SET_MSG(&zusf->diag, "Path '%s' does not exist", file.c_str());
     return RTNCD_FAILURE;
@@ -2136,7 +2157,7 @@ int zusf_chown_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::s
     gid = file_stats.st_gid;
 
   // Attempt chown
-  const auto rc = chown(file.c_str(), uid, gid);
+  const auto rc = lchown(file.c_str(), uid, gid);
   if (rc != 0)
   {
     ZDIAG_SET_MSG(&zusf->diag, "chown failed for path '%s', errno %d", file.c_str(), errno);
@@ -2160,11 +2181,17 @@ int zusf_chown_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::s
       {
         const std::string child_path = zusf_join_path(file, std::string((const char *)entry->d_name));
         struct stat child_stats;
-        if (stat(child_path.c_str(), &child_stats) == -1)
+        if (lstat(child_path.c_str(), &child_stats) == -1)
         {
           closedir(dir);
           ZDIAG_SET_MSG(&zusf->diag, "Could not stat child path '%s'", child_path.c_str());
           return RTNCD_FAILURE;
+        }
+
+        // Avoid traversing symbolic links
+        if (S_ISLNK(child_stats.st_mode))
+        {
+          continue;
         }
 
         const auto rc = zusf_chown_uss_file_or_dir(zusf, child_path, owner, S_ISDIR(child_stats.st_mode));
@@ -2184,9 +2211,15 @@ int zusf_chown_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::s
 int zusf_chtag_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::string &tag, bool recursive)
 {
   struct stat file_stats;
-  if (stat(file.c_str(), &file_stats) == -1)
+  if (lstat(file.c_str(), &file_stats) == -1)
   {
     ZDIAG_SET_MSG(&zusf->diag, "Path '%s' does not exist", file.c_str());
+    return RTNCD_FAILURE;
+  }
+
+  if (S_ISLNK(file_stats.st_mode))
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Refusing to change tag through symbolic link '%s'", file.c_str());
     return RTNCD_FAILURE;
   }
 
@@ -2241,7 +2274,18 @@ int zusf_chtag_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::s
       {
         const std::string child_path = zusf_join_path(file, std::string((const char *)entry->d_name));
         struct stat file_stats;
-        stat(child_path.c_str(), &file_stats);
+        if (lstat(child_path.c_str(), &file_stats) == -1)
+        {
+          closedir(dir);
+          ZDIAG_SET_MSG(&zusf->diag, "Could not stat child path '%s'", child_path.c_str());
+          return RTNCD_FAILURE;
+        }
+
+        // Avoid traversing symbolic links
+        if (S_ISLNK(file_stats.st_mode))
+        {
+          continue;
+        }
 
         const auto rc = zusf_chtag_uss_file_or_dir(zusf, child_path, tag, S_ISDIR(file_stats.st_mode));
         if (0 != rc)
