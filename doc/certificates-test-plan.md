@@ -35,8 +35,8 @@ runs with both gates closed.
 | `showCertificate` | ✅ | gated lifecycle | — |
 | `connectCertificate` | ✅ | gated (`--from-ring`) | `--from-database` never exercised anywhere |
 | `deleteCertificate` | ✅ | gated (database delete only) | ring-scoped disconnect + auto-refresh (SAF 4/4/12) untested |
-| `exportCertificate` | ✅ | gated (PEM only) | p12 / `gsk_export_key` path untested |
-| `importCertificate` | ✅ | gated happy path | warning branches untested: already-exists (rsn 8/12/16), refresh-failed fallback |
+| `exportCertificate` | ✅ | gated (PEM + p12, `--file` and `--dsn` incl. PDS/E member) | byte-for-byte parity against `keyring-util`/RACDCERT DSN output untested |
+| `importCertificate` | ✅ | gated happy path, incl. `--dsn` (sequential + PDS/E member) | warning branches untested: already-exists (rsn 8/12/16), refresh-failed fallback |
 | `setDefaultCertificate` | ✅ | gated lifecycle | — |
 | `trustCertificate` | ✅ | gated (NOTRUST↔TRUST) | HIGHTRUST never exercised |
 | `renameCertificate` | ✅ | gated (rename + back) | — |
@@ -144,6 +144,16 @@ For release validation on a real system, in addition to the automated suites:
 - [ ] `cert trust -s HIGHTRUST` on a CERTAUTH certificate
 - [ ] byte-parity of exported PEM/p12 against `keyring-util` output for the
       same certificate
+- [ ] `cert export --dsn` creates a sequential data set with RACDCERT-parity
+      attributes (PS/VB/LRECL 84/BLKSIZE 27998) when it does not already exist
+- [ ] `cert export --dsn LIB(MEMBER)` creates the PDS/E and member (BPAM path),
+      and a second export to the same member succeeds without hanging
+- [ ] `cert import --dsn` reads a PKCS#12 data set (sequential and member) and
+      byte-parity of the DSN bytes against `cp -B "//'DSN'"` output
+- [ ] `cert export`/`cert import` reject `--file` and `--dsn` together, and
+      reject providing neither
+- [ ] `cert export --dsn`/`cert import --dsn` against a password-protected data
+      set returns a clean error (not a hang) -- see step 5 of the design
 
 ## 4. Running the suites
 

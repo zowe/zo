@@ -688,6 +688,90 @@ void zds_tests()
       });
     });
 
+    describe("write validation", [&]() -> void
+    {
+      it("should reject buffered writes to a missing data set without creating it", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          Expect(zds_write(ZDSWriteOpts{.zds = &zds, .dsname = target}, "data")).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
+      });
+
+      it("should reject binary writes to a missing data set without creating it", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          Expect(zds_write_binary(ZDSWriteOpts{.zds = &zds, .dsname = target}, "data")).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
+      });
+
+      it("should reject streamed writes to a missing data set before opening the input", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          size_t content_len = 0;
+          Expect(zds_write_streamed(ZDSWriteOpts{.zds = &zds, .dsname = target}, "", &content_len)).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(content_len).ToBe(0);
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
+      });
+    });
+
+    describe("binary member write", [&]() -> void
+    {
+      it("should keep records that exactly fill a VB block (LRECL 84, BLKSIZE 88)", [&]() -> void
+      {
+        ZDS zds = {};
+        std::string response;
+        std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        DS_ATTRIBUTES attr{};
+        attr.dsorg = "PO";
+        attr.recfm = "VB";
+        attr.lrecl = 84;
+        attr.blksize = 88;
+        attr.alcunit = "TRACKS";
+        attr.primary = 1;
+        attr.secondary = 1;
+        attr.dirblk = 1;
+        ExpectWithContext(zds_create_dsn(&zds, dsn, attr, response), response).ToBe(0);
+
+        // Two full 80-byte chunks plus a partial last chunk
+        std::string data;
+        for (int i = 0; i < 200; ++i)
+          data.push_back(static_cast<char>(i));
+
+        std::string member = dsn + "(BIN)";
+        ExpectWithContext(zds_write_binary(ZDSWriteOpts{.zds = &zds, .dsname = member}, data), zds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+
+        ZDS rzds = {};
+        zut_prepare_encoding("binary", &rzds.encoding_opts);
+        std::string out;
+        ExpectWithContext(zds_read(ZDSReadOpts{.zds = &rzds, .dsname = member}, out), rzds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+        Expect(out.size()).ToBe(data.size());
+        Expect(out == data).ToBe(true);
+      });
+    });
+
     describe("copy datasets", [&]() -> void
     {
       DS_ATTRIBUTES pds_attr{};

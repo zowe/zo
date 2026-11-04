@@ -166,7 +166,7 @@ public:
     else
     {
       // Nested subcommands can't shadow a built-in verb, but guard against a
-      // malformed plug-in registering duplicate siblings so it can't abort zowex.
+      // malformed plug-in registering duplicate siblings so it can't abort zo.
       try
       {
         parent_record->get().add_command(child_record->get_command_ptr());

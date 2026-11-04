@@ -65,7 +65,7 @@ if (findings.length > 0) {
             "",
             "std::hash<std::string> pulls in the libc++ symbol std::__1_e::__hash_memory, which is not",
             "exported by CRTEQCXE on z/OS systems below the required Language Environment maintenance",
-            "level. zowex then fails to load with CEE3561S.",
+            "level. zo then fails to load with CEE3561S.",
             "",
             "Use std::map / std::set instead (zjson::ObjectMap, ast::ObjMap and plugin::ArgumentMap are",
             "already ordered). See native/c/compat/README.md and https://github.com/zowe/zowex/issues/871.",

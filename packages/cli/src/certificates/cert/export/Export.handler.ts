@@ -18,11 +18,20 @@ export default class ExportCertHandler extends SshBaseHandler {
         params: IHandlerParameters,
         client: ZSshClient,
     ): Promise<certificates.ExportCertificateResponse> {
-        const { owner, keyring, label, format, file, password } = params.arguments;
-        const response = await client.certificates.exportCertificate({ owner, keyring, label, format, file, password });
+        const { owner, keyring, label, format, file, dsn, password } = params.arguments;
+        const response = await client.certificates.exportCertificate({
+            owner,
+            keyring,
+            label,
+            format,
+            file,
+            dsn,
+            password,
+        });
 
-        if (response.file) {
-            const message = `Certificate '${label}' exported to ${response.file} on the server (${response.bytesWritten} bytes, ${response.format}).`;
+        if (response.file || response.dsn) {
+            const dest = response.file ? response.file : `data set ${response.dsn}`;
+            const message = `Certificate '${label}' exported to ${dest} on the server (${response.bytesWritten} bytes, ${response.format}).`;
             params.response.data.setMessage(message);
             params.response.console.log(message);
         } else {
