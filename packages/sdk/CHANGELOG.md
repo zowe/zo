@@ -4,6 +4,10 @@ All notable changes to the Client code for "@zowe/zowex-for-zowe-sdk" are docume
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- Fixed the `parseSearchOutput` method splitting a member into several entries when SuperC search output spans page breaks. [#1182](https://github.com/zowe/zo/issues/1182)
+
 ## `1.1.0`
 
 - Documented the PBES2/AES-256 certificate export prerequisites and strong, unique 8–128-character passphrase requirement. [#1205](https://github.com/zowe/zo/pull/1205)
@@ -11,7 +15,6 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - BugFix: Censored sensitive info when logging RPC request and response details in ZSshClient. [#1190](https://github.com/zowe/zo/pull/1190)
 - Added support for the `deleteVsam` command to delete VSAM clusters with optional erase and purge behavior. [#490](https://github.com/zowe/zowex/issues/490)
 - Fixed SSH utility helper functions closing their connection before asynchronous operations completed when passing an `SshSession`. [#1195](https://github.com/zowe/zo/issues/1195)
-- Fixed the `parseSearchOutput` method splitting a member into several entries when SuperC search output spans page breaks. [#1182](https://github.com/zowe/zo/issues/1182)
 
 ## `1.0.2`
 
