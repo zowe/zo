@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <cstring>
+#include <cstdlib>
 #include <pwd.h>
 #include <grp.h>
 #include <ctime>
@@ -32,7 +33,14 @@ namespace
 {
 struct ZusfMetadataFixture
 {
-  const std::string base = "/tmp/zusf_metadata_" + get_random_string(16);
+  // /tmp may be a symlink; keep unrelated ancestor links out of the safety fixture.
+  const std::string base = []
+  {
+    char temp_dir[PATH_MAX];
+    if (realpath("/tmp", temp_dir) == nullptr)
+      throw std::runtime_error("Could not resolve USS metadata fixture directory");
+    return std::string(temp_dir) + "/zusf_metadata_" + get_random_string(16);
+  }();
   const std::string tree = base + "/tree";
   const std::string nested = tree + "/nested";
   const std::string outside = base + "/outside";
