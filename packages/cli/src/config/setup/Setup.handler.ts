@@ -213,7 +213,7 @@ export class CliPromptApi extends AbstractConfigManager {
     }
 
     public async showMenu(opts: qpOpts): Promise<string | undefined> {
-        return (await this.showCustomMenu(opts)).label;
+        return (await this.showCustomMenu(opts))?.label;
     }
 
     protected async showCustomMenu(opts: qpOpts): Promise<qpItem | undefined> {
