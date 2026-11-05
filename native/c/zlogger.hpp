@@ -44,6 +44,7 @@ private:
 
   std::mutex m_log_mutex;
   FILE *m_log_file = nullptr;
+  int m_log_lock_fd = -1;
   std::string m_log_file_path;
   std::atomic<int> m_level;
   std::atomic<bool> m_server_mode{false};
@@ -53,6 +54,50 @@ private:
 #if defined(ZLOG_ENABLE) && defined(__MVS__)
   bool m_metal_initialized = false;
 #endif
+
+  class LogFileLock
+  {
+  public:
+    explicit LogFileLock(int fd) : m_fd(fd)
+    {
+      m_lock.l_type = F_WRLCK;
+      m_lock.l_whence = SEEK_SET;
+      int rc;
+      do
+      {
+        rc = fcntl(m_fd, F_SETLKW, &m_lock);
+      } while (rc == -1 && errno == EINTR);
+      m_locked = rc == 0;
+      if (!m_locked)
+      {
+        std::cerr << "Failed to lock log file: " << strerror(errno) << std::endl;
+      }
+    }
+
+    ~LogFileLock()
+    {
+      if (m_locked)
+      {
+        m_lock.l_type = F_UNLCK;
+        while (fcntl(m_fd, F_SETLK, &m_lock) == -1 && errno == EINTR)
+        {
+        }
+      }
+    }
+
+    LogFileLock(const LogFileLock &) = delete;
+    LogFileLock &operator=(const LogFileLock &) = delete;
+
+    bool locked() const
+    {
+      return m_locked;
+    }
+
+  private:
+    int m_fd;
+    struct flock m_lock = {};
+    bool m_locked = false;
+  };
 
   static int get_level_from_environment(int default_level)
   {
@@ -139,6 +184,65 @@ private:
     return true;
   }
 
+  bool open_log_lock_file()
+  {
+    const std::string path = m_log_file_path + ".lock";
+    struct stat previous;
+    const bool existed = lstat(path.c_str(), &previous) == 0;
+    if ((existed && (!S_ISREG(previous.st_mode) || previous.st_uid != geteuid() || previous.st_nlink != 1)) ||
+        (!existed && errno != ENOENT))
+    {
+      std::cerr << "Unsafe log lock file: " << path << std::endl;
+      return false;
+    }
+    // Concurrent initializers must open the same inode, never replace or unlink it.
+    const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_NONBLOCK, 0600);
+    if (fd == -1)
+    {
+      std::cerr << "Failed to open log lock file: " << path << std::endl;
+      return false;
+    }
+    struct stat opened;
+    struct stat current;
+    if (fstat(fd, &opened) != 0 || lstat(path.c_str(), &current) != 0 || !S_ISREG(current.st_mode) ||
+        !S_ISREG(opened.st_mode) || opened.st_uid != geteuid() || opened.st_nlink != 1 ||
+        opened.st_dev != current.st_dev || opened.st_ino != current.st_ino ||
+        (existed && (opened.st_dev != previous.st_dev || opened.st_ino != previous.st_ino)))
+    {
+      close(fd);
+      std::cerr << "Log lock file changed while opening: " << path << std::endl;
+      return false;
+    }
+    m_log_lock_fd = fd;
+    return true;
+  }
+
+  bool refresh_log_file()
+  {
+    struct stat opened;
+    struct stat current;
+    if (fstat(fileno(m_log_file), &opened) != 0)
+    {
+      std::cerr << "Failed to inspect open log file: " << m_log_file_path << std::endl;
+      return false;
+    }
+    const bool existed = lstat(m_log_file_path.c_str(), &current) == 0;
+    if (!existed && errno != ENOENT)
+    {
+      std::cerr << "Failed to inspect active log file: " << m_log_file_path << std::endl;
+      return false;
+    }
+    if (existed && opened.st_dev == current.st_dev && opened.st_ino == current.st_ino)
+    {
+      return true;
+    }
+    std::fclose(m_log_file);
+    m_log_file = nullptr;
+    m_rotation_stall_warned = false;
+    m_initialized = open_log_file(false);
+    return m_initialized;
+  }
+
   void initialize_log_file(bool truncate)
   {
     m_pending_initialization = false;
@@ -158,6 +262,15 @@ private:
       return;
     }
     m_log_file_path = std::string(canonical_dir) + (m_server_mode ? "/zowex_server.log" : "/zowex.log");
+    if (!open_log_lock_file())
+    {
+      return;
+    }
+    const LogFileLock file_lock(m_log_lock_fd);
+    if (!file_lock.locked())
+    {
+      return;
+    }
     m_initialized = open_log_file(truncate);
 #if defined(ZLOG_ENABLE) && defined(__MVS__)
     // BSAM must not share a file with the C++ append stream.
@@ -179,6 +292,11 @@ private:
       m_log_file = nullptr;
     }
     m_initialized = false;
+    if (m_log_lock_fd != -1)
+    {
+      close(m_log_lock_fd);
+      m_log_lock_fd = -1;
+    }
 #if defined(ZLOG_ENABLE) && defined(__MVS__)
     if (m_metal_initialized)
     {
@@ -269,6 +387,11 @@ private:
       initialize_log_file(false);
     }
     if (!m_initialized)
+    {
+      return;
+    }
+    const LogFileLock file_lock(m_log_lock_fd);
+    if (!file_lock.locked() || !refresh_log_file())
     {
       return;
     }

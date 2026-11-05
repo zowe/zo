@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "ztest.hpp"
@@ -361,6 +362,59 @@ void rotation_recovery_tests(bool server)
   });
 }
 
+void shared_session_rotation_tests(bool server)
+{
+  it("reopens a peer-rotated log without writing to backups or rotating the new active file", [server]()
+  {
+    ScopedLogger scope;
+    scope.initialize(server);
+    const std::string path = scope.log_path(server);
+    struct stat lock_before;
+    Expect(stat((path + ".lock").c_str(), &lock_before)).ToBe(0);
+    for (int generation = 1; generation <= 9; ++generation)
+    {
+      write_file_contents(path + "." + std::to_string(generation),
+                          "history generation " + std::to_string(generation) + "\n");
+    }
+
+    const pid_t child = fork();
+    if (child == 0)
+    {
+      scope.initialize(server);
+      const std::string padding(3500, 'x');
+      for (int i = 0; i < 32; ++i)
+      {
+        LOG_INFO("peer record #%d: %s", i, padding.c_str());
+      }
+      scope.logger.shutdown();
+      _exit(0);
+    }
+    Expect(child > 0).ToBe(true);
+    if (child <= 0)
+    {
+      return;
+    }
+    int status = 0;
+    Expect(waitpid(child, &status, 0)).ToBe(child);
+    Expect(WIFEXITED(status) && WEXITSTATUS(status) == 0).ToBe(true);
+    struct stat lock_after;
+    Expect(stat((path + ".lock").c_str(), &lock_after)).ToBe(0);
+    Expect(lock_after.st_dev).ToBe(lock_before.st_dev);
+    Expect(lock_after.st_ino).ToBe(lock_before.st_ino);
+    Expect(static_cast<int>(lock_after.st_mode & 0777)).ToBe(0600);
+    const std::string archived = read_file_contents(path + ".1");
+    Expect(archived).ToContain("peer record #0:");
+    Expect(read_file_contents(path)).ToContain("peer record #31:");
+
+    LOG_INFO("parent after peer rotation");
+    scope.logger.shutdown();
+    Expect(read_file_contents(path)).ToContain("parent after peer rotation");
+    Expect(read_file_contents(path)).ToContain("peer record #31:");
+    Expect(read_file_contents(path + ".1")).ToBe(archived);
+    Expect(read_file_contents(path + ".9")).ToBe(std::string("history generation 8\n"));
+  });
+}
+
 void private_log_file_tests()
 {
   it("creates private per-user log directories and command and server files", []()
@@ -513,6 +567,7 @@ void rotation_tests(bool server)
     rotation_boundary_tests(server);
     rotation_retention_tests(server);
     rotation_recovery_tests(server);
+    shared_session_rotation_tests(server);
   });
 }
 
@@ -590,6 +645,41 @@ void log_file_validation_tests()
       Expect(read_file_contents(target)).ToBe(std::string("preserve unrelated data\n"));
       Expect(unlink(path.c_str())).ToBe(0);
     }
+  });
+
+  it("releases the initialization lock after rejecting an unsafe log file", []()
+  {
+    ScopedLogger scope;
+    Expect(mkdir(scope.dir.c_str(), 0700)).ToBe(0);
+    const std::string path = scope.log_path();
+    const std::string target = scope.root + "/unrelated";
+    write_file_contents(target, "preserve unrelated data\n");
+    Expect(symlink(target.c_str(), path.c_str())).ToBe(0);
+    {
+      ScopedStderrSuppressor suppress_stderr;
+      scope.logger.initialize_server(false, true);
+    }
+    Expect(unlink(path.c_str())).ToBe(0);
+    const pid_t child = fork();
+    if (child == 0)
+    {
+      signal(SIGALRM, SIG_DFL);
+      alarm(3);
+      scope.logger.initialize_server();
+      LOG_INFO("peer recovered after rejected initialization");
+      scope.logger.shutdown();
+      _exit(0);
+    }
+    Expect(child > 0).ToBe(true);
+    if (child <= 0)
+    {
+      return;
+    }
+    int status = 0;
+    Expect(waitpid(child, &status, 0)).ToBe(child);
+    Expect(WIFEXITED(status) && WEXITSTATUS(status) == 0).ToBe(true);
+    Expect(read_file_contents(path)).ToContain("peer recovered after rejected initialization");
+    Expect(read_file_contents(target)).ToBe(std::string("preserve unrelated data\n"));
   });
 }
 
