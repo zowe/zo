@@ -13,7 +13,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { ImperativeError, type IProfile, Logger } from "@zowe/imperative";
-import { type ISshSession, Shell, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
+import {
+    type ISshHostKeyVerifierOptions,
+    type ISshSession,
+    Shell,
+    SshHostKeyVerifier,
+    SshSession,
+} from "@zowe/zos-uss-for-zowe-sdk";
 import type { NodeSSH, SSHExecCommandResponse } from "node-ssh";
 import * as semver from "semver";
 import type { ConnectConfig, SFTPWrapper } from "ssh2";
@@ -179,7 +185,8 @@ export class ZSshUtils {
         return PrivateKeyFailurePatterns.some((pattern) => errorMessage.includes(pattern));
     }
 
-    public static buildSession(args: IProfile): SshSession {
+    /** Builds an SSH session with optional application callbacks for host key approval and storage. */
+    public static buildSession(args: IProfile, hostKeyOptions?: ISshHostKeyVerifierOptions): SshSession {
         const sshSessCfg: ISshSession = {
             hostname: args.host,
             port: args.port ?? 22,
@@ -192,7 +199,11 @@ export class ZSshUtils {
             hostKey: args.hostKey,
             insecure: args.insecure,
         };
-        return new SshSession(sshSessCfg);
+        const session = new SshSession(sshSessCfg);
+        if (hostKeyOptions) {
+            SshHostKeyVerifier.attach(session, hostKeyOptions);
+        }
+        return session;
     }
 
     /** Whether host key validation succeeded for the session's latest connection attempt. */

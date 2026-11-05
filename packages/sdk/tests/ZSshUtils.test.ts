@@ -902,6 +902,103 @@ describe("ZSshUtils", () => {
         });
     });
     describe("buildSession", () => {
+        describe("host key callbacks", () => {
+            const profile = { host: "example.com", user: "testuser" };
+            const key = Buffer.from("server-public-key");
+
+            beforeEach(() => {
+                vi.spyOn(SshKnownHosts, "verify").mockReturnValue({ status: "unknown" });
+            });
+
+            const verify = (session: SshSession) =>
+                new Promise<boolean>((resolve) =>
+                    (ZSshUtils.buildSshConfig(session).hostVerifier as HostVerifier)(key, resolve),
+                );
+
+            it("rejects unknown keys when callbacks are omitted", async () => {
+                const session = ZSshUtils.buildSession(profile);
+
+                expect(await verify(session)).toBe(false);
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+
+            it.each([true, false])("uses the application's trust decision: %s", async (accepted) => {
+                const confirm = vi.fn().mockResolvedValue(accepted);
+                const save = vi.fn().mockResolvedValue(undefined);
+                const session = ZSshUtils.buildSession(profile, { confirm, save });
+
+                expect(confirm).not.toHaveBeenCalled();
+                expect(await verify(session)).toBe(accepted);
+                expect(confirm).toHaveBeenCalledWith(
+                    expect.objectContaining({ key: key.toString("base64"), changed: false }),
+                );
+                expect(ZSshUtils.isHostVerified(session)).toBe(accepted);
+                if (accepted) {
+                    expect(session.ISshSession.hostKey).toBe(key.toString("base64"));
+                    expect(save).toHaveBeenCalledWith(key.toString("base64"));
+                } else {
+                    expect(session.ISshSession.hostKey).toBeUndefined();
+                    expect(save).not.toHaveBeenCalled();
+                }
+                expect(profile).not.toHaveProperty("hostKey");
+                expect(session.ISshSession).not.toHaveProperty("hostKeyVerifier");
+            });
+
+            it("connects to known hosts without prompting or saving", async () => {
+                vi.mocked(SshKnownHosts.verify).mockReturnValue({ status: "trusted" });
+                const confirm = vi.fn();
+                const save = vi.fn();
+                const session = ZSshUtils.buildSession(profile, { confirm, save });
+
+                expect(await verify(session)).toBe(true);
+                expect(confirm).not.toHaveBeenCalled();
+                expect(save).not.toHaveBeenCalled();
+            });
+
+            it("reports and rejects changed keys without offering confirmation", async () => {
+                const confirm = vi.fn().mockResolvedValue(true);
+                const onChanged = vi.fn();
+                const save = vi.fn();
+                const session = ZSshUtils.buildSession(
+                    { ...profile, hostKey: "previous-key" },
+                    { confirm, onChanged, save },
+                );
+
+                expect(await verify(session)).toBe(false);
+                expect(onChanged).toHaveBeenCalledWith(expect.objectContaining({ changed: true }));
+                expect(confirm).not.toHaveBeenCalled();
+                expect(save).not.toHaveBeenCalled();
+                expect(session.ISshSession.hostKey).toBe("previous-key");
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+
+            it("reports save failures while keeping the accepted key trusted for the session", async () => {
+                const error = new Error("Could not save host key");
+                const onSaveError = vi.fn();
+                const session = ZSshUtils.buildSession(profile, {
+                    confirm: vi.fn().mockResolvedValue(true),
+                    save: vi.fn().mockRejectedValue(error),
+                    onSaveError,
+                });
+
+                expect(await verify(session)).toBe(true);
+                expect(onSaveError).toHaveBeenCalledWith(error);
+                expect(session.ISshSession.hostKey).toBe(key.toString("base64"));
+                expect(ZSshUtils.isHostVerified(session)).toBe(true);
+            });
+
+            it("warns for insecure sessions without treating them as verified", async () => {
+                const confirm = vi.fn();
+                const onInsecure = vi.fn();
+                const session = ZSshUtils.buildSession({ ...profile, insecure: true }, { confirm, onInsecure });
+
+                expect(onInsecure).toHaveBeenCalledOnce();
+                expect(await verify(session)).toBe(true);
+                expect(confirm).not.toHaveBeenCalled();
+                expect(ZSshUtils.isHostVerified(session)).toBe(false);
+            });
+        });
+
         it("should preserve host key validation settings from the profile", () => {
             const session = ZSshUtils.buildSession({
                 host: "example.com",
