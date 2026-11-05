@@ -33,14 +33,7 @@ namespace
 {
 struct ZusfMetadataFixture
 {
-  // /tmp may be a symlink; keep unrelated ancestor links out of the safety fixture.
-  const std::string base = []
-  {
-    char temp_dir[PATH_MAX];
-    if (realpath("/tmp", temp_dir) == nullptr)
-      throw std::runtime_error("Could not resolve USS metadata fixture directory");
-    return std::string(temp_dir) + "/zusf_metadata_" + get_random_string(16);
-  }();
+  const std::string base = "/tmp/zusf_metadata_" + get_random_string(16);
   const std::string tree = base + "/tree";
   const std::string nested = tree + "/nested";
   const std::string outside = base + "/outside";
@@ -49,6 +42,7 @@ struct ZusfMetadataFixture
   const std::string outside_file = outside + "/file";
   const std::string outside_secret = outside + "/secret";
   const std::string root_link = base + "/root-link";
+  const std::string parent_link = base + "/parent-link";
   ZUSF zusf{};
 
   ZusfMetadataFixture()
@@ -61,7 +55,8 @@ struct ZusfMetadataFixture
   {
     for (const auto &path : {tree, nested, outside})
       chmod(path.c_str(), 0700);
-    for (const auto &path : {tree + "/file-link", tree + "/dir-link", tree + "/dangling", tree + "/cycle", root_link})
+    for (const auto &path : {tree + "/file-link", tree + "/dir-link", tree + "/dangling", tree + "/cycle", root_link,
+                             parent_link})
       unlink(path.c_str());
     for (const auto &path : {inside_file, nested_file, outside_file, outside_secret})
       unlink(path.c_str());
@@ -88,6 +83,7 @@ struct ZusfMetadataFixture
     Expect(symlink((base + "/missing").c_str(), (tree + "/dangling").c_str())).ToBe(0);
     Expect(symlink(tree.c_str(), (tree + "/cycle").c_str())).ToBe(0);
     Expect(symlink(outside.c_str(), root_link.c_str())).ToBe(0);
+    Expect(symlink(base.c_str(), parent_link.c_str())).ToBe(0);
   }
 
   static void expect_mode(const std::string &path, mode_t expected)
@@ -670,7 +666,7 @@ void zusf_tests()
     {
       ZusfMetadataFixture fixture;
       fixture.populate();
-      ExpectWithContext(zusf_chmod_uss_file_or_dir(&fixture.zusf, fixture.tree, 0500, true),
+      ExpectWithContext(zusf_chmod_uss_file_or_dir(&fixture.zusf, fixture.parent_link + "/tree", 0500, true),
                         fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
       for (const auto &path : {fixture.tree, fixture.nested, fixture.inside_file, fixture.nested_file})
         fixture.expect_mode(path, 0500);
@@ -686,7 +682,7 @@ void zusf_tests()
       for (const auto &path : {fixture.inside_file, fixture.nested_file, fixture.outside_file, fixture.outside_secret})
         Expect(chmod(path.c_str(), 04700)).ToBe(0);
 
-      ExpectWithContext(zusf_chown_uss_file_or_dir(&fixture.zusf, fixture.tree, fixture.owner(), true),
+      ExpectWithContext(zusf_chown_uss_file_or_dir(&fixture.zusf, fixture.parent_link + "/tree", fixture.owner(), true),
                         fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
       // Even chown to the existing owner clears set-ID bits; external targets must retain them.
       fixture.expect_mode(fixture.inside_file, 0700);
@@ -702,7 +698,7 @@ void zusf_tests()
       for (const auto &path : {fixture.inside_file, fixture.nested_file, fixture.outside_file, fixture.outside_secret})
         Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, path, "1047", false)).ToBe(RTNCD_SUCCESS);
 
-      ExpectWithContext(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.tree, "819", true),
+      ExpectWithContext(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.parent_link + "/tree", "819", true),
                         fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
       Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.inside_file)).ToBe(819);
       Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.nested_file)).ToBe(819);
@@ -735,18 +731,24 @@ void zusf_tests()
       fixture.expect_mode(fixture.outside_file, 04700);
     });
 
-    it("rejects symlinks in intermediate components of the requested root", []() -> void
+    it("updates a requested file through a symlinked parent directory", []() -> void
     {
       ZusfMetadataFixture fixture;
       fixture.populate();
-      Expect(chmod(fixture.outside_file.c_str(), 04700)).ToBe(0);
       Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.outside_file, "1047", false)).ToBe(RTNCD_SUCCESS);
+      Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.outside_secret, "1047", false)).ToBe(RTNCD_SUCCESS);
       const std::string path = fixture.root_link + "/file";
-      Expect(zusf_chmod_uss_file_or_dir(&fixture.zusf, path, 0777, false)).ToBe(RTNCD_FAILURE);
-      Expect(zusf_chown_uss_file_or_dir(&fixture.zusf, path, fixture.owner(), false)).ToBe(RTNCD_FAILURE);
-      Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, path, "819", false)).ToBe(RTNCD_FAILURE);
+      ExpectWithContext(zusf_chmod_uss_file_or_dir(&fixture.zusf, path, 04700, false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
       fixture.expect_mode(fixture.outside_file, 04700);
-      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.outside_file)).ToBe(1047);
+      ExpectWithContext(zusf_chown_uss_file_or_dir(&fixture.zusf, path, fixture.owner(), false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      fixture.expect_mode(fixture.outside_file, 0700);
+      ExpectWithContext(zusf_chtag_uss_file_or_dir(&fixture.zusf, path, "819", false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.outside_file)).ToBe(819);
+      fixture.expect_mode(fixture.outside_secret, 0600);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.outside_secret)).ToBe(1047);
     });
 
     it("updates owned files without requiring content-read permission", []() -> void

@@ -1907,7 +1907,7 @@ struct ZusfMetadataPath
   bool requires_directory = false;
 };
 
-// Resolve the requested root one component at a time; never reopen an ancestor by name.
+// Follow links in the requested parent path, pinning each directory before resolving the next component.
 int zusf_open_metadata_parent(ZUSF *zusf, const std::string &file, ZusfMetadataPath &target)
 {
   if (file.empty() || file.find('\0') != std::string::npos)
@@ -1940,8 +1940,7 @@ int zusf_open_metadata_parent(ZUSF *zusf, const std::string &file, ZusfMetadataP
     if (component.empty() || component == ".")
       continue;
 
-    const int next_fd = openat(target.parent.get(), component.c_str(),
-                               O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    const int next_fd = openat(target.parent.get(), component.c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC);
     if (next_fd == -1)
     {
       ZDIAG_SET_MSG(&zusf->diag, "Could not safely resolve path '%s': %s", file.c_str(), strerror(errno));
@@ -1952,17 +1951,25 @@ int zusf_open_metadata_parent(ZUSF *zusf, const std::string &file, ZusfMetadataP
   return RTNCD_SUCCESS;
 }
 
-int zusf_apply_metadata_fd(ZUSF *zusf, int fd, attrib_t &attributes, const char *name)
+struct ZusfMetadataEntry
 {
-  if (__fchattr(fd, &attributes, sizeof(attributes)) != 0)
+  int parent;
+  const char *name;
+  const char *path;
+};
+
+int zusf_apply_metadata_at(ZUSF *zusf, const ZusfMetadataEntry &entry, attrib_t &attributes)
+{
+  // z/OS rejects O_PATH descriptors in __fchattr. Resolve only the basename, atomically without following links.
+  if (__chattrat(entry.parent, const_cast<char *>(entry.name), &attributes, sizeof(attributes), AT_SYMLINK_NOFOLLOW) != 0)
   {
-    ZDIAG_SET_MSG(&zusf->diag, "Could not update attributes of opened USS item '%s': %s", name, strerror(errno));
+    ZDIAG_SET_MSG(&zusf->diag, "Could not update attributes of USS item '%s': %s", entry.path, strerror(errno));
     return RTNCD_FAILURE;
   }
   return RTNCD_SUCCESS;
 }
 
-int zusf_update_metadata_fd(ZUSF *zusf, int fd, attrib_t &attributes, bool recursive, const char *name);
+int zusf_update_metadata_fd(ZUSF *zusf, int fd, attrib_t &attributes, bool recursive, const ZusfMetadataEntry &entry);
 
 // z/OS 2.5 has no fdopendir; verify the pathname-opened stream before reading any entries.
 DIR *zusf_open_metadata_directory(ZUSF *zusf, const char *name, const struct stat &expected)
@@ -2027,19 +2034,20 @@ int zusf_update_directory_metadata(ZUSF *zusf, int fd, attrib_t &attributes, con
     }
     child_path.resize(parent_length);
     child_path += entry->d_name;
-    const int rc = zusf_update_metadata_fd(zusf, child.get(), attributes, true, child_path.c_str());
+    const ZusfMetadataEntry child_entry{fd, entry->d_name, child_path.c_str()};
+    const int rc = zusf_update_metadata_fd(zusf, child.get(), attributes, true, child_entry);
     if (rc != RTNCD_SUCCESS)
       return rc;
   }
   return RTNCD_SUCCESS;
 }
 
-int zusf_update_metadata_fd(ZUSF *zusf, int fd, attrib_t &attributes, bool recursive, const char *name)
+int zusf_update_metadata_fd(ZUSF *zusf, int fd, attrib_t &attributes, bool recursive, const ZusfMetadataEntry &entry)
 {
   struct stat file_stats;
   if (fstat(fd, &file_stats) == -1)
   {
-    ZDIAG_SET_MSG(&zusf->diag, "Could not stat opened USS item '%s': %s", name, strerror(errno));
+    ZDIAG_SET_MSG(&zusf->diag, "Could not stat opened USS item '%s': %s", entry.path, strerror(errno));
     return RTNCD_FAILURE;
   }
   if (S_ISLNK(file_stats.st_mode))
@@ -2050,15 +2058,15 @@ int zusf_update_metadata_fd(ZUSF *zusf, int fd, attrib_t &attributes, bool recur
   const mode_t owner_access = S_IRUSR | S_IXUSR;
   const bool change_first = recursive && is_dir && attributes.att_modechg &&
                             (attributes.att_mode & owner_access) == owner_access;
-  if (change_first && zusf_apply_metadata_fd(zusf, fd, attributes, name) != RTNCD_SUCCESS)
+  if (change_first && zusf_apply_metadata_at(zusf, entry, attributes) != RTNCD_SUCCESS)
     return RTNCD_FAILURE;
 
-  if (recursive && is_dir && zusf_update_directory_metadata(zusf, fd, attributes, name, file_stats) != RTNCD_SUCCESS)
+  if (recursive && is_dir && zusf_update_directory_metadata(zusf, fd, attributes, entry.path, file_stats) != RTNCD_SUCCESS)
     return RTNCD_FAILURE;
 
   if (change_first || (attributes.att_filetagchg && is_dir))
     return RTNCD_SUCCESS;
-  return zusf_apply_metadata_fd(zusf, fd, attributes, name);
+  return zusf_apply_metadata_at(zusf, entry, attributes);
 }
 
 int zusf_update_metadata_path(ZUSF *zusf, const std::string &file, attrib_t &attributes, bool recursive)
@@ -2107,7 +2115,8 @@ int zusf_update_metadata_path(ZUSF *zusf, const std::string &file, attrib_t &att
     ZDIAG_SET_MSG(&zusf->diag, "Path '%s' is a folder and recursive is false", file.c_str());
     return RTNCD_FAILURE;
   }
-  return zusf_update_metadata_fd(zusf, fd.get(), attributes, recursive, file.c_str());
+  const ZusfMetadataEntry entry{target.parent.get(), target.name.c_str(), file.c_str()};
+  return zusf_update_metadata_fd(zusf, fd.get(), attributes, recursive, entry);
 }
 }
 
