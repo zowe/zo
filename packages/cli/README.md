@@ -36,9 +36,9 @@ its own `zo server` channel. Idle connections expire after ten minutes; connecti
 expired passwords invalidate them.
 
 Daemon execution is detected through `ImperativeConfig.instance.daemonContext?.stream`, the same
-public context used by Imperative's stream handling. Outside daemon execution, the cache is scoped
-to one command and closed when it finishes, including on errors. This also covers setup, install,
-and uninstall, while allowing authentication fallback to reuse a connection within one command.
+public context used by Imperative's stream handling. Regular commands set `skipCache` outside
+daemon execution and close their dedicated connection when they finish. Setup, install, and uninstall
+apply the same `skipCache` policy to their SDK helpers.
 
 Reuse applies only within the same daemon process. Restarting the daemon, expiry, or invalidation
 requires fresh authentication.

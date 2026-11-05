@@ -32,11 +32,9 @@ import {
     type qpOpts,
 } from "@zowe/zowex-for-zowe-sdk";
 import * as termkit from "terminal-kit";
-import { SshCacheScope } from "../../SshCacheScope";
 
 export default class ServerInstallHandler implements ICommandHandler {
     public async process(params: IHandlerParameters): Promise<void> {
-        using _cacheScope = new SshCacheScope();
         const profInfo = new ProfileInfo("zowe");
         await profInfo.readProfilesFromDisk();
         const cliPromptApi = new CliPromptApi(profInfo, params.response);
@@ -51,6 +49,7 @@ export default class ServerInstallHandler implements ICommandHandler {
         }
 
         const profile = await cliPromptApi.promptForProfile(undefined, {
+            skipCache: ImperativeConfig.instance.daemonContext?.stream == null,
             setExistingProfile: false,
             disableCreateNewProfile: true,
         });

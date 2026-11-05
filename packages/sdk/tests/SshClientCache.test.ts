@@ -21,7 +21,6 @@ import { AbstractConfigManager } from "../src/AbstractConfigManager";
 import type { ProgressCallback } from "../src/doc";
 import { SshClientCache } from "../src/SshClientCache";
 import { SshConfigUtils } from "../src/SshConfigUtils";
-import { isSshConnectionError } from "../src/SshErrors";
 import * as sshRs from "../src/ssh-rs";
 import { ZSshClient } from "../src/ZSshClient";
 import { ZSshUtils } from "../src/ZSshUtils";
@@ -38,6 +37,19 @@ function serverChannel() {
         close: vi.fn(() => channel.emit("close")),
     });
     return channel;
+}
+
+function testProfileInfo(): ProfileInfo {
+    return {
+        getAllProfiles: () => [{ profName: "ssh" }],
+        mergeArgsForProfile: () => ({
+            knownArgs: [
+                { argName: "host", argValue: "example.com" },
+                { argName: "user", argValue: "admin" },
+                { argName: "password", argValue: "otp" },
+            ],
+        }),
+    } as unknown as ProfileInfo;
 }
 
 class TestPrompt extends AbstractConfigManager {
@@ -319,24 +331,69 @@ describe("SshClientCache", () => {
     });
 
     it.each([
-        Object.assign(new Error("socket failed"), { code: "ECONNRESET" }),
-        Object.assign(new Error("handshake failed"), { level: "client-socket" }),
-        new ImperativeError({ msg: "Password expired", errorCode: "EPASSWD_EXPIRED" }),
-    ])("invalidates utility connections on transport/authentication failure: %s", async (error) => {
-        vi.spyOn(NodeSSH.prototype, "execCommand").mockRejectedValue(error);
-        await expect(ZSshUtils.lacksWriteAccess(session(), "/server")).rejects.toBe(error);
-        expect(dispose).toHaveBeenCalledOnce();
-        using _next = await cache.acquire(session());
-        expect(connect).toHaveBeenCalledTimes(2);
+        { error: new Error("Unclassified failure"), socketError: true, expires: false },
+        {
+            error: Object.assign(new Error("Request failed"), { code: "ECONNRESET" }),
+            socketError: false,
+            expires: false,
+        },
+        {
+            error: new ImperativeError({ msg: "Password expired", errorCode: "EPASSWD_EXPIRED" }),
+            socketError: false,
+            expires: true,
+        },
+    ])(
+        "uses error source to decide whether a utility connection is invalidated: %j",
+        async ({ error, socketError, expires }) => {
+            vi.spyOn(NodeSSH.prototype, "execCommand").mockImplementation(async function () {
+                if (socketError) this.connection!.emit("error", error);
+                throw error;
+            });
+            await expect(ZSshUtils.lacksWriteAccess(session(), "/server")).rejects.toBe(error);
+            expect(dispose).toHaveBeenCalledTimes(socketError || expires ? 1 : 0);
+            using _next = await cache.acquire(session());
+            expect(connect).toHaveBeenCalledTimes(socketError || expires ? 2 : 1);
+        },
+    );
+
+    it.each([
+        { message: "ECONNRESET: request failed", stderr: false },
+        { message: "FOTS1669: remote task failed", stderr: true },
+    ])("retains the connection when an RPC error contains connection-looking text: %j", async ({ message, stderr }) => {
+        const channel = serverChannel();
+        vi.spyOn(Client.prototype, "exec").mockImplementation(function (_command, callback) {
+            callback(undefined, channel as unknown as import("ssh2").ClientChannel);
+            queueMicrotask(() => channel.stdout.write(JSON.stringify({ status: "ready", data: { version: "1.1.0" } })));
+            return this;
+        });
+        channel.stdin.on("data", (payload: Buffer) => {
+            const { id } = JSON.parse(payload.toString());
+            queueMicrotask(() =>
+                (stderr ? channel.stderr : channel.stdout).write(
+                    `${JSON.stringify({
+                        jsonrpc: "2.0",
+                        id,
+                        error: { code: -32000, message },
+                    })}\n`,
+                ),
+            );
+        });
+        using client = await ZSshClient.create(session());
+        await expect(client.request({ command: "ping" })).rejects.toMatchObject({ errorCode: "-32000" });
+        expect(dispose).not.toHaveBeenCalled();
+        using _lease = await cache.acquire(session());
+        expect(connect).toHaveBeenCalledOnce();
     });
 
-    it("does not classify RPC errors or request timeouts as connection failures", () => {
-        expect(isSshConnectionError(new ImperativeError({ msg: "Request timed out", errorCode: "ETIMEDOUT" }))).toBe(
-            false,
-        );
-        expect(isSshConnectionError(new ImperativeError({ msg: "Dataset not found", errorCode: "-32000" }))).toBe(
-            false,
-        );
+    it.each(["FOTS1668", "FOTS1669"])("invalidates explicit SSH password expiry during startup: %s", async (code) => {
+        const channel = serverChannel();
+        vi.spyOn(Client.prototype, "exec").mockImplementation(function (_command, callback) {
+            callback(undefined, channel as unknown as import("ssh2").ClientChannel);
+            queueMicrotask(() => channel.stderr.write(`${code} Password expired`));
+            return this;
+        });
+        await expect(ZSshClient.create(session())).rejects.toMatchObject({ errorCode: "EPASSWD_EXPIRED" });
+        expect(dispose).toHaveBeenCalledOnce();
     });
 
     it("invalidates expired passwords even when the deployment callback consumes the error", async () => {
@@ -360,7 +417,7 @@ describe("SshClientCache", () => {
         { code: "ECONNRESET", shouldInvalidate: true },
         { code: 3, shouldInvalidate: false },
     ])(
-        "preserves connection error handling when an upload callback consumes the error: %j",
+        "uses SSH events rather than SFTP error codes to invalidate consumed upload errors: %j",
         async ({ code, shouldInvalidate }) => {
             vi.spyOn(NodeSSH.prototype, "execCommand").mockResolvedValue({
                 code: 0,
@@ -369,9 +426,13 @@ describe("SshClientCache", () => {
                 stderr: "",
             });
             vi.spyOn(ZSshUtils, "getAvailableMb").mockResolvedValue({ mb: 100, stderr: "" });
+            using lease = await cache.acquire(session());
             const uploadError = Object.assign(new Error("Upload interrupted"), { code });
             const sftp = {
-                fastPut: vi.fn((_local, _remote, _options, callback) => callback(uploadError)),
+                fastPut: vi.fn((_local, _remote, _options, callback) => {
+                    if (shouldInvalidate) lease.ssh.connection!.emit("error", uploadError);
+                    callback(uploadError);
+                }),
                 end: vi.fn(),
             };
             vi.spyOn(NodeSSH.prototype, "requestSFTP").mockResolvedValue(sftp as unknown as SFTPWrapper);
@@ -388,17 +449,53 @@ describe("SshClientCache", () => {
         },
     );
 
+    it("can validate a profile without publishing its connection to the cache", async () => {
+        vi.spyOn(SshConfigUtils, "migrateSshConfig").mockResolvedValue([]);
+        vi.spyOn(NodeSSH.prototype, "execCommand").mockResolvedValue({ code: 0, signal: null, stdout: "", stderr: "" });
+        const profile = await new TestPrompt(testProfileInfo()).promptForProfile(undefined, {
+            setExistingProfile: false,
+            disableCreateNewProfile: true,
+            skipCache: true,
+        });
+        expect(profile).toBeDefined();
+        expect(dispose).toHaveBeenCalledOnce();
+        using _next = await cache.acquire(session());
+        expect(connect).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([false, true])(
+        "dedicated SFTP deployment closes its own connection and preserves an existing cache entry (expired: %s)",
+        async (expired) => {
+            using existing = await cache.acquire(session());
+            vi.spyOn(NodeSSH.prototype, "execCommand").mockResolvedValue({
+                code: expired ? 1 : 0,
+                signal: null,
+                stdout: "",
+                stderr: expired ? "FOTS1669" : "",
+            });
+            vi.spyOn(ZSshUtils, "getAvailableMb").mockResolvedValue({ mb: 100, stderr: "" });
+            const sftp = {
+                fastPut: vi.fn((_local, _remote, _options, callback) => callback()),
+                unlink: vi.fn((_path, callback) => callback()),
+                end: vi.fn(),
+            };
+            vi.spyOn(NodeSSH.prototype, "requestSFTP").mockResolvedValue(sftp as unknown as SFTPWrapper);
+            expect(
+                await ZSshUtils.installServer(session(), "/server", {
+                    skipCache: true,
+                    onError: vi.fn().mockResolvedValue(false),
+                }),
+            ).toBe(!expired);
+            expect(dispose).toHaveBeenCalledOnce();
+            expect(existing.ssh.isConnected()).toBe(true);
+            using next = await cache.acquire(session());
+            expect(next.ssh).toBe(existing.ssh);
+            expect(connect).toHaveBeenCalledTimes(2);
+        },
+    );
+
     it("uses one authentication for profile validation, SFTP installation, and server relaunch", async () => {
-        const profileInfo = {
-            getAllProfiles: () => [{ profName: "ssh" }],
-            mergeArgsForProfile: () => ({
-                knownArgs: [
-                    { argName: "host", argValue: "example.com" },
-                    { argName: "user", argValue: "admin" },
-                    { argName: "password", argValue: "otp" },
-                ],
-            }),
-        } as unknown as ProfileInfo;
+        const profileInfo = testProfileInfo();
         vi.spyOn(SshConfigUtils, "migrateSshConfig").mockResolvedValue([]);
         vi.spyOn(NodeSSH.prototype, "execCommand").mockResolvedValue({
             code: 0,

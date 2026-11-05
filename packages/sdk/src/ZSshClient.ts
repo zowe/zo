@@ -26,7 +26,7 @@ import type {
 import { RpcClientApi } from "./RpcClientApi";
 import { RpcStreamManager } from "./RpcStreamManager";
 import { SshClientCache, type SshConnectionLease } from "./SshClientCache";
-import { isSshConnectionError, matchLeRuntimeFailure } from "./SshErrors";
+import { matchLeRuntimeFailure } from "./SshErrors";
 import { type Client, type ClientChannel, createClient } from "./ssh-rs";
 import { ZSshUtils } from "./ZSshUtils";
 
@@ -102,6 +102,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
             client.mInvalidateConnection = () => {
                 if (useCache && client.mConnectionLease?.ssh.connection !== client.mSshClient) return;
                 SshClientCache.inst.invalidate(client.cacheKey ?? SshClientCache.inst.getKey(session, opts.serverPath));
+                if (opts.useNativeSsh) client.dispose();
             };
         }
         if (useCache) {
@@ -206,7 +207,9 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         } catch (err) {
             // Close the failed server channel and release its transport.
             client.mClosed = true;
-            if (useCache && isSshConnectionError(err)) client.mInvalidateConnection?.();
+            if (err instanceof ImperativeError && err.errorCode === "EPASSWD_EXPIRED") {
+                client.mInvalidateConnection?.();
+            }
             if (useCache) {
                 (client.mSshStream as ClientChannel & { close?: () => void })?.close?.();
                 client.releaseConnection();
@@ -541,7 +544,6 @@ export class ZSshClient extends RpcClientApi implements Disposable {
     }
 
     private onErrData(chunk: Buffer) {
-        if (/FOTS166[89]/.test(chunk.toString())) this.mInvalidateConnection?.();
         if (this.mRequestMap.size === 0) {
             const errMsg = Logger.getAppLogger().error("Error from server: %s", chunk.toString());
             this.mErrHandler(new Error(errMsg));

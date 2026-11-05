@@ -9,7 +9,7 @@
  *
  */
 
-import { type ICommandHandler, type IHandlerParameters, TextUtils } from "@zowe/imperative";
+import { type ICommandHandler, type IHandlerParameters, ImperativeConfig, TextUtils } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import {
     type ClientOptions,
@@ -19,11 +19,9 @@ import {
     ZSshUtils,
 } from "@zowe/zowex-for-zowe-sdk";
 import { translateCliError } from "./CliErrorUtils";
-import { SshCacheScope } from "./SshCacheScope";
 
 export abstract class SshBaseHandler implements ICommandHandler {
     public async process(commandParameters: IHandlerParameters) {
-        using _cacheScope = new SshCacheScope();
         const session = ZSshUtils.buildSession(commandParameters.arguments);
 
         try {
@@ -171,6 +169,7 @@ export abstract class SshBaseHandler implements ICommandHandler {
 
     private buildSshClientOptions(commandParameters: IHandlerParameters): ClientOptions {
         return {
+            skipCache: ImperativeConfig.instance.daemonContext?.stream == null,
             numWorkers: 1,
             requestTimeout: commandParameters.arguments.responseTimeout,
             responseTimeout: commandParameters.arguments.responseTimeout,

@@ -60,6 +60,7 @@ export abstract class AbstractConfigManager {
     private migratedConfigs: ISshConfigExt[];
     private filteredMigratedConfigs: ISshConfigExt[];
     private keepAliveInterval?: number;
+    private skipCache = false;
     private validationResult: ISshConfigExt | undefined;
     private selectedProfile: ISshConfigExt | undefined;
     private sshProfiles: IProfileLoaded[];
@@ -76,6 +77,7 @@ export abstract class AbstractConfigManager {
             disableCreateNewProfile = false,
         } = options ?? {};
         this.keepAliveInterval = options?.keepAliveInterval;
+        this.skipCache = options?.skipCache ?? false;
         this.validationResult = undefined;
         if (profileName) {
             return { profile: this.getMergedAttrs(profileName), message: "", failNotFound: false, type: "ssh" };
@@ -548,10 +550,12 @@ export abstract class AbstractConfigManager {
             if (result.code !== 0) {
                 throw new Error(result.stderr || "SSH validation command failed");
             }
-            SshClientCache.inst.store(session, ssh);
-            cached = true;
+            if (!this.skipCache) {
+                SshClientCache.inst.store(session, ssh);
+                cached = true;
+            }
         } catch (error) {
-            SshClientCache.inst.invalidate(SshClientCache.inst.getKey(session));
+            if (!this.skipCache) SshClientCache.inst.invalidate(SshClientCache.inst.getKey(session));
             throw error;
         } finally {
             if (!cached) ssh.dispose();

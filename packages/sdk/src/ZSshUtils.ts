@@ -14,16 +14,19 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { ImperativeError, type IProfile, Logger } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
-import type { NodeSSH, SSHExecCommandResponse } from "node-ssh";
+import { NodeSSH, type Config as NodeSSHConfig, type SSHExecCommandResponse } from "node-ssh";
 import * as semver from "semver";
 import type { ConnectConfig, SFTPWrapper } from "ssh2";
 import { SshClientCache } from "./SshClientCache";
-import { isSshConnectionError, matchLeRuntimeFailure, PrivateKeyFailurePatterns, SshErrors } from "./SshErrors";
+import { matchLeRuntimeFailure, PrivateKeyFailurePatterns, SshErrors } from "./SshErrors";
 import { SessionContext } from "./utils";
 import { ZSshClient } from "./ZSshClient";
 import { BUNDLED_SSH_SERVER_VERSION } from "./ZSshConstants";
 
 export interface ISshCallbacks {
+    /** Use a dedicated connection that closes when the operation completes (default: false). */
+    skipCache?: boolean;
+
     onProgress?: (increment: number) => void; // Callback to report incremental progress
     onError?: (error: Error, context: string) => Promise<boolean>; // Callback to handle errors, returns true to continue/retry
     /**
@@ -420,7 +423,7 @@ export class ZSshUtils {
         const remoteDir = serverPath.replace(/^~/, ".");
         let extractionStarted = false;
 
-        return ZSshUtils.sftp(session, async (sftp, ssh) => {
+        const deploy = async (sftp: SFTPWrapper, ssh: NodeSSH): Promise<boolean> => {
             Logger.getAppLogger().info(`[ZSshUtils] Step 1/5: Creating remote directory ${remoteDir}`);
             const remotePaxPath = path.posix.join(remoteDir, ZSshUtils.SERVER_PAX_FILE);
             const initialRemoteDirExistCheck = await ZSshUtils.pathExists(ssh, remoteDir);
@@ -494,7 +497,9 @@ export class ZSshUtils {
                     `[ZSshUtils] Step 2/5: Uploading ${ZSshUtils.SERVER_PAX_FILE} to ${remotePaxPath}`,
                 );
                 try {
-                    await promisify(sftp.fastPut.bind(sftp))(localPaxPath, remotePaxPath, { step: progressCallback });
+                    await promisify(sftp.fastPut.bind(sftp))(localPaxPath, remotePaxPath, {
+                        step: progressCallback,
+                    });
                 } catch (err) {
                     if (await ZSshUtils.routeExpiredPasswordError(String(err), "upload", callbacks)) {
                         return false;
@@ -619,7 +624,8 @@ export class ZSshUtils {
 
             Logger.getAppLogger().info("[ZSshUtils] installServer completed successfully");
             return true;
-        });
+        };
+        return ZSshUtils.sftp(session, deploy, options?.skipCache);
     }
 
     public static async uninstallServer(
@@ -629,7 +635,7 @@ export class ZSshUtils {
     ): Promise<void> {
         Logger.getAppLogger().debug(`Uninstalling server from ${session.ISshSession.hostname} at path: ${serverPath}`);
         const callbacks = ZSshUtils.bindErrorHandler(session, options);
-        return ZSshUtils.sftp(session, async (_sftp, ssh) => {
+        const uninstall = async (_sftp: SFTPWrapper, ssh: NodeSSH): Promise<void> => {
             const result = await ssh.execCommand(`rm -rf ${ZSshUtils.quotePath(serverPath)}`);
             if (await ZSshUtils.routeExpiredPasswordError(result.stderr ?? "", "unlink", callbacks)) return;
             if (result.code === 0) {
@@ -651,7 +657,8 @@ export class ZSshUtils {
                 }
                 throw rmErr;
             }
-        });
+        };
+        return ZSshUtils.sftp(session, uninstall, options?.skipCache);
     }
 
     public static checkIfOutdated(remoteVersion?: string): boolean {
@@ -686,15 +693,20 @@ export class ZSshUtils {
     private static async sftp<T>(
         session: SshSession | SessionContext,
         callback: (sftp: SFTPWrapper, ssh: NodeSSH) => Promise<T>,
+        skipCache = false,
     ): Promise<T> {
-        return ZSshUtils.withSsh(session, async (ssh) => {
-            const sftp = await ssh.requestSFTP();
-            try {
-                return await callback(sftp, ssh);
-            } finally {
-                sftp.end();
-            }
-        });
+        return ZSshUtils.withSsh(
+            session,
+            async (ssh) => {
+                const sftp = await ssh.requestSFTP();
+                try {
+                    return await callback(sftp, ssh);
+                } finally {
+                    sftp.end();
+                }
+            },
+            skipCache,
+        );
     }
 
     private static bindErrorHandler(
@@ -702,11 +714,13 @@ export class ZSshUtils {
         options?: ISshCallbacks,
     ): ISshCallbacks | undefined {
         const onError = options?.onError;
-        if (!onError) return options;
+        if (!onError || options?.skipCache) return options;
         return {
             ...options,
             onError: async (error, context) => {
-                if (isSshConnectionError(error)) SshClientCache.inst.invalidate(SshClientCache.inst.getKey(session));
+                if (error instanceof ImperativeError && error.errorCode === "EPASSWD_EXPIRED") {
+                    SshClientCache.inst.invalidate(SshClientCache.inst.getKey(session));
+                }
                 return onError.call(options, error, context);
             },
         };
@@ -715,15 +729,27 @@ export class ZSshUtils {
     private static async withSsh<T>(
         session: SshSession | SessionContext,
         callback: (ssh: NodeSSH) => Promise<T>,
+        skipCache = false,
     ): Promise<T> {
         try {
+            if (skipCache) {
+                const ssh = new NodeSSH();
+                try {
+                    await ssh.connect(ZSshUtils.buildSshConfig(new SshSession(session.ISshSession)) as NodeSSHConfig);
+                    return await callback(ssh);
+                } finally {
+                    ssh.dispose();
+                }
+            }
             if (session instanceof SessionContext) {
                 return await callback(await session.getSsh());
             }
             using lease = await SshClientCache.inst.acquire(session);
             return await callback(lease.ssh);
         } catch (error) {
-            if (isSshConnectionError(error)) SshClientCache.inst.invalidate(SshClientCache.inst.getKey(session));
+            if (!skipCache && error instanceof ImperativeError && error.errorCode === "EPASSWD_EXPIRED") {
+                SshClientCache.inst.invalidate(SshClientCache.inst.getKey(session));
+            }
             throw error;
         }
     }

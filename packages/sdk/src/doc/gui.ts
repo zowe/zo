@@ -46,6 +46,9 @@ export interface IDisposable {
 }
 
 export interface PromptForProfileOptions {
+    /** Dispose the validated connection instead of retaining it in the SDK cache (default: false). */
+    skipCache?: boolean;
+
     /** Seconds between keep-alive messages when validation creates the cached transport (default: 30). */
     keepAliveInterval?: number;
 

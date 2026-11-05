@@ -103,6 +103,9 @@ Disposing a client closes its server channel and releases the transport for reus
 using client = await ZSshClient.create(session, { skipCache: true });
 ```
 
+`installServer`, `uninstallServer`, and profile validation also accept `skipCache` in their existing
+options object. This lets short-lived CLI commands close dedicated connections without extra lifecycle wrappers.
+
 For explicit invalidation, import `SshClientCache` and use the client's key:
 
 ```typescript
