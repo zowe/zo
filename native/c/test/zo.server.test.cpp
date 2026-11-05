@@ -17,7 +17,9 @@
 #include <fstream>
 #include <fcntl.h>
 #include <atomic>
+#include <utility>
 #include "ztest.hpp"
+#include "zutils.hpp"
 #include "../ztype.h"
 #include "../commands/server.hpp"
 #include "zo.server.test.hpp"
@@ -207,7 +209,7 @@ void zo_server_tests()
       Expect(mkdtemp(test_dir) != nullptr).ToBe(true);
       const std::string logs_dir = std::string(test_dir) + "/server logs";
 
-      ServerHandle server = start_server(zo_server_command + " --verbose --logs-dir '" + logs_dir + "'", true);
+      ServerHandle server = start_server("ZO_LOGS_DIR='" + std::string(test_dir) + "/unused' " + zo_server_command + " --verbose --logs-dir '" + logs_dir + "'", true);
       stop_server(server);
 
       const std::string log_path = logs_dir + "/zowex_server.log";
@@ -220,6 +222,62 @@ void zo_server_tests()
 
       Expect(contents).ToContain("[INFO] Starting zo server");
       Expect(contents).ToContain("[DEBUG] Verbose logging enabled");
+    });
+    it("should ignore an invalid ZO_NUM_WORKERS when a worker CLI argument is supplied", []() -> void
+    {
+      ServerHandle server = start_server("ZO_NUM_WORKERS=invalid " + zo_server_command + " --num-workers 10");
+      const std::string response = read_line_from_server(server);
+      stop_server(server);
+
+      Expect(response).ToContain("\"status\":\"ready\"");
+    });
+    it("should reject an invalid worker CLI argument even when ZO_NUM_WORKERS is valid", []() -> void
+    {
+      std::string response;
+      const int rc = execute_command_with_output("ZO_NUM_WORKERS=2 " + zo_server_command + " --num-workers invalid", response);
+
+      ExpectWithContext(rc, response).ToBe(1);
+      Expect(response).ToContain("Invalid value for num workers: 'invalid'");
+    });
+    it("should reject a nonpositive worker CLI argument even when ZO_NUM_WORKERS is valid", []() -> void
+    {
+      std::string response;
+      const int rc = execute_command_with_output("ZO_NUM_WORKERS=2 " + zo_server_command + " --num-workers 0", response);
+
+      ExpectWithContext(rc, response).ToBe(1);
+      Expect(response).ToContain("Number of workers must be greater than 0");
+    });
+    it("should prefer worker CLI values and otherwise use ZO_NUM_WORKERS", []() -> void
+    {
+      const std::pair<const char *, const char *> cases[] = {
+          {"", "2"},
+          {"--num-workers 10", "10"},
+          {"-w 1", "1"}};
+      for (const auto &test_case : cases)
+      {
+        char test_dir[] = "/tmp/zo-server-workers-XXXXXX";
+        Expect(mkdtemp(test_dir) != nullptr).ToBe(true);
+
+        ServerHandle server = start_server("ZO_NUM_WORKERS=2 " + zo_server_command + " " + test_case.first + " --verbose --logs-dir " + test_dir, true);
+        stop_server(server);
+
+        const std::string log_path = std::string(test_dir) + "/zowex_server.log";
+        std::ifstream file(log_path);
+        const std::string contents((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        file.close();
+        unlink(log_path.c_str());
+        rmdir(test_dir);
+
+        Expect(contents).ToContain(std::string("Starting zo server with ") + test_case.second + " workers");
+      }
+    });
+    it("should reject an invalid ZO_NUM_WORKERS when the worker CLI argument is omitted", []() -> void
+    {
+      std::string response;
+      const int rc = execute_command_with_output("ZO_NUM_WORKERS=invalid " + zo_server_command, response);
+
+      ExpectWithContext(rc, response).ToBe(1);
+      Expect(response).ToContain("Invalid value for num workers: 'invalid'");
     });
     it("should print ready message with version", []() -> void
     {
