@@ -4,6 +4,10 @@ All notable changes to the Client code for "zowex-for-zowe-cli" are documented i
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- Added a prompt to the `zowe zo config setup` command to confirm saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
+
 ## `1.1.0`
 
 - Documented PBES2/AES-256 certificate exports, their System SSL/ICSF prerequisites, and the requirement for strong, unique 8–128-character passphrases in command help. [#1205](https://github.com/zowe/zo/pull/1205)
@@ -116,3 +120,4 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 - Initial release
+
