@@ -336,15 +336,15 @@ To dump storage in LE, use:
 
 ### Metal C
 
-You must ensure `zut_alloc_debug()` is called to allocate an output DD for log messages. Then in Metal C, use
+In Metal C, use:
 
 ```c
 #include "zdbg.h"
 
   ZJB zjb = {0};
 
-  zut_dump_storage("ZJB", zjb, sizeof(ZJB), ZUTDBGMG);
+  zut_dump_storage("ZJB", &zjb, sizeof(ZJB));
 
 ```
 
-By default, output is printed to `/tmp/zowex_debug_<PID>.txt` (where PID is the current `zo` process ID) when using `ZUTDBGMG()`; however, you may provide a Metal C compatible alternative.
+Output is printed as a WTO.

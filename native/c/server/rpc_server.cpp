@@ -350,7 +350,7 @@ void RpcServer::add_large_data_to_json(string &json_string, const string &field_
     return;
   }
 
-  // Assume that data is Base64 encoded so no JSON escaping needed
+  // Data is already JSON-string-safe: Base64 or escaped by the ReadStdout transform
   const string replacement = "\"" + field_name + "\":\"" + data + "\"";
   json_string.replace(pos, search_pattern.length(), replacement);
 

@@ -256,7 +256,7 @@ static int ZLGWRDD(int level, const char *message)
   if (msg_len > 130)
     msg_len = 130; /* Leave room for newline */
 
-  /* Initialize record with spaces like ZUTDBGMG */
+  /* Initialize record with spaces */
   memset(writeBuf, ' ', 132);
 
   /* Copy message data safely */
