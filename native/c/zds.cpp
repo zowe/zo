@@ -2299,12 +2299,9 @@ int zds_delete_dsn(ZDS *zds, std::string dsn)
     const auto EOPEN = is_member ? 91 : 46;
 
     ZDS shared_zds{};
-    if (is_member && remove_errno == EOPEN)
+    if (is_member && remove_errno == EOPEN && 0 == zds_delete_member_shared(&shared_zds, dsn))
     {
-      if (0 == zds_delete_member_shared(&shared_zds, dsn))
-      {
-        return 0;
-      }
+      return 0;
     }
 
     strcpy(zds->diag.service_name, "remove");

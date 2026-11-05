@@ -1031,11 +1031,8 @@ static int finalize_dcb(ZDIAG *PTR32 diag, IO_CTRL *PTR32 ioc)
     // Update ISPF statistics
     //
     rc = update_ispf_statistics(diag, ioc);
-    if (0 != rc)
-    {
-      if (0 == first_rc)
-        first_rc = rc;
-    }
+    if (0 != rc && 0 == first_rc)
+      first_rc = rc;
 
     //
     // STOW the ISPF statistics
@@ -1043,11 +1040,8 @@ static int finalize_dcb(ZDIAG *PTR32 diag, IO_CTRL *PTR32 ioc)
     if (0 == rc)
     {
       rc = stow_data_set(diag, ioc);
-      if (0 != rc)
-      {
-        if (0 == first_rc)
-          first_rc = rc;
-      }
+      if (0 != rc && 0 == first_rc)
+        first_rc = rc;
     }
   }
 
@@ -1211,6 +1205,7 @@ static int stow_delete(IO_CTRL *ioc, int *rsn)
 {
   int rc = 0;
   int local_rsn = 0;
+  (void)ioc;
   STOW_DELETE(ioc->dcb, ioc->stow_list, rc, local_rsn);
   *rsn = local_rsn;
   return rc;
