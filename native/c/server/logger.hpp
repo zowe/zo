@@ -201,8 +201,11 @@ private:
           return;
         }
 
-        log_file << get_current_timestamp() << " [INFO] Log file rolled over due to size limit\n";
-        log_file.flush();
+        if (is_verbose_logging())
+        {
+          log_file << get_current_timestamp() << " [INFO] Log file rolled over due to size limit\n";
+          log_file.flush();
+        }
       }
     }
   }
@@ -229,8 +232,9 @@ public:
    * Initialize the logger with specified options
    * @param verbose Whether to enable verbose logging
    * @param truncate Whether to truncate existing log file
+   * @param logs_dir_override Log directory override; empty uses ZO_LOGS_DIR or the per-user default
    */
-  static void init_logger(bool verbose = false, bool truncate = false)
+  static void init_logger(bool verbose = false, bool truncate = false, const std::string &logs_dir_override = "")
   {
     std::mutex &log_mutex = get_log_mutex();
     std::ofstream &log_file = get_log_file();
@@ -243,8 +247,9 @@ public:
 
       verbose_logging = verbose;
 
-      // Resolve and create the per-user logs directory (honors ZO_LOGS_DIR)
-      const std::string logs_dir = zlog_util::resolve_logs_dir();
+      const std::string logs_dir = logs_dir_override.empty()
+                                       ? zlog_util::resolve_logs_dir()
+                                       : zlog_util::to_absolute_path(zlog_util::strip_trailing_slashes(logs_dir_override));
 
       if (!zlog_util::make_dirs(logs_dir))
       {
@@ -320,11 +325,11 @@ public:
   }
 
   /**
-   * Log an info message
+   * Log an info message (only if verbose logging is enabled)
    */
   static void log_info(const char *format, ...)
   {
-    if (!get_initialized())
+    if (!get_initialized() || !is_verbose_logging())
     {
       return;
     }

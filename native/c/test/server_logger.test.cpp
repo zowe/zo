@@ -141,7 +141,7 @@ void server_logger_tests()
       ScopedLogsDirOverride override_dir(test_dir);
 
       server::Logger::init_logger(false, true);
-      LOG_INFO("Message written for ZO_LOGS_DIR test");
+      LOG_WARN("Message written for ZO_LOGS_DIR test");
       server::Logger::shutdown();
 
       Expect(file_exists(log_path)).ToBe(true);
@@ -149,6 +149,66 @@ void server_logger_tests()
       const std::string contents = read_file_contents(log_path);
       Expect(contents).ToContain("Message written for ZO_LOGS_DIR test");
 
+      cleanup_test_dir(test_dir);
+    });
+
+    it("should prefer an explicit log directory over ZO_LOGS_DIR", []()
+    {
+      const std::string test_dir = "logs/server logger explicit test";
+      const std::string env_dir = test_dir + "/unused";
+      const std::string log_path = test_dir + "/nested/zowex_server.log";
+      ScopedLogsDirOverride override_dir(env_dir);
+
+      server::Logger::init_logger(false, true, test_dir + "/nested///");
+      LOG_WARN("Explicit log directory test");
+      server::Logger::shutdown();
+
+      Expect(read_file_contents(log_path)).ToContain("Explicit log directory test");
+      Expect(file_exists(env_dir)).ToBe(false);
+      struct stat st;
+      Expect(stat(log_path.c_str(), &st)).ToBe(0);
+      Expect(st.st_mode & 0777).ToBe(0600);
+
+      cleanup_test_dir(test_dir + "/nested");
+      rmdir(test_dir.c_str());
+    });
+  });
+
+  describe("server::Logger verbosity tests", []() -> void
+  {
+    it("should only log warnings and errors by default", []()
+    {
+      const std::string test_dir = "logs/server_logger_quiet_test";
+      ScopedLogsDirOverride override_dir(test_dir);
+
+      server::Logger::init_logger(false, true);
+      LOG_DEBUG("Debug message");
+      LOG_INFO("Info message");
+      LOG_WARN("Warning message");
+      LOG_ERROR("Error message");
+      server::Logger::shutdown();
+
+      const std::string contents = read_file_contents(test_dir + "/zowex_server.log");
+      Expect(contents).Not().ToContain("[DEBUG]");
+      Expect(contents).Not().ToContain("[INFO]");
+      Expect(contents).ToContain("[WARN] Warning message");
+      Expect(contents).ToContain("[ERROR] Error message");
+      cleanup_test_dir(test_dir);
+    });
+
+    it("should include info and debug messages when verbose", []()
+    {
+      const std::string test_dir = "logs/server_logger_verbose_test";
+      ScopedLogsDirOverride override_dir(test_dir);
+
+      server::Logger::init_logger(true, true);
+      LOG_DEBUG("Debug message");
+      LOG_INFO("Info message");
+      server::Logger::shutdown();
+
+      const std::string contents = read_file_contents(test_dir + "/zowex_server.log");
+      Expect(contents).ToContain("[DEBUG] Debug message");
+      Expect(contents).ToContain("[INFO] Info message");
       cleanup_test_dir(test_dir);
     });
   });
@@ -179,6 +239,7 @@ void server_logger_tests()
       Expect(file_exists(log_path)).ToBe(true);
       Expect(file_size(log_path)).ToBeLessThan(100L * 1024L);
       Expect(file_exists(log_path + ".1")).ToBe(true);
+      Expect(read_file_contents(log_path)).Not().ToContain("[INFO]");
 
       const std::string backup_contents = read_file_contents(log_path + ".1");
       Expect(backup_contents).ToContain("Simulated failure #0:");

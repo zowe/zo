@@ -124,6 +124,9 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     if (opts.verbose) {
                         serverArgs.push("--verbose");
                     }
+                    if (opts.logsDir != null) {
+                        serverArgs.push("--logs-dir", ZSshClient.quoteRemotePath(opts.logsDir));
+                    }
                     client.execAsync(ZSshClient.quoteRemotePath(zowexBin), ...serverArgs).then((stream) => {
                         established = true;
                         clearTimeout(serverStartupTimeoutId);

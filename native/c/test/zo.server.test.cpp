@@ -201,6 +201,26 @@ void zo_server_tests()
       Expect(response).ToContain("\"message\":\"zo server is ready to accept input\"");
       Expect(response).ToContain("\"status\":\"ready\"");
     });
+    it("should write verbose server logs to --logs-dir", []() -> void
+    {
+      char test_dir[] = "/tmp/zo-server-logs-XXXXXX";
+      Expect(mkdtemp(test_dir) != nullptr).ToBe(true);
+      const std::string logs_dir = std::string(test_dir) + "/server logs";
+
+      ServerHandle server = start_server(zo_server_command + " --verbose --logs-dir '" + logs_dir + "'", true);
+      stop_server(server);
+
+      const std::string log_path = logs_dir + "/zowex_server.log";
+      std::ifstream file(log_path);
+      const std::string contents((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+      file.close();
+      unlink(log_path.c_str());
+      rmdir(logs_dir.c_str());
+      rmdir(test_dir);
+
+      Expect(contents).ToContain("[INFO] Starting zo server");
+      Expect(contents).ToContain("[DEBUG] Verbose logging enabled");
+    });
     it("should print ready message with version", []() -> void
     {
       ServerHandle server = start_server(zo_server_command);

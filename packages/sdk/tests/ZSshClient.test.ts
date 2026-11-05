@@ -89,9 +89,10 @@ describe("ZSshClient", () => {
 
     describe("create function", () => {
         it("should start SSH client with default options", async () => {
-            setupMockSshClient();
+            const { execAsyncSpy } = setupMockSshClient();
             const client = await ZSshClient.create(new SshSession(fakeSession));
             expect(client).toBeInstanceOf(ZSshClient);
+            expect(execAsyncSpy.mock.calls[0].slice(1)).toEqual(["server"]);
         });
 
         it("should handle error thrown by SSH client", async () => {
@@ -464,6 +465,18 @@ describe("ZSshClient", () => {
             });
             expect(execAsyncSpy).toHaveBeenCalledTimes(1);
             expect(execAsyncSpy!.mock.calls[0].slice(1)).toEqual(["server", "--verbose"]);
+        });
+
+        it.each([
+            ["/tmp/server-logs", "/tmp/server-logs"],
+            ["/tmp/server logs", "'/tmp/server logs'"],
+            ["~/server logs", "~'/server logs'"],
+            ["/tmp/logs;$(id)`id`", "'/tmp/logs;$(id)`id`'"],
+            ["/tmp/user's logs", "'/tmp/user'\"'\"'s logs'"],
+        ])("should pass logsDir %s as a safely quoted server argument", async (logsDir, quotedPath) => {
+            const { execAsyncSpy } = setupMockSshClient();
+            await ZSshClient.create(new SshSession(fakeSession), { logsDir });
+            expect(execAsyncSpy.mock.calls[0].slice(1)).toEqual(["server", "--logs-dir", quotedPath]);
         });
 
         it("should respect serverPath option", async () => {

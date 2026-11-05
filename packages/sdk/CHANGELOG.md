@@ -4,6 +4,10 @@ All notable changes to the Client code for "@zowe/zowex-for-zowe-sdk" are docume
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- Added the `logsDir` client option to choose the remote `zo server` log directory.
+
 ## `1.1.0`
 
 - Documented the PBES2/AES-256 certificate export prerequisites and strong, unique 8–128-character passphrase requirement. [#1205](https://github.com/zowe/zo/pull/1205)
