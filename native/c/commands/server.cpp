@@ -276,7 +276,7 @@ void register_commands(Command &root_command)
                               make_aliases("--logs-dir"),
                               "server log directory (default: ZO_LOGS_DIR or ~/.zowex/logs)",
                               ArgType_Single, false,
-                              ArgValue(std::string()));
+                              ArgValue(std::string()), true);
   server_cmd->add_keyword_arg("request-timeout",
                               make_aliases("-t", "--request-timeout"),
                               "request timeout in seconds before a worker is restarted",

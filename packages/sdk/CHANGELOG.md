@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- Added the `logsDir` client option to choose the remote `zo server` log directory.
+- Added the `logsDir` client option to choose the remote `zo server` log directory. [#1221](https://github.com/zowe/zo/pull/1221)
 
 ## `1.1.0`
 
