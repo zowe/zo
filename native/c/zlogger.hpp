@@ -243,7 +243,8 @@ private:
     return m_initialized;
   }
 
-  void initialize_log_file(bool truncate)
+  // Keep large header-only logging paths out of callers to limit code growth.
+  __attribute__((noinline)) void initialize_log_file(bool truncate)
   {
     m_pending_initialization = false;
     const std::string logs_dir = zlog_util::resolve_logs_dir();
@@ -375,7 +376,7 @@ private:
     return level >= ZLOGLEVEL_TRACE && level < ZLOGLEVEL_OFF && level >= m_level.load(std::memory_order_relaxed);
   }
 
-  void write_message(LogLevel level, const char *message)
+  __attribute__((noinline)) void write_message(LogLevel level, const char *message)
   {
     const std::lock_guard<std::mutex> lock(m_log_mutex);
     if (!should_log(level))
@@ -464,7 +465,7 @@ public:
     m_level.store(ZLOGLEVEL_OFF, std::memory_order_relaxed);
   }
 
-  void vlog(LogLevel level, const char *format, va_list args)
+  __attribute__((noinline)) void vlog(LogLevel level, const char *format, va_list args)
   {
     if (!format || !should_log(level))
     {
