@@ -74,6 +74,7 @@ export class SshClientCache implements Disposable {
     private static instance = new SshClientCache();
     protected readonly mClientSessionMap = new Map<string, ZSshClientSessions>();
     private readonly mMutexMap = new Map<string, AsyncMutex>();
+    private readonly clientEndpoints = new WeakMap<ZSshClient, string>();
     private static readonly mNoRestart: ZSshRestartOptions = { restart: false, retryRequests: false };
 
     protected constructor() {}
@@ -225,8 +226,8 @@ export class SshClientCache implements Disposable {
         }
         const cachedClient = this.mClientSessionMap.get(clientId)?.client;
         if (
-            cachedClient?.cacheKey &&
-            cachedClient.cacheKey !==
+            cachedClient &&
+            this.clientEndpoints.get(cachedClient) !==
                 this.getKey(ZSshUtils.buildSession(profile.profile!), this.getClientOptions(profile).serverPath)
         ) {
             this.end(clientId);
@@ -401,6 +402,7 @@ export class SshClientCache implements Disposable {
                 this.handleClientError(clientId, err);
             },
         });
+        this.clientEndpoints.set(client, this.getKey(session, opts.serverPath));
         return client;
     }
 

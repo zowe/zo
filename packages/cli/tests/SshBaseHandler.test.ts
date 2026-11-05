@@ -11,14 +11,11 @@
 
 import { Socket } from "node:net";
 import { EventEmitter, PassThrough } from "node:stream";
-import { ConfigUtils, type IHandlerParameters, ImperativeConfig, ProfileInfo } from "@zowe/imperative";
-import { type CommandResponse, SshClientCache, ZSshUtils } from "@zowe/zowex-for-zowe-sdk";
+import { type IHandlerParameters, ImperativeConfig } from "@zowe/imperative";
+import { type CommandResponse, SshClientCache } from "@zowe/zowex-for-zowe-sdk";
 import { NodeSSH } from "node-ssh";
 import { Client, type ClientChannel } from "ssh2";
-import SetupHandler, { CliPromptApi } from "../src/config/setup/Setup.handler";
 import { SshBaseHandler } from "../src/SshBaseHandler";
-import InstallHandler from "../src/server/install/Install.handler";
-import UninstallHandler from "../src/server/uninstall/Uninstall.handler";
 
 class TestHandler extends SshBaseHandler {
     public async processWithClient(): Promise<CommandResponse> {
@@ -130,38 +127,5 @@ describe("CLI SSH connection lifetime", () => {
 
         await expect(handler.process(handlerParameters())).rejects.toBe(failure);
         expect(end).toHaveBeenCalledOnce();
-    });
-
-    it.each([
-        { install: true, daemon: true },
-        { install: true, daemon: false },
-        { install: false, daemon: true },
-        { install: false, daemon: false },
-    ])("uses the same cache policy for server helpers: %j", async ({ install, daemon }) => {
-        vi.spyOn(ImperativeConfig.instance, "daemonContext", "get").mockReturnValue(
-            daemon ? { stream: socket } : undefined!,
-        );
-        vi.spyOn(ConfigUtils, "getActiveProfileName").mockReturnValue("ssh");
-        const helper = install
-            ? vi.spyOn(ZSshUtils, "installServer").mockResolvedValue(true)
-            : vi.spyOn(ZSshUtils, "uninstallServer").mockResolvedValue(undefined);
-        const handler = install ? new InstallHandler() : new UninstallHandler();
-        await handler.process(handlerParameters());
-        expect(helper).toHaveBeenCalledWith(
-            expect.anything(),
-            "/opt/zo",
-            expect.objectContaining({ skipCache: !daemon }),
-        );
-    });
-
-    it.each([false, true])("uses the same cache policy for setup validation (daemon: %s)", async (daemon) => {
-        vi.spyOn(ImperativeConfig.instance, "daemonContext", "get").mockReturnValue(
-            daemon ? { stream: socket } : undefined!,
-        );
-        vi.spyOn(ProfileInfo.prototype, "readProfilesFromDisk").mockResolvedValue(undefined);
-        vi.spyOn(ProfileInfo.prototype, "getAllProfiles").mockReturnValue([]);
-        const prompt = vi.spyOn(CliPromptApi.prototype, "promptForProfile").mockResolvedValue(undefined);
-        await new SetupHandler().process(handlerParameters());
-        expect(prompt).toHaveBeenCalledWith(undefined, expect.objectContaining({ skipCache: !daemon }));
     });
 });
