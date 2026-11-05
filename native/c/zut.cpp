@@ -13,6 +13,10 @@
 #define _XOPEN_SOURCE
 #include "ztype.h"
 #endif
+// _XPLATFORM_SOURCE allows use of O_NOFOLLOW flag.
+#ifndef _XPLATFORM_SOURCE
+#define _XPLATFORM_SOURCE
+#endif
 
 #define _OPEN_SYS_EXT
 #include <sys/ps.h>
@@ -20,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <csignal>
+
 #include <fcntl.h>
 #include <iostream>
 #include <string>
@@ -1248,7 +1253,13 @@ std::string zut_read_input(std::istream &input_stream)
 
 int zut_write_file_private(const std::string &path, const std::string &data, std::string &error)
 {
-  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_EXCL, S_IRUSR | S_IWUSR);
+  if (unlink(path.c_str()) == -1 && errno != ENOENT)
+  {
+    // if we fail to delete for any reason other than that the file did not exist
+    error = "Failed to delete '" + path + "' before overwriting: " + strerror(errno);
+    return RTNCD_FAILURE;
+  }
+  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
   if (fd == -1)
   {
     error = "could not open '" + path + "': " + strerror(errno);
