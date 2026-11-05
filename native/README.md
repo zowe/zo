@@ -291,6 +291,10 @@ OR:
 - convert the file via `ccnedsct`, e.g. `zo tool ccnedsct --ad "<hlq>.adata(asasymbp)" --cd "<hlq>.chdr(asasymbp)"`
 - copy, download the `.h` file where needed, e.g. `zowe files download ds "<hlq>.chdr(asasymbp)" --file native/c/chdsect/asasymbp.h`
 
+By default, the `zo tool ccnedsct` command retains its SYSPRINT and SYSOUT listings in unique files under the directory path `~/.zowex/ccnedsct` and prints their paths. The `.zowex` and `ccnedsct` directories and the generated files are owned by the current user with mode `0700`.
+Existing output directories must already meet these requirements and must not be symlinks; the command fails rather than changing their permissions. The home directory must be user-owned, with trusted, non-group/world-writable parent directories.
+Use the `--sysprint` and `--sysout` command-line arguments to choose explicit output paths; these overrides retain their existing create/truncate behavior. Remove retained listings when no longer needed.
+
 ### Recovery
 
 In order to use `ESTAEX`-type recovery, Language Environment (LE) must be enabled with `TRAP(ON,NOSPIE)`. Otherwise, `ESPIE` recovery will gain control in an
@@ -325,15 +329,15 @@ To dump storage in LE, use:
 
 ### Metal C
 
-You must ensure `zut_alloc_debug()` is called to allocate an output DD for log messages. Then in Metal C, use
+In Metal C, use:
 
 ```c
 #include "zdbg.h"
 
   ZJB zjb = {0};
 
-  zut_dump_storage("ZJB", zjb, sizeof(ZJB), ZUTDBGMG);
+  zut_dump_storage("ZJB", &zjb, sizeof(ZJB));
 
 ```
 
-By default, output is printed to `/tmp/zowex_debug_<PID>.txt` (where PID is the current `zo` process ID) when using `ZUTDBGMG()`; however, you may provide a Metal C compatible alternative.
+Output is printed as a WTO.
