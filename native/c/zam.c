@@ -1201,7 +1201,7 @@ int stow(IO_CTRL *ioc, int *rsn)
   return rc;
 }
 
-static int stow_delete(IO_CTRL *ioc, int *rsn)
+static int stow_delete(const IO_CTRL *ioc, int *rsn)
 {
   int rc = 0;
   int local_rsn = 0;
