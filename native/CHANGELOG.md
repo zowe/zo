@@ -9,6 +9,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Secured default listings for the `zo tool ccnedsct` command by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned directories (`0700` UNIX permissions) under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
 - `c`: Removed the unused `zut_alloc_debug` and `ZUTDBGMG` debugging functions. [#1216](https://github.com/zowe/zo/pull/1216)
 - `c`: Improved handling for JSON-RPC responses of 16 MB or more by JSON-escaping generated output. [#1217](https://github.com/zowe/zo/pull/1217)
+- `c`: Limited `zo server` logging to WARN and above unless `--verbose` is enabled, and added `--logs-dir` to override the server log directory. [#1221](https://github.com/zowe/zo/pull/1221)
+- `c`: Made explicit `zo server --num-workers` and `-w` values override the `ZO_NUM_WORKERS` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
 
 ## `1.1.0`
 

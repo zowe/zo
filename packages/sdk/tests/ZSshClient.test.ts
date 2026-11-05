@@ -9,6 +9,7 @@
  *
  */
 
+import { execFileSync } from "node:child_process";
 import { EventEmitter, Readable } from "node:stream";
 import { Censor, Logger } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
@@ -89,9 +90,10 @@ describe("ZSshClient", () => {
 
     describe("create function", () => {
         it("should start SSH client with default options", async () => {
-            setupMockSshClient();
+            const { execAsyncSpy } = setupMockSshClient();
             const client = await ZSshClient.create(new SshSession(fakeSession));
             expect(client).toBeInstanceOf(ZSshClient);
+            expect(execAsyncSpy.mock.calls[0].slice(1)).toEqual(["server"]);
         });
 
         it("should handle error thrown by SSH client", async () => {
@@ -464,6 +466,18 @@ describe("ZSshClient", () => {
             });
             expect(execAsyncSpy).toHaveBeenCalledTimes(1);
             expect(execAsyncSpy!.mock.calls[0].slice(1)).toEqual(["server", "--verbose"]);
+        });
+
+        it.each([
+            ["/tmp/server-logs", "/tmp/server-logs"],
+            ["/tmp/server logs", "'/tmp/server logs'"],
+            ["~/server logs", "~/'server logs'"],
+            ["/tmp/logs;$(id)`id`", "'/tmp/logs;$(id)`id`'"],
+            ["/tmp/user's logs", "'/tmp/user'\"'\"'s logs'"],
+        ])("should pass logsDir %s as a safely quoted server argument", async (logsDir, quotedPath) => {
+            const { execAsyncSpy } = setupMockSshClient();
+            await ZSshClient.create(new SshSession(fakeSession), { logsDir });
+            expect(execAsyncSpy.mock.calls[0].slice(1)).toEqual(["server", "--logs-dir", quotedPath]);
         });
 
         it("should respect serverPath option", async () => {
@@ -958,7 +972,7 @@ describe("ZSshClient", () => {
         const quoteRemotePath = (path: string): string => (ZSshClient as any).quoteRemotePath(path);
 
         it("should leave a lone tilde unquoted so the shell expands it", () => {
-            expect(quoteRemotePath("~")).toBe(`~''`);
+            expect(quoteRemotePath("~")).toBe("~");
         });
 
         it("should leave a leading tilde unquoted and quote the rest of the path", () => {
@@ -966,8 +980,22 @@ describe("ZSshClient", () => {
         });
 
         it("should leave a leading tilde unquoted and quote a path containing spaces", () => {
-            expect(quoteRemotePath("~/some path/with spaces")).toBe(`~'/some path/with spaces'`);
+            expect(quoteRemotePath("~/some path/with spaces")).toBe(`~/'some path/with spaces'`);
         });
+
+        it
+            .skipIf(process.platform === "win32")
+            .each(["~", "~/", "~/some/path", "~/server logs", "~/user's logs;$(printf injected)`printf injected`"])(
+            "should expand %s safely in a POSIX shell",
+            (path) => {
+                const remoteHome = "/u/test user";
+                const expandedPath = execFileSync("/bin/sh", ["-c", `printf '%s' ${quoteRemotePath(path)}`], {
+                    encoding: "utf8",
+                    env: { ...process.env, HOME: remoteHome },
+                });
+                expect(expandedPath).toBe(remoteHome + path.slice(1));
+            },
+        );
 
         it("should not expand a tilde that is not at the start of the path", () => {
             expect(quoteRemotePath("/some/~user/path")).toBe(`'/some/~user/path'`);

@@ -124,6 +124,9 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     if (opts.verbose) {
                         serverArgs.push("--verbose");
                     }
+                    if (opts.logsDir != null) {
+                        serverArgs.push("--logs-dir", ZSshClient.quoteRemotePath(opts.logsDir));
+                    }
                     client.execAsync(ZSshClient.quoteRemotePath(zowexBin), ...serverArgs).then((stream) => {
                         established = true;
                         clearTimeout(serverStartupTimeoutId);
@@ -330,11 +333,13 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         }).finally(() => clearTimeout(timeoutId));
     }
 
-    // Quotes a remote path for safe use in a shell command, leaving a leading "~" outside
+    // Quotes a remote path for safe use in a shell command, leaving a leading "~" or "~/" outside
     // the quotes so the shell still expands it to the user's home directory.
     private static quoteRemotePath(path: string): string {
-        const expandHome = path === "~" || path.startsWith("~/");
-        return expandHome ? `~${ZSshUtils.quotePath(path.slice(1))}` : ZSshUtils.quotePath(path);
+        if (path === "~") {
+            return "~";
+        }
+        return path.startsWith("~/") ? `~/${ZSshUtils.quotePath(path.slice(2))}` : ZSshUtils.quotePath(path);
     }
 
     private execAsync(...args: string[]): Promise<ClientChannel> {

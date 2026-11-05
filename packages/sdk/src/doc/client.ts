@@ -59,6 +59,12 @@ export interface ClientOptions {
     serverPath?: string;
 
     /**
+     * Remote directory for server logs. Overrides ZO_LOGS_DIR.
+     * (default: ZO_LOGS_DIR or `~/.zowex/logs`)
+     */
+    logsDir?: string;
+
+    /**
      * Number of seconds to wait for the SSH connection and Zowe Remote SSH server to start before failing.
      * Prevents hanging when the connection drops during startup.
      * (default: 60)
@@ -72,7 +78,7 @@ export interface ClientOptions {
     useNativeSsh?: boolean;
 
     /**
-     * Enable verbose logging from the server
+     * Enable INFO and DEBUG logging from the server; otherwise logs WARN and above
      * (default: false)
      */
     verbose?: boolean;
