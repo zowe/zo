@@ -2274,6 +2274,7 @@ int zds_delete_member_shared(ZDS *zds, const std::string &dsn)
   std::transform(member_dsn.begin(), member_dsn.end(), member_dsn.begin(), ::toupper);
 
   IO_CTRL *ioc = nullptr;
+  zds->delete_only = 1;
   int rc = zds_open_output_bpam(zds, member_dsn, ioc);
   if (0 != rc)
   {

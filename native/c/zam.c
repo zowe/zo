@@ -208,7 +208,8 @@ static int validate_dcb_attributes(ZDIAG *PTR32 diag, IO_CTRL *PTR32 ioc)
 {
   int rc = 0;
 
-  if (!(ioc->dcb.dcbrecfm & (dcbrecf | dcbrecv)))
+  // RECFM=U sets both the F and V bits and has LRECL 0, so it must be rejected before the block size modulo
+  if (!(ioc->dcb.dcbrecfm & (dcbrecf | dcbrecv)) || (ioc->dcb.dcbrecfm & dcbrecu) == dcbrecu)
   {
     ZDIAG_SET_MSG(diag, "Data set is not a fixed or variable record format: %X", ioc->dcb.dcbrecfm);
     diag->detail_rc = ZDS_RTNCD_UNSUPPORTED_RECFM;
@@ -431,7 +432,7 @@ int close_input_vsam(ZDIAG *PTR32 diag, IO_CTRL *PTR32 ioc)
   return rc;
 }
 
-int open_output_bpam(ZDIAG *PTR32 diag, IO_CTRL * PTR32 * PTR32 ioc, const char *PTR32 ddname)
+int open_output_bpam(ZDIAG *PTR32 diag, IO_CTRL * PTR32 * PTR32 ioc, const char *PTR32 ddname, int delete_only)
 {
   int rc = 0;
   IO_CTRL *PTR32 ioc31 = NULL;
@@ -467,6 +468,11 @@ int open_output_bpam(ZDIAG *PTR32 diag, IO_CTRL * PTR32 * PTR32 ioc, const char 
   if (0 != rc)
   {
     return rc;
+  }
+
+  if (delete_only)
+  {
+    new_ioc->skip_finalize = 1;
   }
 
   //
@@ -514,6 +520,12 @@ int open_output_bpam(ZDIAG *PTR32 diag, IO_CTRL * PTR32 * PTR32 ioc, const char 
   //
   // Validate record format of the data set
   //
+  // Deleting a member needs no record I/O, so any record format (including load libraries) is allowed
+  if (delete_only)
+  {
+    return rc;
+  }
+
   rc = validate_dcb_attributes(diag, new_ioc);
   if (0 != rc)
   {
