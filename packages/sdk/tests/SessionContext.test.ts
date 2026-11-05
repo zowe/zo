@@ -12,9 +12,11 @@
 import { DeferredPromise } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import { NodeSSH } from "node-ssh";
+import { SshClientCache } from "../src/SshClientCache";
 import { SessionContext } from "../src/utils";
 
 describe("SessionContext", () => {
+    afterEach(() => SshClientCache.inst.dispose());
     const fakeSession: ISshSession = {
         hostname: "example.com",
         port: 22,
@@ -94,7 +96,7 @@ describe("SessionContext", () => {
             const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
             const ctx = new SessionContext(new SshSession(fakeSession));
             const first = await ctx.getSsh();
-            vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(false);
+            vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(false).mockReturnValueOnce(false);
 
             const second = await ctx.getSsh();
 
@@ -105,7 +107,7 @@ describe("SessionContext", () => {
     });
 
     describe("[Symbol.dispose]", () => {
-        it("disposes the underlying connection once it has connected", async () => {
+        it("releases the underlying connection for reuse after the context ends", async () => {
             vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as any);
             const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
             const ctx = new SessionContext(new SshSession(fakeSession));
@@ -113,7 +115,10 @@ describe("SessionContext", () => {
             await ctx.getSsh();
             ctx[Symbol.dispose]();
 
-            expect(disposeSpy).toHaveBeenCalledTimes(1);
+            await Promise.resolve();
+            expect(disposeSpy).not.toHaveBeenCalled();
+            SshClientCache.inst.dispose();
+            expect(disposeSpy).toHaveBeenCalledOnce();
         });
 
         it("does nothing if a connection was never established", () => {
@@ -140,7 +145,9 @@ describe("SessionContext", () => {
             // The dispose-on-settle continuation runs as a microtask after connect resolves.
             await Promise.resolve();
 
-            expect(disposeSpy).toHaveBeenCalledTimes(1);
+            expect(disposeSpy).not.toHaveBeenCalled();
+            SshClientCache.inst.dispose();
+            expect(disposeSpy).toHaveBeenCalledOnce();
         });
 
         it("cleans up without an unhandled rejection when the in-flight connect fails", async () => {

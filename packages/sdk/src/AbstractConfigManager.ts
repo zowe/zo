@@ -39,6 +39,7 @@ import {
     type qpItem,
     type qpOpts,
 } from "./doc";
+import { SshClientCache } from "./SshClientCache";
 import { type ISshConfigExt, SshConfigUtils } from "./SshConfigUtils";
 import { ZSshUtils } from "./ZSshUtils";
 
@@ -58,6 +59,7 @@ export abstract class AbstractConfigManager {
 
     private migratedConfigs: ISshConfigExt[];
     private filteredMigratedConfigs: ISshConfigExt[];
+    private keepAliveInterval?: number;
     private validationResult: ISshConfigExt | undefined;
     private selectedProfile: ISshConfigExt | undefined;
     private sshProfiles: IProfileLoaded[];
@@ -73,6 +75,7 @@ export abstract class AbstractConfigManager {
             prioritizeProjectLevelConfig = true,
             disableCreateNewProfile = false,
         } = options ?? {};
+        this.keepAliveInterval = options?.keepAliveInterval;
         this.validationResult = undefined;
         if (profileName) {
             return { profile: this.getMergedAttrs(profileName), message: "", failNotFound: false, type: "ssh" };
@@ -523,26 +526,35 @@ export abstract class AbstractConfigManager {
     }
 
     private async attemptConnection(config: ISshConfigExt): Promise<void> {
+        const session = new SshSession(config);
         const ssh = new NodeSSH();
-
+        let cached = false;
         try {
-            // Prepare connection configuration
-            const connectionConfig = ZSshUtils.buildSshConfig(new SshSession(config), {
-                readyTimeout: config.handshakeTimeout || this.getClientSetting("handshakeTimeout") || 30000,
-            });
-
-            // Attempt connection
-            await ssh.connect(connectionConfig as NodeSSHConfig);
+            await ssh.connect(
+                ZSshUtils.buildSshConfig(session, {
+                    keepaliveInterval: this.keepAliveInterval != null ? this.keepAliveInterval * 1000 : 30_000,
+                    keepaliveCountMax: 3,
+                    readyTimeout: config.handshakeTimeout || this.getClientSetting("handshakeTimeout") || 30000,
+                }) as NodeSSHConfig,
+            );
             if (!ssh.isConnected()) {
                 throw new Error("Failed to connect to SSH: All configured authentication methods failed");
             }
             // Test the connection by executing a simple command
             const result = await ssh.execCommand("exit");
-            if (result.stderr?.startsWith("FOTS1668")) {
+            if (/FOTS1668|FOTS1669/.test(result.stderr ?? "")) {
                 throw new Error(result.stderr);
             }
+            if (result.code !== 0) {
+                throw new Error(result.stderr || "SSH validation command failed");
+            }
+            SshClientCache.inst.store(session, ssh);
+            cached = true;
+        } catch (error) {
+            SshClientCache.inst.invalidate(SshClientCache.inst.getKey(session));
+            throw error;
         } finally {
-            ssh.dispose();
+            if (!cached) ssh.dispose();
         }
     }
 

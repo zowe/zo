@@ -425,3 +425,39 @@ export const PrivateKeyFailurePatterns = [
     "privateKey value does not contain a (valid) private key",
     "Cannot parse privateKey",
 ];
+
+/** Identifies transport/authentication failures; RPC request failures keep their connection. */
+export function isSshConnectionError(error: unknown): boolean {
+    if (error == null) return false;
+    const details =
+        typeof error === "object"
+            ? (error as {
+                  code?: string;
+                  errorCode?: string;
+                  level?: string;
+                  message?: string;
+                  additionalDetails?: string;
+              })
+            : undefined;
+    const message = `${details?.message ?? error} ${details?.additionalDetails ?? ""}`;
+    if (details?.errorCode === "EPASSWD_EXPIRED" || /FOTS166[89]|password (?:has )?expired/i.test(message)) return true;
+    if (/Request timed out/i.test(message)) return false;
+    return (
+        details?.errorCode === "EPASSWD_EXPIRED" ||
+        details?.errorCode === "ECONNCLOSED" ||
+        details?.level?.startsWith("client-") === true ||
+        [
+            "ECONNRESET",
+            "ECONNREFUSED",
+            "ECONNABORTED",
+            "EPIPE",
+            "ETIMEDOUT",
+            "ENOTFOUND",
+            "EHOSTUNREACH",
+            "ENETUNREACH",
+        ].includes(details?.code ?? /\bRC=(E[A-Z]+)\b/.exec(message)?.[1] ?? "") ||
+        /FOTS166[89]|FOTS4241|All configured authentication methods failed|Authentication failed|handshake|password (?:has )?expired|No response from server|Not connected to server|connection (?:reset|refused|closed|lost|timed out)|socket (?:closed|failed|hang up)/i.test(
+            message,
+        )
+    );
+}

@@ -46,6 +46,9 @@ export interface IDisposable {
 }
 
 export interface PromptForProfileOptions {
+    /** Seconds between keep-alive messages when validation creates the cached transport (default: 30). */
+    keepAliveInterval?: number;
+
     setExistingProfile?: boolean;
     prioritizeProjectLevelConfig?: boolean;
     disableCreateNewProfile?: boolean;

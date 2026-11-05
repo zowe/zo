@@ -19,9 +19,11 @@ import {
 import { ZSshClient, ZSshUtils } from "@zowe/zowex-for-zowe-sdk";
 import { translateCliError } from "../../CliErrorUtils";
 import { SshBaseHandler } from "../../SshBaseHandler";
+import { SshCacheScope } from "../../SshCacheScope";
 
 export default class ServerInstallHandler implements ICommandHandler {
     public async process(params: IHandlerParameters): Promise<void> {
+        using _cacheScope = new SshCacheScope();
         const session = ZSshUtils.buildSession(params.arguments);
         const serverPath = params.arguments.serverPath ?? ZSshClient.DEFAULT_SERVER_PATH;
 

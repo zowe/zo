@@ -14,10 +14,11 @@ import {
     ConfigBuilder,
     ConfigSchema,
     ConfigUtils,
+    DeferredPromise,
     type IProfileTypeConfiguration,
     type ProfileInfo,
 } from "@zowe/imperative";
-import type { ISshSession } from "@zowe/zos-uss-for-zowe-sdk";
+import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import { ZoweVsCodeExtension } from "@zowe/zowe-explorer-api";
 import { type Config, NodeSSH } from "node-ssh";
 import type { ConnectConfig } from "ssh2";
@@ -26,6 +27,7 @@ import type { IDisposable, ProgressCallback } from "../lib";
 import { AbstractConfigManager } from "../src/AbstractConfigManager";
 import { ConfigFileUtils } from "../src/ConfigFileUtils";
 import { type inputBoxOpts, MESSAGE_TYPE, type qpItem, type qpOpts } from "../src/doc";
+import { SshClientCache } from "../src/SshClientCache";
 import { type ISshConfigExt, SshConfigUtils } from "../src/SshConfigUtils";
 import { migratedSshConfigs, migratedSshConfigsValidation, sshProfiles } from "./fixtures/sshConfigs.fixture";
 
@@ -88,6 +90,7 @@ export class TestAbstractConfigManager extends AbstractConfigManager {
 }
 
 describe("AbstractConfigManager", async () => {
+    afterEach(() => SshClientCache.inst.dispose());
     let profCache: ProfileInfo;
     let testManager: TestAbstractConfigManager;
     beforeAll(async () => {
@@ -1525,11 +1528,54 @@ describe("AbstractConfigManager", async () => {
         });
     });
     describe("attemptConnection", async () => {
+        it("publishes a connection only after validation completes", async () => {
+            const command = new DeferredPromise<{ code: number; signal: null; stdout: string; stderr: string }>();
+            const connect = vi.spyOn(NodeSSH.prototype, "connect").mockImplementation(async function () {
+                return this;
+            });
+            vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValue(true);
+            vi.spyOn(NodeSSH.prototype, "execCommand").mockReturnValue(command.promise);
+            const store = vi.spyOn(SshClientCache.inst, "store");
+            const config = { hostname: "example.com", user: "admin", password: "otp" };
+            const validating = (testManager as any).attemptConnection(config);
+            await Promise.resolve();
+            expect(store).not.toHaveBeenCalled();
+            command.resolve({ code: 0, signal: null, stdout: "", stderr: "" });
+            await validating;
+            expect(store).toHaveBeenCalledOnce();
+            using lease = await SshClientCache.inst.acquire(new SshSession(config));
+            expect(lease.ssh).toBe(connect.mock.contexts[0]);
+            expect(connect).toHaveBeenCalledOnce();
+        });
+
+        it.each(["FOTS1668 Password expired", "FOTS1669 Password change required", "Validation failed"])(
+            "does not cache failed validation: %s",
+            async (stderr) => {
+                vi.spyOn(NodeSSH.prototype, "connect").mockImplementation(async function () {
+                    return this;
+                });
+                vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValue(true);
+                vi.spyOn(NodeSSH.prototype, "execCommand").mockResolvedValue({
+                    code: 1,
+                    signal: null,
+                    stdout: "",
+                    stderr,
+                });
+                const dispose = vi.spyOn(NodeSSH.prototype, "dispose");
+                const store = vi.spyOn(SshClientCache.inst, "store");
+                await expect(
+                    (testManager as any).attemptConnection({ hostname: "example.com", user: "admin" }),
+                ).rejects.toThrow(stderr);
+                expect(store).not.toHaveBeenCalled();
+                expect(dispose).toHaveBeenCalledOnce();
+            },
+        );
+
         it("should attempt connection and have a truthy result", async () => {
             const connectMock = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValueOnce(undefined);
             const isConnectedMock = vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(true);
             const execCommandMock = vi.spyOn(NodeSSH.prototype, "execCommand").mockImplementation(() => {
-                return { stdout: "" } as any;
+                return { code: 0, stdout: "" } as any;
             });
             await expect(
                 (testManager as any).attemptConnection({
@@ -1593,7 +1639,7 @@ describe("AbstractConfigManager", async () => {
             const connectMock = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValueOnce(undefined);
             const isConnectedMock = vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(true);
             const execCommandMock = vi.spyOn(NodeSSH.prototype, "execCommand").mockImplementation(() => {
-                return { stdout: "" } as any;
+                return { code: 0, stdout: "" } as any;
             });
 
             await (testManager as any).attemptConnection({
@@ -1626,7 +1672,7 @@ describe("AbstractConfigManager", async () => {
             const connectMock = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValueOnce(undefined);
             const isConnectedMock = vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(true);
             const execCommandMock = vi.spyOn(NodeSSH.prototype, "execCommand").mockImplementation(() => {
-                return { stdout: "" } as any;
+                return { code: 0, stdout: "" } as any;
             });
 
             const config = {
@@ -1660,7 +1706,7 @@ describe("AbstractConfigManager", async () => {
             const connectMock = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValueOnce(undefined);
             const isConnectedMock = vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(true);
             const execCommandMock = vi.spyOn(NodeSSH.prototype, "execCommand").mockImplementation(() => {
-                return { stdout: "" } as any;
+                return { code: 0, stdout: "" } as any;
             });
 
             const config = {
@@ -1688,7 +1734,7 @@ describe("AbstractConfigManager", async () => {
             const connectMock = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValueOnce(undefined);
             const isConnectedMock = vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(true);
             const execCommandMock = vi.spyOn(NodeSSH.prototype, "execCommand").mockImplementation(() => {
-                return { stdout: "" } as any;
+                return { code: 0, stdout: "" } as any;
             });
 
             const config = {
@@ -1715,7 +1761,7 @@ describe("AbstractConfigManager", async () => {
             const connectMock = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValueOnce(undefined);
             const isConnectedMock = vi.spyOn(NodeSSH.prototype, "isConnected").mockReturnValueOnce(true);
             const execCommandMock = vi.spyOn(NodeSSH.prototype, "execCommand").mockImplementation(() => {
-                return { stdout: "" } as any;
+                return { code: 0, stdout: "" } as any;
             });
 
             vi.spyOn(testManager as any, "getClientSetting").mockReturnValueOnce(undefined);
