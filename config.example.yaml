@@ -13,6 +13,10 @@ profiles:
     #   privateKey: /Users/ibmuser/.ssh/id_rsa
     #   # password: password  # Use password instead of private key
 
+    # Pinned SSH host key fingerprint of the z/OS host (required; connections fail closed on mismatch).
+    # e.g. on the host: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+    hostFingerprint: "SHA256:<base64-fingerprint>"
+
     # USS directory on z/OS where native code is built
     deployDir: ~/zowex
 
@@ -41,3 +45,4 @@ profiles:
     #   # Archival mechanism available on this LPAR (uncomment one):
     #   ZNP_CADISK: "1"      # CA Disk (Broadcom) — uses DARCHIVE / zo data-set restore
     #   ZNP_DFSMSHSM: "1"   # DFSMShsm (IBM)     — uses HMIGRATE / HRECALL
+

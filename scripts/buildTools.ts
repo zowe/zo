@@ -22,6 +22,8 @@ import { Client, PseudoTtyOptions, type ClientCallback, type SFTPWrapper } from 
 
 interface IConfig {
     sshProfile: string | IProfile;
+    /** Pinned SSH host key fingerprint (`SHA256:<base64>` as shown by `ssh-keygen -lf`, or 64-char hex). */
+    hostFingerprint?: string;
     deployDir: string;
     preBuildCmd?: string;
     testEnv?: Record<string, string>;
@@ -1827,16 +1829,31 @@ async function testConnection(client: Client): Promise<void> {
     });
 }
 
-async function buildSshClient(sshProfile: IProfile): Promise<Client> {
+/** Converts `SHA256:<base64>` (OpenSSH style) or hex into lowercase hex; returns null if malformed. */
+function normalizeFingerprint(fingerprint?: string): string | null {
+    const value = fingerprint?.trim() ?? "";
+    if (/^[0-9a-f]{64}$/i.test(value)) {
+        return value.toLowerCase();
+    }
+    const match = /^SHA256:([A-Za-z0-9+/]{43}=?)$/.exec(value);
+    return match ? Buffer.from(match[1], "base64").toString("hex") : null;
+}
+
+async function buildSshClient(sshProfile: IProfile, hostFingerprint?: string): Promise<Client> {
+    const pinned = normalizeFingerprint(hostFingerprint);
+    if (hostFingerprint != null && pinned == null) {
+        throw new Error('Invalid "hostFingerprint" in config.yaml. Expected "SHA256:<base64>" or 64 hex characters.');
+    }
     const client = new Client();
     return new Promise((resolve, reject) => {
+        let hostKeyError: Error | undefined;
         client.on("close", () => {
             console.log("Client connection is closed");
         });
         client.on("error", (err) => {
             console.error("Client connection errored");
             process.exitCode = 1;
-            reject(err);
+            reject(hostKeyError ?? err);
         });
         client.on("ready", () => resolve(client));
         client.connect({
@@ -1844,6 +1861,29 @@ async function buildSshClient(sshProfile: IProfile): Promise<Client> {
             username: sshProfile.user,
             privateKey: sshProfile.privateKey ? fs.readFileSync(sshProfile.privateKey) : undefined,
             keepaliveInterval: 30e3,
+            hostHash: "sha256",
+            // Runs before any credentials are sent; failing closed aborts the handshake
+            hostVerifier: (presented: string) => {
+                const presentedBuf = Buffer.from(presented, "hex");
+                const display = `SHA256:${presentedBuf.toString("base64").replace(/=+$/, "")}`;
+                if (pinned == null) {
+                    hostKeyError = new Error(
+                        `No "hostFingerprint" is pinned for host ${sshProfile.host}. The server presented ${display}. ` +
+                            "Confirm it matches the host's own key (run `ssh-keygen -lf <host key file>` on the host), " +
+                            'then set "hostFingerprint" in config.yaml.',
+                    );
+                    return false;
+                }
+                const pinnedBuf = Buffer.from(pinned, "hex");
+                if (presentedBuf.length !== pinnedBuf.length || !crypto.timingSafeEqual(presentedBuf, pinnedBuf)) {
+                    hostKeyError = new Error(
+                        `Host key mismatch for ${sshProfile.host}: server presented ${display}, which does not match ` +
+                            'the pinned "hostFingerprint". Refusing to connect.',
+                    );
+                    return false;
+                }
+                return true;
+            },
         });
     });
 }
@@ -1980,7 +2020,7 @@ async function main() {
         pythonTestDir: `${config.deployDir}/python/bindings/test`,
         pythonSwigDir: `${config.deployDir}/python/swig`,
     };
-    const sshClient = await buildSshClient(config.sshProfile as IProfile);
+    const sshClient = await buildSshClient(config.sshProfile as IProfile, config.hostFingerprint);
     await testConnection(sshClient);
     try {
         switch (args[0]) {
