@@ -7,6 +7,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## Recent Changes
 
 - `c`: Implemented a shared-allocation fallback for member deletes to avoid `errno=91` (Failed to allocate data set / dataset open in another process). This would happen if the member was in a STEPLIB dataset of a running STC.
+- `c`: Unified `LOG_*` and `ZLOG_*` logging for command and server handlers using standard C++ file I/O, preserving per-user log paths, truncation, and bounded FIFO rotation while restricting Metal C logging to Debug builds. [#107](https://github.com/zowe/zowex/issues/107)
+- `c`: Validated log directories and file ownership before writing, rejected traversal and linked log targets, preserved the open append stream on rotation failure, treated fatal exit messages as literal text, and made Metal C cleanup respect the configured log level. [#1204](https://github.com/zowe/zo/pull/1204)
 - `c`: Secured default listings for the `zo tool ccnedsct` command by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned directories (`0700` UNIX permissions) under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
 - `c`: Removed the unused `zut_alloc_debug` and `ZUTDBGMG` debugging functions. [#1216](https://github.com/zowe/zo/pull/1216)
 - `c`: Improved handling for JSON-RPC responses of 16 MB or more by JSON-escaping generated output. [#1217](https://github.com/zowe/zo/pull/1217)

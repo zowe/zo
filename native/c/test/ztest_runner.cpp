@@ -37,13 +37,21 @@
 #include "server_logger.test.hpp"
 #include "plugin.test.hpp"
 #include "ztest.hpp"
+#include "../zlogger.hpp"
 #include <cstdlib>
+#include <cstring>
 
 using namespace ztst;
 
 #pragma runopts("TRAP(ON,NOSPIE)")
 int main(int argc, char *argv[])
 {
+  if (argc == 2 && std::strcmp(argv[1], "--zlogger-fatal") == 0)
+  {
+    ZLogger::get_instance().fatal("literal %s %n 100%", 7);
+    return 1;
+  }
+
   // Keep test log output confined to the test working directory rather than
   // the real user's home directory (the default when ZO_LOGS_DIR is unset)
   setenv("ZO_LOGS_DIR", "logs", 1);
