@@ -208,7 +208,8 @@ static int validate_dcb_attributes(ZDIAG *PTR32 diag, IO_CTRL *PTR32 ioc)
 {
   int rc = 0;
 
-  if (!(ioc->dcb.dcbrecfm & (dcbrecf | dcbrecv)))
+  // RECFM=U sets both the F and V bits and has LRECL 0, so it must be rejected before the block size modulo
+  if (!(ioc->dcb.dcbrecfm & (dcbrecf | dcbrecv)) || (ioc->dcb.dcbrecfm & dcbrecu) == dcbrecu)
   {
     ZDIAG_SET_MSG(diag, "Data set is not a fixed or variable record format: %X", ioc->dcb.dcbrecfm);
     diag->detail_rc = ZDS_RTNCD_UNSUPPORTED_RECFM;
@@ -431,7 +432,7 @@ int close_input_vsam(ZDIAG *PTR32 diag, IO_CTRL *PTR32 ioc)
   return rc;
 }
 
-int open_output_bpam(ZDIAG *PTR32 diag, IO_CTRL * PTR32 * PTR32 ioc, const char *PTR32 ddname)
+int open_output_bpam(ZDIAG *PTR32 diag, IO_CTRL * PTR32 * PTR32 ioc, const char *PTR32 ddname, int delete_only)
 {
   int rc = 0;
   IO_CTRL *PTR32 ioc31 = NULL;
@@ -467,6 +468,11 @@ int open_output_bpam(ZDIAG *PTR32 diag, IO_CTRL * PTR32 * PTR32 ioc, const char 
   if (0 != rc)
   {
     return rc;
+  }
+
+  if (delete_only)
+  {
+    new_ioc->skip_finalize = 1;
   }
 
   //
@@ -514,6 +520,12 @@ int open_output_bpam(ZDIAG *PTR32 diag, IO_CTRL * PTR32 * PTR32 ioc, const char 
   //
   // Validate record format of the data set
   //
+  // Deleting a member needs no record I/O, so any record format (including load libraries) is allowed
+  if (delete_only)
+  {
+    return rc;
+  }
+
   rc = validate_dcb_attributes(diag, new_ioc);
   if (0 != rc)
   {
@@ -1011,24 +1023,24 @@ static int finalize_dcb(ZDIAG *PTR32 diag, IO_CTRL *PTR32 ioc)
   int first_rc = 0;
 
   //
-  // Update ISPF statistics
+  // A deleted member must not be written back by the statistics STOW
   //
-  rc = update_ispf_statistics(diag, ioc);
-  if (0 != rc)
+  if (!ioc->skip_finalize)
   {
-    if (0 == first_rc)
+    //
+    // Update ISPF statistics
+    //
+    rc = update_ispf_statistics(diag, ioc);
+    if (0 != rc && 0 == first_rc)
       first_rc = rc;
-  }
 
-  //
-  // STOW the ISPF statistics
-  //
-  if (0 == rc)
-  {
-    rc = stow_data_set(diag, ioc);
-    if (0 != rc)
+    //
+    // STOW the ISPF statistics
+    //
+    if (0 == rc)
     {
-      if (0 == first_rc)
+      rc = stow_data_set(diag, ioc);
+      if (0 != rc && 0 == first_rc)
         first_rc = rc;
     }
   }
@@ -1187,6 +1199,56 @@ int stow(IO_CTRL *ioc, int *rsn)
   STOW(ioc->dcb, ioc->stow_list, rc, local_rsn);
   *rsn = local_rsn;
   return rc;
+}
+
+static int stow_delete(const IO_CTRL *ioc, int *rsn)
+{
+  int rc = 0;
+  int local_rsn = 0;
+  (void)ioc;
+  STOW_DELETE(ioc->dcb, ioc->stow_list, rc, local_rsn);
+  *rsn = local_rsn;
+  return rc;
+}
+
+// Delete the member named in the JFCB. Works with the data set allocated SHR, unlike remove().
+int delete_member_bpam(ZDIAG *PTR32 diag, IO_CTRL *PTR32 ioc)
+{
+  int rc = 0;
+  int rsn = 0;
+  BLDL_PL bldl_pl = {0};
+
+  gioc = ioc;
+
+  ioc->skip_finalize = 1;
+
+  rc = bldl_member(diag, ioc, &bldl_pl);
+  if (BLDL_WARNING == rc)
+  {
+    ZDIAG_SET_MSG(diag, "Member %.8s not found in data set: %44.44s", ioc->jfcb.jfcbelnm, ioc->jfcb.jfcbdsnm);
+    diag->detail_rc = ZDS_RTNCD_NOT_FOUND;
+    return RTNCD_FAILURE;
+  }
+  if (0 != rc)
+  {
+    return RTNCD_FAILURE;
+  }
+
+  memset(&ioc->stow_list, 0x00, sizeof(ioc->stow_list));
+  memcpy(ioc->stow_list.name, ioc->jfcb.jfcbelnm, sizeof(ioc->stow_list.name));
+
+  rc = stow_delete(ioc, &rsn);
+  if (0 != rc)
+  {
+    diag->service_rc = rc;
+    diag->service_rsn = rsn;
+    strcpy(diag->service_name, "STOW");
+    ZDIAG_SET_MSG(diag, "Failed to STOW delete member %.8s of data set: %44.44s rc was: %d rsn was: %d", ioc->jfcb.jfcbelnm, ioc->jfcb.jfcbdsnm, rc, rsn);
+    diag->detail_rc = ZDS_RTNCD_STOW_ERROR;
+    return RTNCD_FAILURE;
+  }
+
+  return RTNCD_SUCCESS;
 }
 
 int note(IO_CTRL *ioc, NOTE_RESPONSE *PTR32 note_response, int *rsn)

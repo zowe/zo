@@ -267,7 +267,7 @@ int ZDSOBPAM(ZDS *zds, IO_CTRL **ioc, const char *ddname)
   memcpy(ddname31, ddname, sizeof(ddname31));
 
   IO_CTRL *PTR32 ioc31 = NULL;
-  rc = open_output_bpam(&zds31.diag, &ioc31, ddname31);
+  rc = open_output_bpam(&zds31.diag, &ioc31, ddname31, zds31.delete_only);
   *ioc = ioc31;
   memcpy(zds, &zds31, sizeof(ZDS));
 
@@ -311,6 +311,18 @@ int ZDSCBPAM(ZDS *zds, IO_CTRL *ioc)
   ZDS zds31 = {0};
   memcpy(&zds31, zds, sizeof(ZDS));
   rc = close_output_bpam(&zds31.diag, ioc);
+  memcpy(zds, &zds31, sizeof(ZDS));
+  return rc;
+}
+
+#pragma prolog(ZDSDMBR, " ZWEPROLG NEWDSA=(YES,24) ")
+#pragma epilog(ZDSDMBR, " ZWEEPILG ")
+int ZDSDMBR(ZDS *zds, IO_CTRL *ioc)
+{
+  int rc = 0;
+  ZDS zds31 = {0};
+  memcpy(&zds31, zds, sizeof(ZDS));
+  rc = delete_member_bpam(&zds31.diag, ioc);
   memcpy(zds, &zds31, sizeof(ZDS));
   return rc;
 }

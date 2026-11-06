@@ -351,6 +351,17 @@ int zds_create_dsn_loadlib(ZDS *zds, const std::string &dsn, std::string &respon
  */
 int zds_delete_dsn(ZDS *zds, std::string dsn);
 
+/**
+ * @brief Delete a PDS or PDS/E member with the library allocated DISP=SHR
+ *
+ * Used by zds_delete_dsn when remove() cannot get exclusive access because another address space has the library open.
+ *
+ * @param zds data set returned attributes and error information
+ * @param dsn member to delete, in the form LIB(MEMBER)
+ * @return int 0 for success; non zero otherwise (zds->diag.detail_rc is ZDS_RTNCD_NOT_FOUND if the member does not exist)
+ */
+int zds_delete_member_shared(ZDS *zds, const std::string &dsn);
+
 int zdsReadDynalloc(const std::string &, const std::string &, const std::string &, std::string &); // NOTE(Kelosky): testing only
 
 /**
