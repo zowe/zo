@@ -1879,7 +1879,9 @@ class ZusfFileDescriptor
   int fd_;
 
 public:
-  explicit ZusfFileDescriptor(int fd = -1) : fd_(fd) {}
+  explicit ZusfFileDescriptor(int fd = -1) : fd_(fd)
+  {
+  }
   ZusfFileDescriptor(const ZusfFileDescriptor &) = delete;
   ZusfFileDescriptor &operator=(const ZusfFileDescriptor &) = delete;
 
@@ -1888,7 +1890,10 @@ public:
     reset();
   }
 
-  int get() const { return fd_; }
+  int get() const
+  {
+    return fd_;
+  }
 
   void reset(int fd = -1)
   {
@@ -2118,7 +2123,7 @@ int zusf_update_metadata_path(ZUSF *zusf, const std::string &file, attrib_t &att
   const ZusfMetadataEntry entry{target.parent.get(), target.name.c_str(), file.c_str()};
   return zusf_update_metadata_fd(zusf, fd.get(), attributes, recursive, entry);
 }
-}
+} // namespace
 
 /**
  * Changes the permissions of a USS file or directory.
