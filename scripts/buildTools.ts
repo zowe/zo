@@ -1869,8 +1869,8 @@ async function buildSshClient(sshProfile: IProfile, hostFingerprint?: string): P
                 if (pinned == null) {
                     hostKeyError = new Error(
                         `No "hostFingerprint" is pinned for host ${sshProfile.host}. The server presented ${display}. ` +
-                            "Verify it out-of-band (e.g. `ssh-keygen -lf` on the host), then set " +
-                            '"hostFingerprint" in config.yaml.',
+                            "Confirm it matches the host's own key (run `ssh-keygen -lf <host key file>` on the host), " +
+                            'then set "hostFingerprint" in config.yaml.',
                     );
                     return false;
                 }
