@@ -1295,7 +1295,7 @@ int zut_write_file_private(const std::string &path, const std::string &data, std
   size_t remaining = data.size();
   while (remaining > 0)
   {
-    size_t written = write(temp_fd, buf, remaining);
+    ssize_t written = write(temp_fd, buf, remaining);
     if (written == -1)
     {
       if (errno == EINTR)
