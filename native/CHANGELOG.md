@@ -9,9 +9,11 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Secured default listings for the `zo tool ccnedsct` command by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned directories (`0700` UNIX permissions) under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
 - `c`: Removed the unused `zut_alloc_debug` and `ZUTDBGMG` debugging functions. [#1216](https://github.com/zowe/zo/pull/1216)
 - `c`: Improved handling for JSON-RPC responses of 16 MB or more by JSON-escaping generated output. [#1217](https://github.com/zowe/zo/pull/1217)
+- `c`: Added the `NOPRTCC` parm to `zo tool search` when invoked through RPC so SuperC listings no longer contain page breaks or repeated page titles. [#1182](https://github.com/zowe/zo/issues/1182)
 
 ## `1.1.0`
 
+- `c`: Fixed binary writes (`--encoding binary`) to PDS and PDSE members keeping only the first record. The data is now written as record-sized pieces instead of being split on newline bytes. [#1207](https://github.com/zowe/zowex/issues/1207)
 - **Breaking:** `c`: Protected PKCS#12 certificate exports with PBES2/AES-256-CBC and PBKDF2-HMAC-SHA-256 instead of RC4/SHA-1, without an algorithm downgrade on failure. Export now requires System SSL APAR OA64899 support, active ICSF, and an 8–128-character passphrase; documented the need for strong, unique passphrases against offline guessing. [#1205](https://github.com/zowe/zo/pull/1205)
 - `c`: Added additional error logging when zo fails to parse IDCAMS output while attempting to resolve a data set alias. [#1198](https://github.com/zowe/zo/pull/1198)
 - `c`: Added z/OSMF-compatible `execSystem`, `execMember`, `execSubmitted`, `execStarted`, and `execEnded` fields to job list and status JSON responses, enabling submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)

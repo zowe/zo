@@ -653,7 +653,32 @@ export abstract class AbstractConfigManager {
         });
     }
 
-    private async setProfile(selectedConfig: ISshConfigExt, updatedProfile?: string): Promise<void> {
+    /**
+     * When secure storage is unavailable, credentials would be written to the Zowe config as plaintext.
+     * Ask the user before doing so; if declined, the credentials are omitted from the persisted profile.
+     */
+    private async confirmPlaintextCredentials(config: ISshConfigExt, profileName?: string): Promise<ISshConfigExt> {
+        const credentialKeys = (["password", "keyPassphrase"] as const).filter((key) => config[key]);
+        if (credentialKeys.length === 0 || this.mProfilesCache.isSecured()) {
+            return config;
+        }
+        const saveButton = "Save Credentials";
+        const response = await this.showMenu({
+            items: [{ label: saveButton }],
+            placeholder: `Save entered credentials in plain text for future use with profile ${profileName}? Saving credentials will update the local configuration file.`,
+        });
+        if (response === saveButton) {
+            return config;
+        }
+        const sanitized = { ...config };
+        for (const key of credentialKeys) {
+            delete sanitized[key];
+        }
+        return sanitized;
+    }
+
+    private async setProfile(inputConfig: ISshConfigExt, updatedProfile?: string): Promise<void> {
+        const selectedConfig = await this.confirmPlaintextCredentials(inputConfig, updatedProfile ?? inputConfig.name);
         const configApi = this.mProfilesCache.getTeamConfig().api;
         // Create the base config object
         const config: IConfigProfile = {
