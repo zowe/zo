@@ -4,6 +4,10 @@ All notable changes to the Client code for "zowex-for-zowe-cli" are documented i
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- Added a prompt to the `zowe zo config setup` command to confirm saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
+
 ## `1.1.0`
 
 - Reused authenticated SSH connections across Zowe CLI daemon commands and closed connections after standalone commands, including setup and server installation/uninstallation. [MFA branch](https://github.com/zowe/zo/tree/feat/mfa-reuse-conn)
@@ -118,3 +122,4 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 - Initial release
+
