@@ -25,7 +25,7 @@
 #include "../server/rpc_server.hpp"
 #include "../server/rpc_commands.hpp"
 #include "../server/dispatcher.hpp"
-#include "../server/logger.hpp"
+#include "../zlogger.hpp"
 #include "../server/worker.hpp"
 #include "../server/plugin_bridge.hpp"
 
@@ -128,7 +128,7 @@ void ZServer::print_ready_message()
 
 void ZServer::log_worker_count()
 {
-  if (!server::Logger::is_verbose_logging())
+  if (!ZLogger::get_instance().is_verbose_logging())
     return;
 
   worker_count_thread = std::thread([this]()
@@ -150,7 +150,7 @@ void ZServer::run(const server::Options &opts)
 {
   options = opts;
 
-  server::Logger::init_logger(options.verbose);
+  ZLogger::get_instance().initialize_server(options.verbose);
   LOG_INFO("Starting zo server with %lld workers and %lld seconds until request timeout (verbose=%s)", options.num_workers, options.request_timeout, options.verbose ? "true" : "false");
 
   setup_signal_handlers();
@@ -192,7 +192,7 @@ void ZServer::run(const server::Options &opts)
   }
   request_shutdown();
 
-  server::Logger::shutdown();
+  ZLogger::get_instance().shutdown();
 }
 
 // server namespace implementation

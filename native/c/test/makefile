@@ -38,8 +38,8 @@ CPP_BND_FLAGS=$(CPP_BND_DEBUG_FLAGS) $(DEBUGGER_FLAGS)
 CPP_BND_FLAGS_AUTH=$(CPP_BND_DEBUG_FLAGS_AUTH) $(DEBUGGER_FLAGS)
 C_FLAGS+=$(DEBUGGER_FLAGS)
 DLL_BND_FLAGS=$(DLL_BND_DEBUG_FLAGS) $(DEBUGGER_FLAGS)
-MTL_FLAGS+=$(DEBUGGER_FLAGS) -qSHOWINC
-MTL_FLAGS64+=$(DEBUGGER_FLAGS) -qSHOWINC
+MTL_FLAGS+=-g1
+MTL_FLAGS64+=-g1
 ASM_FLAGS+=--verbose
 CPP_LIST_FLAG=
 MTL_LIST_FLAG=-qlist=$*.mtl.lst
@@ -71,8 +71,8 @@ MTL_LIST_FLAG=
 ASM_LIST_FLAG=
 .END
 
-# Apply LOG_FLAGS to all relevant compilation flags if logging is enabled
-.IF DEFINED(LOG_FLAGS)
+# Apply DEBUG-only Metal instrumentation flags, including C++ lifecycle callers.
+.IF $(BuildType) == DEBUG
 C_FLAGS+=$(LOG_FLAGS)
 CPP_FLAGS+=$(LOG_FLAGS)
 CXXFLAGS+=$(LOG_FLAGS)
@@ -81,7 +81,7 @@ MTL_FLAGS64+=$(LOG_FLAGS)
 .END
 
 all:
-	$(MAKE) -DZLOG_ENABLE=1 build-out build-out/ztest_runner
+	$(MAKE) build-out build-out/ztest_runner
 
 
 #
@@ -96,6 +96,12 @@ build-out:
 #
 build-out/ztest_runner.o: ztest_runner.cpp
 	$(CXX) $(CXXFLAGS) $(CPP_LIST_FLAG) -c $^ -o $@
+
+.IF $(BuildType) == DEBUG
+METAL_LOGGER_OBJ=build-out/zlogger_metal.o
+.ELSE
+METAL_LOGGER_OBJ=
+.END
 
 build-out/ztest_runner: build-out/ztest_runner.o \
 build-out/zbase64.test.o \
@@ -142,7 +148,7 @@ build-out/zutils.o \
 build-out/parser.test.o \
 build-out/result_table.test.o \
 build-out/zlogger.test.o \
-build-out/zlogger_metal.o \
+$(METAL_LOGGER_OBJ) \
 build-out/zwto.test.o \
 build-out/zjson.test.o \
 build-out/zjsonm.o \
@@ -310,11 +316,13 @@ build-out/result_table.test.o: result_table.test.cpp
 build-out/zlogger.test.o: zlogger.test.cpp
 	$(CXX) $(CXXFLAGS) $(CPP_LIST_FLAG) -c $^ -o $@
 
+.IF $(BuildType) == DEBUG
 build-out/zlogger_metal.s: ../zlogger_metal.c
 	$(CC) $(MTL_FLAGS64) $(MTL_LIST_FLAG) $(MTL_HEADERS) -o $@ $^
 
 build-out/zlogger_metal.o: build-out/zlogger_metal.s
 	$(ASM) $(ASM_FLAGS) $(ASM_LIST_FLAG) $(MACLIBS) -o $@ $^
+.END
 
 build-out/zwto.test.o: zwto.test.cpp
 	$(CXX) $(CXXFLAGS) $(CPP_LIST_FLAG) -c $^ -o $@
@@ -359,7 +367,7 @@ build-out/plugin.test.o: plugin.test.cpp
 # Testing utilities
 #
 test:
-	$(MAKE) -DZLOG_ENABLE=1 build-out build-out/ztest_runner
+	$(MAKE) build-out build-out/ztest_runner
 	chmod +x test.sh
 	./build-out/ztest_runner
 
