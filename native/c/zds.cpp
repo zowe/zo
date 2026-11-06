@@ -46,6 +46,8 @@ const size_t MAX_VOLSER_LENGTH = 6u;
 const char CR_CHAR = '\x0D';
 // form feed character, used for stripping off lines in ASA mode
 const char FF_CHAR = '\x0C';
+// record descriptor word size in variable-length records
+const int RDW_SIZE = 4;
 
 /**
  * Helper function to check if codepage encoding should be used.
@@ -63,10 +65,10 @@ static inline bool zds_use_codepage(const ZDS *zds)
 static int get_effective_lrecl(IO_CTRL *ioc)
 {
   int lrecl = ioc->dcb.dcblrecl;
-  // For variable records, subtract RDW size (4 bytes)
+  // For variable records, subtract RDW size
   if (ioc->dcb.dcbrecfm & dcbrecv)
   {
-    lrecl -= 4;
+    lrecl -= RDW_SIZE;
   }
   // For ASA control characters, subtract 1 byte for the control character
   if (ioc->dcb.dcbrecfm & dcbrecca)
@@ -706,10 +708,10 @@ static std::string zds_build_text_write_flags(const DscbAttributes &attrs)
 static int get_effective_lrecl_from_attrs(const DscbAttributes &attrs)
 {
   int lrecl = attrs.lrecl;
-  // For variable records, subtract RDW size (4 bytes)
+  // For variable records, subtract RDW size
   if (attrs.recfm.find('V') != std::string::npos)
   {
-    lrecl -= 4;
+    lrecl -= RDW_SIZE;
   }
   // For ASA control characters, subtract 1 byte
   if (attrs.is_asa)
@@ -1564,6 +1566,28 @@ static int write_asa_overflow_records(ZDS *zds, IO_CTRL *ioc, int overflow_count
   return RTNCD_SUCCESS;
 }
 
+/** Binary record length: LRECL minus the RDW for variable records. */
+static int get_binary_record_len(IO_CTRL *ioc)
+{
+  return ioc->dcb.dcblrecl - ((ioc->dcb.dcbrecfm & dcbrecv) ? RDW_SIZE : 0);
+}
+
+/** Write buf[pos..] as record_len-sized records via BPAM; a trailing partial record needs flush_partial. */
+static int write_binary_records(ZDS *zds, IO_CTRL *ioc, const std::string &buf, size_t &pos, size_t record_len, bool flush_partial)
+{
+  while (buf.size() - pos >= record_len || (flush_partial && pos < buf.size()))
+  {
+    std::string record = buf.substr(pos, record_len);
+    const int rc = zds_write_output_bpam(zds, ioc, record);
+    if (rc != RTNCD_SUCCESS)
+    {
+      return rc;
+    }
+    pos += record.size();
+  }
+  return RTNCD_SUCCESS;
+}
+
 /**
  * Internal function to write to a PDS/PDSE member using BPAM (updates ISPF stats)
  */
@@ -1577,6 +1601,20 @@ static int zds_write_member_bpam(ZDS *zds, const std::string &dsn, const std::st
   if (rc != RTNCD_SUCCESS)
   {
     return rc;
+  }
+
+  // Binary: write LRECL-sized records, not newline-split lines
+  if (zds->encoding_opts.data_type == eDataTypeBinary)
+  {
+    size_t pos = 0;
+    rc = write_binary_records(zds, ioc, data, pos, get_binary_record_len(ioc), true);
+    if (rc != RTNCD_SUCCESS)
+    {
+      DiagMsgGuard guard(&zds->diag);
+      zds_close_output_bpam(zds, ioc);
+      return rc;
+    }
+    return zds_close_output_bpam(zds, ioc);
   }
 
   // Check if ASA format from DCB after open
@@ -4209,6 +4247,57 @@ static int zds_write_member_bpam_streamed(ZDS *zds, const std::string &dsn, cons
   {
     zds_close_output_bpam(zds, ioc);
     return rc;
+  }
+
+  // Binary: write LRECL-sized records, not newline-split lines
+  if (zds->encoding_opts.data_type == eDataTypeBinary)
+  {
+    const size_t record_len = get_binary_record_len(ioc);
+    std::vector<char> chunk(FIFO_CHUNK_SIZE);
+    std::vector<char> decoded;
+    std::vector<char> pending_b64;
+    std::string pending;
+    size_t bytes_in;
+
+    while ((bytes_in = fread(&chunk[0], 1, FIFO_CHUNK_SIZE, fin)) > 0)
+    {
+      if (update_heartbeat)
+      {
+        update_heartbeat();
+      }
+
+      decoded = zbase64::decode(&chunk[0], bytes_in, &pending_b64);
+      *content_len += decoded.size();
+      pending.append(decoded.begin(), decoded.end());
+
+      size_t pos = 0;
+      rc = write_binary_records(zds, ioc, pending, pos, record_len, false);
+      if (rc != RTNCD_SUCCESS)
+      {
+        DiagMsgGuard guard(&zds->diag);
+        zds_close_output_bpam(zds, ioc);
+        return rc;
+      }
+      pending.erase(0, pos);
+    }
+
+    if (ferror(fin))
+    {
+      ZDIAG_SET_MSG(&zds->diag, "Error reading input pipe '%s', errno %d", pipe.c_str(), errno);
+      DiagMsgGuard guard(&zds->diag);
+      zds_close_output_bpam(zds, ioc);
+      return RTNCD_FAILURE;
+    }
+
+    size_t pos = 0;
+    rc = write_binary_records(zds, ioc, pending, pos, record_len, true);
+    if (rc != RTNCD_SUCCESS)
+    {
+      DiagMsgGuard guard(&zds->diag);
+      zds_close_output_bpam(zds, ioc);
+      return rc;
+    }
+    return zds_close_output_bpam(zds, ioc);
   }
 
   // Track truncated lines
