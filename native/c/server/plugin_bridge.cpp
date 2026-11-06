@@ -12,7 +12,7 @@
 #include "plugin_bridge.hpp"
 #include "dispatcher.hpp"
 #include "builder.hpp"
-#include "logger.hpp"
+#include "../zlogger.hpp"
 #include <string>
 #include <cctype>
 #include <algorithm>
