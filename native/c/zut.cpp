@@ -1253,39 +1253,41 @@ std::string zut_read_input(std::istream &input_stream)
 
 int zut_write_file_private(const std::string &path, const std::string &data, std::string &error)
 {
-  if (unlink(path.c_str()) == -1 && errno != ENOENT)
+  std::string temp_path = path + ".tmp";
+  struct stat file_stats;
+
+  if (unlink(temp_path.c_str()) == -1 && errno != ENOENT)
   {
     // if we fail to delete for any reason other than that the file did not exist
-    error = "Failed to delete '" + path + "' before overwriting: " + strerror(errno);
+    error = "Failed to delete '" + temp_path + "' before overwriting: " + strerror(errno);
     return RTNCD_FAILURE;
   }
-  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
-  if (fd == -1)
+  int temp_fd = open(temp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
+  if (temp_fd == -1)
   {
-    error = "could not open '" + path + "': " + strerror(errno);
+    error = "could not open '" + temp_path + "': " + strerror(errno);
     return RTNCD_FAILURE;
   }
-  struct stat file_stats;
-  if (fstat(fd, &file_stats) == -1)
+
+  // O_CREAT's mode only applies when the file is newly created, so an existing
+  // file with looser permissions needs to be tightened explicitly.
+  if (fchmod(temp_fd, S_IRUSR | S_IWUSR) == -1)
+  {
+    error = "could not set permissions on '" + temp_path + "': " + strerror(errno);
+    close(temp_fd);
+    return RTNCD_FAILURE;
+  }
+  if (fstat(temp_fd, &file_stats) == -1)
   {
     error = "could not stat '" + path + "': " + strerror(errno);
-    close(fd);
+    close(temp_fd);
     return RTNCD_FAILURE;
   }
 
   if (!S_ISREG(file_stats.st_mode) || file_stats.st_nlink != 1 || file_stats.st_uid != geteuid())
   {
     error = "Refusing to use '" + path + "'. The file must be a regular file owned by you, and not a symbolic link.";
-    close(fd);
-    return RTNCD_FAILURE;
-  }
-
-  // O_CREAT's mode only applies when the file is newly created, so an existing
-  // file with looser permissions needs to be tightened explicitly.
-  if (fchmod(fd, S_IRUSR | S_IWUSR) == -1)
-  {
-    error = "could not set permissions on '" + path + "': " + strerror(errno);
-    close(fd);
+    close(temp_fd);
     return RTNCD_FAILURE;
   }
 
@@ -1293,24 +1295,30 @@ int zut_write_file_private(const std::string &path, const std::string &data, std
   size_t remaining = data.size();
   while (remaining > 0)
   {
-    ssize_t written = write(fd, buf, remaining);
+    size_t written = write(temp_fd, buf, remaining);
     if (written == -1)
     {
       if (errno == EINTR)
       {
         continue;
       }
-      error = "could not write to '" + path + "': " + strerror(errno);
-      close(fd);
+      error = "could not write to '" + temp_path + "': " + strerror(errno);
+      close(temp_fd);
+      unlink(temp_path.c_str()); // clean up temp file
       return RTNCD_FAILURE;
     }
     buf += written;
     remaining -= static_cast<size_t>(written);
   }
 
-  if (close(fd) == -1)
+  if (close(temp_fd) == -1)
   {
-    error = "could not close '" + path + "': " + strerror(errno);
+    error = "could not close '" + temp_path + "': " + strerror(errno);
+    return RTNCD_FAILURE;
+  }
+  if (rename(temp_path.c_str(), path.c_str()) != 0)
+  {
+    error = "Unable to move temporary path '" + temp_path + "' to '" + path + "': " + strerror(errno);
     return RTNCD_FAILURE;
   }
 
