@@ -1286,7 +1286,7 @@ int zut_write_file_private(const std::string &path, const std::string &data, std
 
   if (!S_ISREG(file_stats.st_mode) || file_stats.st_nlink != 1 || file_stats.st_uid != geteuid())
   {
-    error = "Refusing to use '" + path + "'. The file must be a regular file owned by you, and not a symbolic link.";
+    error = "Failed to create '" + temp_path + "' with the expected permissions.";
     close(temp_fd);
     return RTNCD_FAILURE;
   }
