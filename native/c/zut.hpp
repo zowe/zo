@@ -18,6 +18,7 @@
 #include <vector>
 #include <optional>
 #include <string>
+#include <sys/types.h>
 #include "ztype.h"
 #include "zutm.h"
 
@@ -457,13 +458,30 @@ int zut_list_subsystems(ZDIAG &diag, std::vector<std::string> &subsystems, std::
 std::string zut_read_input(std::istream &input_stream);
 
 /**
+ * @brief Open a file for writing without ever following a symbolic link as the
+ *   last path component.
+ *
+ * A single open() with O_CREAT | O_NOFOLLOW binds the existence check, creation,
+ * and truncation to the same object, so neither a dangling nor a live symbolic
+ * link can redirect the write. Without `truncate` the file is created with O_EXCL
+ * and any existing path fails.
+ *
+ * @param path Path of the file to open
+ * @param mode Permission bits for a newly created file (subject to the umask)
+ * @param truncate Open and truncate an existing regular file instead of failing with EEXIST
+ * @return File descriptor, or -1 with errno set; ELOOP when `path` is a symbolic link
+ */
+int zut_open_for_write(const std::string &path, mode_t mode, bool truncate);
+
+/**
  * @brief Write data to a file that is created (or truncated) with owner-only
  *   read/write permissions (0600), regardless of the process umask.
  *
  * Intended for output that may hold secrets, such as an exported private key
- * (e.g. a PKCS#12 bundle). The file is opened O_CREAT | O_TRUNC and then
- * chmod'd to 0600 so a pre-existing file with looser permissions is tightened
- * as well, since O_CREAT's mode argument only applies to newly created files.
+ * (e.g. a PKCS#12 bundle). The file is opened with zut_open_for_write, so a
+ * symbolic link is rejected, and then fchmod'd to 0600 so a
+ * pre-existing file with looser permissions is tightened as well, since
+ * O_CREAT's mode argument only applies to newly created files.
  *
  * @param path Path of the file to create/truncate and write
  * @param data The bytes to write
