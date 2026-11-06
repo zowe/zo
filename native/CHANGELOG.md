@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `c`: Fixed `zo uss create-file` (and the `createFile` RPC method) and certificate exports to a file writing through a symbolic link.
+- `c`: Fixed `zo uss create-file` (and the `createFile` RPC method) and certificate exports to a file writing through a symbolic link. [#1226](https://github.com/zowe/zo/pull/1226)
 - `c`: Secured default listings for the `zo tool ccnedsct` command by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned directories (`0700` UNIX permissions) under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
 - `c`: Removed the unused `zut_alloc_debug` and `ZUTDBGMG` debugging functions. [#1216](https://github.com/zowe/zo/pull/1216)
 - `c`: Improved handling for JSON-RPC responses of 16 MB or more by JSON-escaping generated output. [#1217](https://github.com/zowe/zo/pull/1217)
