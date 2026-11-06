@@ -11,6 +11,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## `1.1.0`
 
+- Added a reusable SSH connection cache with a ten-minute idle expiry so profile validation, SFTP deployment, and server startup can share one MFA authentication, with a client opt-out and explicit cache invalidation. [#1219](https://github.com/zowe/zo/pull/1219)
+  - Deprecated `SessionContext` in favor of session-based cache lookups.
 - Documented the PBES2/AES-256 certificate export prerequisites and strong, unique 8–128-character passphrase requirement. [#1205](https://github.com/zowe/zo/pull/1205)
 - Added optional z/OSMF-compatible execution fields to job list and status response types, including `execSubmitted` and `execEnded` for submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
 - BugFix: Censored sensitive info when logging RPC request and response details in ZSshClient. [#1190](https://github.com/zowe/zo/pull/1190)

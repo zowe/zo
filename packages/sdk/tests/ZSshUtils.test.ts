@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import { DeferredPromise, ImperativeError, Logger } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import { NodeSSH, type SSHExecCommandResponse } from "node-ssh";
+import { SshClientCache } from "../src/SshClientCache";
 import { SshErrors } from "../src/SshErrors";
 import { SessionContext } from "../src/utils";
 import { ZSshUtils } from "../src/ZSshUtils";
@@ -43,7 +44,8 @@ function setupSftpMocks(
 }
 
 describe("ZSshUtils", () => {
-    it("reuses a connection only while a SessionContext is in scope", async () => {
+    afterEach(() => SshClientCache.inst.dispose());
+    it("reuses a cached connection for sessions and scoped contexts", async () => {
         const connectSpy = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as any);
         const execSpy = vi
             .spyOn(NodeSSH.prototype, "execCommand")
@@ -54,18 +56,18 @@ describe("ZSshUtils", () => {
 
         await ZSshUtils.lacksWriteAccess(session, "/tmp");
         await ZSshUtils.lacksWriteAccess(session, "/tmp");
-        expect(connectSpy).toHaveBeenCalledTimes(2);
-        expect(disposeSpy).toHaveBeenCalledTimes(2);
+        expect(connectSpy).toHaveBeenCalledTimes(1);
+        expect(disposeSpy).not.toHaveBeenCalled();
 
         {
             using context = new SessionContext(session);
             await ZSshUtils.lacksWriteAccess(context, "/tmp");
             await ZSshUtils.lacksWriteAccess(context, "/tmp");
-            expect(connectSpy).toHaveBeenCalledTimes(3);
+            expect(connectSpy).toHaveBeenCalledTimes(1);
             expect(execSpy).toHaveBeenCalledTimes(8);
-            expect(disposeSpy).toHaveBeenCalledTimes(2);
+            expect(disposeSpy).not.toHaveBeenCalled();
         }
-        expect(disposeSpy).toHaveBeenCalledTimes(3);
+        expect(disposeSpy).not.toHaveBeenCalled();
     });
 
     it.each(["resolve", "reject"] as const)(
@@ -98,7 +100,7 @@ describe("ZSshUtils", () => {
             await resultAssertion;
 
             expect(disposedWhilePending).toBe(false);
-            expect(disposeSpy).toHaveBeenCalledOnce();
+            expect(disposeSpy).not.toHaveBeenCalled();
         },
     );
 
@@ -665,6 +667,7 @@ describe("ZSshUtils", () => {
             // We can spy on NodeSSH.prototype.connect and requestSFTP
             const connectSpy = vi.spyOn(NodeSSH.prototype, "connect").mockResolvedValue({} as any);
             const requestSftpSpy = vi.spyOn(NodeSSH.prototype, "requestSFTP").mockResolvedValue({
+                end: vi.fn(),
                 fastPut: vi.fn((_l, _r, _o, cb) => cb()),
                 unlink: vi.fn((_p, cb) => cb()),
             } as any);
@@ -680,7 +683,8 @@ describe("ZSshUtils", () => {
             expect(connectSpy).toHaveBeenCalled();
             expect(requestSftpSpy).toHaveBeenCalled();
             expect(execCommandSpy).toHaveBeenCalled();
-            expect(disposeSpy).toHaveBeenCalled();
+            expect(disposeSpy).not.toHaveBeenCalled();
+            expect((await requestSftpSpy.mock.results[0].value).end).toHaveBeenCalledOnce();
         });
 
         it("should cancel the deployment if insufficient space detected and the onInsufficientSpaceWarning callback returns false", async () => {

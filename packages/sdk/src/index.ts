@@ -14,6 +14,7 @@ export * from "./AbstractConfigManager";
 export * from "./ConfigFileUtils";
 export * from "./doc";
 export * from "./RpcClientApi";
+export * from "./SshClientCache";
 export * from "./SshConfigUtils";
 export * from "./SshErrors";
 export * from "./UtilsApi";

@@ -88,16 +88,16 @@ describe("ZSshClient", () => {
     });
 
     describe("create function", () => {
-        it("should start SSH client with default options", async () => {
+        it("should start a dedicated SSH client", async () => {
             setupMockSshClient();
-            const client = await ZSshClient.create(new SshSession(fakeSession));
+            const client = await ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             expect(client).toBeInstanceOf(ZSshClient);
         });
 
         it("should handle error thrown by SSH client", async () => {
             const sshError = new Error("bad ssh");
             setupMockSshClient({ connectEvent: "error", connectError: sshError });
-            await expect(ZSshClient.create(new SshSession(fakeSession))).rejects.toThrow(sshError);
+            await expect(ZSshClient.create(new SshSession(fakeSession), { skipCache: true })).rejects.toThrow(sshError);
         });
 
         it("should handle error in SSH exec callback", async () => {
@@ -110,7 +110,7 @@ describe("ZSshClient", () => {
                 callback(sshError, undefined as any);
                 return this;
             });
-            await expect(ZSshClient.create(new SshSession(fakeSession))).rejects.toThrow(sshError);
+            await expect(ZSshClient.create(new SshSession(fakeSession), { skipCache: true })).rejects.toThrow(sshError);
         });
 
         it("should handle error in SSH data handler", async () => {
@@ -128,13 +128,14 @@ describe("ZSshClient", () => {
             vi.spyOn(ZSshClient.prototype as any, "getServerStatus").mockImplementation(() => {
                 throw sshError;
             });
-            await expect(ZSshClient.create(new SshSession(fakeSession))).rejects.toThrow(sshError);
+            await expect(ZSshClient.create(new SshSession(fakeSession), { skipCache: true })).rejects.toThrow(sshError);
         });
 
         it("should invoke onClose callback", async () => {
             setupMockSshClient({ connectEvent: "close" });
             const onCloseMock = vi.fn();
             await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 onClose: onCloseMock,
             });
             expect(onCloseMock).toHaveBeenCalledTimes(1);
@@ -144,6 +145,7 @@ describe("ZSshClient", () => {
             setupMockSshClient();
             const onErrorMock = vi.fn();
             const client = await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 onError: onErrorMock,
             });
             (client as any).onErrData("bad ssh");
@@ -154,6 +156,7 @@ describe("ZSshClient", () => {
             setupMockSshClient();
             const buildSshConfigMock = vi.spyOn(ZSshUtils, "buildSshConfig");
             await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 keepAliveInterval: 5,
             });
             expect(buildSshConfigMock).toHaveBeenCalledTimes(1);
@@ -166,7 +169,7 @@ describe("ZSshClient", () => {
         it("should pass default keepAliveCountMax to SSH config", async () => {
             setupMockSshClient();
             const buildSshConfigMock = vi.spyOn(ZSshUtils, "buildSshConfig");
-            await ZSshClient.create(new SshSession(fakeSession));
+            await ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             expect(buildSshConfigMock).toHaveBeenCalledTimes(1);
             expect(buildSshConfigMock.mock.calls[0][buildSshConfigMock.mock.calls[0].length - 1]).toEqual({
                 keepaliveInterval: 30e3,
@@ -178,6 +181,7 @@ describe("ZSshClient", () => {
             setupMockSshClient();
             const buildSshConfigMock = vi.spyOn(ZSshUtils, "buildSshConfig");
             await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 keepAliveCountMax: 5,
             });
             expect(buildSshConfigMock).toHaveBeenCalledTimes(1);
@@ -189,7 +193,7 @@ describe("ZSshClient", () => {
 
         it("should reject when the connection closes before the server is ready", async () => {
             setupMockSshClient({ connectEvent: "closeBeforeReady" });
-            await expect(ZSshClient.create(new SshSession(fakeSession))).rejects.toMatchObject({
+            await expect(ZSshClient.create(new SshSession(fakeSession), { skipCache: true })).rejects.toMatchObject({
                 errorCode: "ECONNCLOSED",
             });
         });
@@ -197,7 +201,7 @@ describe("ZSshClient", () => {
         it("should clean up the SSH connection when startup fails", async () => {
             setupMockSshClient({ connectEvent: "closeBeforeReady" });
             const endSpy = vi.spyOn(Client.prototype, "end").mockImplementation(() => {});
-            await expect(ZSshClient.create(new SshSession(fakeSession))).rejects.toMatchObject({
+            await expect(ZSshClient.create(new SshSession(fakeSession), { skipCache: true })).rejects.toMatchObject({
                 errorCode: "ECONNCLOSED",
             });
             expect(endSpy).toHaveBeenCalledTimes(1);
@@ -207,7 +211,10 @@ describe("ZSshClient", () => {
             const { execAsyncSpy } = setupMockSshClient();
             execAsyncSpy.mockReturnValue(new Promise(() => {}));
             const endSpy = vi.spyOn(Client.prototype, "end").mockImplementation(() => {});
-            const promise = ZSshClient.create(new SshSession(fakeSession), { serverStartupTimeout: 5 });
+            const promise = ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
+                serverStartupTimeout: 5,
+            });
             const assertion = expect(promise).rejects.toMatchObject({ errorCode: "ESERVERSTARTUPTIMEOUT" });
             await vi.advanceTimersByTimeAsync(5e3);
             await assertion;
@@ -228,7 +235,10 @@ describe("ZSshClient", () => {
                 return this;
             });
             vi.spyOn(Client.prototype, "end").mockImplementation(() => {});
-            const promise = ZSshClient.create(new SshSession(fakeSession), { serverStartupTimeout: 5 });
+            const promise = ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
+                serverStartupTimeout: 5,
+            });
             // The collected output is the only clue as to why startup never completed.
             const assertion = expect(promise).rejects.toMatchObject({
                 errorCode: "ESERVERSTARTUPTIMEOUT",
@@ -241,7 +251,7 @@ describe("ZSshClient", () => {
         it("should time out after 60 seconds by default when the server never becomes ready", async () => {
             const { execAsyncSpy } = setupMockSshClient();
             execAsyncSpy.mockReturnValue(new Promise(() => {}));
-            const promise = ZSshClient.create(new SshSession(fakeSession));
+            const promise = ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             const assertion = expect(promise).rejects.toMatchObject({ errorCode: "ESERVERSTARTUPTIMEOUT" });
             await vi.advanceTimersByTimeAsync(60e3);
             await assertion;
@@ -250,7 +260,7 @@ describe("ZSshClient", () => {
         it("should route post-connect errors to the onError handler", async () => {
             const { connectSpy } = setupMockSshClient();
             const onErrorMock = vi.fn();
-            await ZSshClient.create(new SshSession(fakeSession), { onError: onErrorMock });
+            await ZSshClient.create(new SshSession(fakeSession), { skipCache: true, onError: onErrorMock });
             const sshClient = connectSpy.mock.contexts[0] as Client;
             sshClient.emit("error", new Error("connection died"));
             expect(onErrorMock).toHaveBeenCalledTimes(1);
@@ -259,7 +269,7 @@ describe("ZSshClient", () => {
         it("should reject pending requests when the connection closes", async () => {
             const sshStream = { stdin: { write: vi.fn() }, stdout: new EventEmitter(), stderr: new EventEmitter() };
             const { connectSpy } = setupMockSshClient({ sshStream });
-            const client = await ZSshClient.create(new SshSession(fakeSession));
+            const client = await ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             const response = client.request({ command: "ping" });
             const sshClient = connectSpy.mock.contexts[0] as Client;
             sshClient.emit("close");
@@ -269,7 +279,7 @@ describe("ZSshClient", () => {
         it("should not reject silenced requests when the connection closes", async () => {
             const sshStream = { stdin: { write: vi.fn() }, stdout: new EventEmitter(), stderr: new EventEmitter() };
             const { connectSpy } = setupMockSshClient({ sshStream });
-            const client = await ZSshClient.create(new SshSession(fakeSession));
+            const client = await ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             const rejectMock = vi.fn();
             (client as any).mRequestMap.set(99, {
                 command: { command: "ping" },
@@ -285,7 +295,7 @@ describe("ZSshClient", () => {
         it("should reject new requests after the connection is closed", async () => {
             const sshStream = { stdin: { write: vi.fn() }, stdout: new EventEmitter(), stderr: new EventEmitter() };
             const { connectSpy } = setupMockSshClient({ sshStream });
-            const client = await ZSshClient.create(new SshSession(fakeSession));
+            const client = await ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             const sshClient = connectSpy.mock.contexts[0] as Client;
             sshClient.emit("close");
             await vi.waitFor(() => expect((client as any).mClosed).toBe(true));
@@ -299,7 +309,7 @@ describe("ZSshClient", () => {
                 stderr: new EventEmitter(),
             });
             setupMockSshClient({ sshStream });
-            const client = await ZSshClient.create(new SshSession(fakeSession));
+            const client = await ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             const response = client.request({ command: "ping" });
             sshStream.emit(event);
             await expect(response).rejects.toMatchObject({ errorCode: "ECONNCLOSED" });
@@ -313,7 +323,7 @@ describe("ZSshClient", () => {
             });
             const { connectSpy } = setupMockSshClient({ sshStream });
             const onCloseMock = vi.fn();
-            await ZSshClient.create(new SshSession(fakeSession), { onClose: onCloseMock });
+            await ZSshClient.create(new SshSession(fakeSession), { skipCache: true, onClose: onCloseMock });
             sshStream.emit("close");
             (connectSpy.mock.contexts[0] as Client).emit("close");
             expect(onCloseMock).toHaveBeenCalledTimes(1);
@@ -327,7 +337,10 @@ describe("ZSshClient", () => {
             });
             const { connectSpy } = setupMockSshClient({ sshStream });
             const onCloseMock = vi.fn();
-            const client = await ZSshClient.create(new SshSession(fakeSession), { onClose: onCloseMock });
+            const client = await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
+                onClose: onCloseMock,
+            });
             client.dispose();
             (connectSpy.mock.contexts[0] as Client).emit("close");
             expect(onCloseMock).toHaveBeenCalledTimes(1);
@@ -336,7 +349,10 @@ describe("ZSshClient", () => {
         it("should not route SSH errors to onError once the client is closed", async () => {
             const { connectSpy } = setupMockSshClient();
             const onErrorMock = vi.fn();
-            const client = await ZSshClient.create(new SshSession(fakeSession), { onError: onErrorMock });
+            const client = await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
+                onError: onErrorMock,
+            });
             const sshClient = connectSpy.mock.contexts[0] as Client;
 
             client.dispose();
@@ -352,7 +368,7 @@ describe("ZSshClient", () => {
                 stderr: new EventEmitter(),
             };
             setupMockSshClient({ sshStream });
-            const client = await ZSshClient.create(new SshSession(fakeSession));
+            const client = await ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             await expect(client.request({ command: "ping" })).rejects.toMatchObject({ errorCode: "ECONNCLOSED" });
             expect(sshStream.stdin.write).not.toHaveBeenCalled();
         });
@@ -383,7 +399,7 @@ describe("ZSshClient", () => {
             };
 
             setupMockSshClient({ sshStream });
-            const client = await ZSshClient.create(new SshSession(fakeSession));
+            const client = await ZSshClient.create(new SshSession(fakeSession), { skipCache: true });
             const response = client.request(request);
 
             const responseUncensored: RpcResponse = {
@@ -434,6 +450,7 @@ describe("ZSshClient", () => {
         it("should respect numWorkers option", async () => {
             const { execAsyncSpy } = setupMockSshClient();
             await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 numWorkers: 1,
             });
             expect(execAsyncSpy).toHaveBeenCalledTimes(1);
@@ -443,6 +460,7 @@ describe("ZSshClient", () => {
         it("should respect requestTimeout option", async () => {
             const { execAsyncSpy } = setupMockSshClient();
             await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 requestTimeout: 300,
             });
             expect(execAsyncSpy).toHaveBeenCalledTimes(1);
@@ -452,6 +470,7 @@ describe("ZSshClient", () => {
         it("should respect responseTimeout option", async () => {
             setupMockSshClient();
             const client = await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 responseTimeout: 300,
             });
             expect((client as any).mResponseTimeout).toBe(3e5);
@@ -460,6 +479,7 @@ describe("ZSshClient", () => {
         it("should respect verbose option", async () => {
             const { execAsyncSpy } = setupMockSshClient();
             await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 verbose: true,
             });
             expect(execAsyncSpy).toHaveBeenCalledTimes(1);
@@ -469,6 +489,7 @@ describe("ZSshClient", () => {
         it("should respect serverPath option", async () => {
             const { execAsyncSpy } = setupMockSshClient();
             await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 serverPath: "/tmp/zowe-server",
             });
             expect(execAsyncSpy).toHaveBeenCalledTimes(1);
@@ -494,7 +515,7 @@ describe("ZSshClient", () => {
                 password: "saved-password",
             });
 
-            await ZSshClient.create(session);
+            await ZSshClient.create(session, { skipCache: true });
 
             expect(connectSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -1216,6 +1237,7 @@ describe("ZSshClient", () => {
             setupMockSshClient();
 
             await ZSshClient.create(new SshSession(fakeSession), {
+                skipCache: true,
                 requests: new Set([harvestedRequest] as any),
             });
 

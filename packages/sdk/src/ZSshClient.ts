@@ -25,6 +25,7 @@ import type {
 } from "./doc";
 import { RpcClientApi } from "./RpcClientApi";
 import { RpcStreamManager } from "./RpcStreamManager";
+import { SshClientCache, type SshConnectionLease } from "./SshClientCache";
 import { matchLeRuntimeFailure } from "./SshErrors";
 import { type Client, type ClientChannel, createClient } from "./ssh-rs";
 import { ZSshUtils } from "./ZSshUtils";
@@ -40,6 +41,30 @@ export class ZSshClient extends RpcClientApi implements Disposable {
     private mResponseTimeout: number;
     private mServerInfo: { version?: string };
     private mSshClient: Client;
+    private mConnectionLease?: SshConnectionLease;
+    private mCacheKey?: string;
+    private mOnClose?: ClientOptions["onClose"];
+    private mInvalidateConnection?: () => void;
+    private readonly mSshListeners = new Map<string, (error: Error) => void>();
+
+    /** Cache identity for explicit invalidation; undefined for dedicated or native transports. */
+    public get cacheKey(): string | undefined {
+        return this.mCacheKey;
+    }
+
+    private listen(event: string, listener: (error: Error) => void): void {
+        this.mSshListeners.set(event, listener);
+        this.mSshClient.on(event, listener);
+    }
+
+    private releaseConnection(): void {
+        if (!this.mConnectionLease) return;
+        for (const [event, listener] of this.mSshListeners) this.mSshClient.removeListener(event, listener);
+        this.mSshListeners.clear();
+        this.mConnectionLease[Symbol.dispose]();
+        this.mConnectionLease = undefined;
+    }
+
     private mSshStream: ClientChannel;
     private mStreamMgr: RpcStreamManager;
     private mClosed = false;
@@ -71,10 +96,29 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         const client = new ZSshClient();
         client.mErrHandler = opts.onError ?? ZSshClient.defaultErrHandler;
         client.mResponseTimeout = opts.responseTimeout ? opts.responseTimeout * 1000 : 60e3;
-        client.mSshClient = createClient(opts.useNativeSsh);
+        client.mOnClose = opts.onClose;
+        const useCache = !opts.skipCache && !opts.useNativeSsh;
+        if (!opts.skipCache) {
+            client.mInvalidateConnection = () => {
+                if (useCache && client.mConnectionLease?.ssh.connection !== client.mSshClient) return;
+                SshClientCache.inst.invalidate(client.cacheKey ?? SshClientCache.inst.getKey(session, opts.serverPath));
+                if (opts.useNativeSsh) client.dispose();
+            };
+        }
+        if (useCache) {
+            client.mConnectionLease = await SshClientCache.inst.acquire(session, {
+                keepaliveInterval: opts.keepAliveInterval != null ? opts.keepAliveInterval * 1000 : 30e3,
+                keepaliveCountMax: opts.keepAliveCountMax ?? 3,
+            });
+            client.mCacheKey = SshClientCache.inst.getKey(session, opts.serverPath);
+            client.mSshClient = client.mConnectionLease.ssh.connection!;
+        } else {
+            client.mSshClient = createClient(opts.useNativeSsh);
+        }
         try {
             client.mSshStream = await new Promise<ClientChannel>((resolve, reject) => {
                 let established = false;
+                let serverReady = false;
                 const onStartupError = (err: Error) => {
                     if (established) {
                         return;
@@ -96,10 +140,11 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                         }),
                     );
                 }, serverStartupTimeoutS * 1000);
-                client.mSshClient.on("error", (err) => {
+                client.listen("error", (err) => {
                     if (!established) {
                         Logger.getAppLogger().error(`Error connecting to SSH: ${err}`);
                         onStartupError(err);
+                        client.mInvalidateConnection?.();
                         return;
                     }
                     // Socket errors during teardown are noise; the disconnect was already
@@ -111,8 +156,9 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     }
                     Logger.getAppLogger().error(`Error connecting to SSH: ${err}`);
                     client.mErrHandler(err);
+                    client.mInvalidateConnection?.();
                 });
-                client.mSshClient.on("ready", () => {
+                const startServer = () => {
                     const zowexBin = posix.join(opts.serverPath ?? ZSshClient.DEFAULT_SERVER_PATH, ZSshClient.BIN_NAME);
                     const serverArgs = ["server"];
                     if (opts.numWorkers != null) {
@@ -126,12 +172,14 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     }
                     client.execAsync(ZSshClient.quoteRemotePath(zowexBin), ...serverArgs).then((stream) => {
                         established = true;
+                        serverReady = true;
                         clearTimeout(serverStartupTimeoutId);
                         resolve(stream);
                     }, onStartupError);
-                });
-                client.mSshClient.on("close", () => {
+                };
+                client.listen("close", () => {
                     Logger.getAppLogger().debug("Client disconnected");
+                    if (!client.mClosed) client.mInvalidateConnection?.();
                     if (!established) {
                         onStartupError(
                             new ImperativeError({
@@ -141,21 +189,34 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                         );
                         return;
                     }
-                    client.handleDisconnect("SSH connection closed", opts.onClose);
+                    if (serverReady) client.handleDisconnect("SSH connection closed", opts.onClose);
                 });
                 const keepAliveMsec = opts.keepAliveInterval != null ? opts.keepAliveInterval * 1000 : 30e3;
-                client.mSshClient.connect(
-                    ZSshUtils.buildSshConfig(session, {
-                        keepaliveInterval: keepAliveMsec,
-                        keepaliveCountMax: opts.keepAliveCountMax ?? 3,
-                    }),
-                );
+                if (useCache) {
+                    startServer();
+                } else {
+                    client.listen("ready", startServer);
+                    client.mSshClient.connect(
+                        ZSshUtils.buildSshConfig(session, {
+                            keepaliveInterval: keepAliveMsec,
+                            keepaliveCountMax: opts.keepAliveCountMax ?? 3,
+                        }),
+                    );
+                }
             });
         } catch (err) {
-            // Clean up the SSH connection so failed startups do not leak connections,
-            // keep-alive traffic, or remote server processes
-            client.mSshClient.removeAllListeners();
-            client.mSshClient.end();
+            // Close the failed server channel and release its transport.
+            client.mClosed = true;
+            if (err instanceof ImperativeError && err.errorCode === "EPASSWD_EXPIRED") {
+                client.mInvalidateConnection?.();
+            }
+            if (useCache) {
+                (client.mSshStream as ClientChannel & { close?: () => void })?.close?.();
+                client.releaseConnection();
+            } else {
+                client.mSshClient.removeAllListeners();
+                client.mSshClient.end();
+            }
             throw err;
         }
         client.mStreamMgr = new RpcStreamManager(client.mSshClient);
@@ -189,7 +250,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
     }
 
     /**
-     * Cleans up the SSH client by ending the SSH connection and rejecting pending requests
+     * Closes the server channel, releases its transport, and rejects pending requests
      * that have not been silenced. If you want to silence requests, see {@link collectAllRequests}
      * * @param isRestart - Indicates if the disposal is part of a server restart sequence
      * (changes the rejection message sent to pending requests).
@@ -207,7 +268,13 @@ export class ZSshClient extends RpcClientApi implements Disposable {
             }
         });
         this.mRequestMap.clear();
-        this.mSshClient?.end();
+        if (this.mConnectionLease) {
+            (this.mSshStream as ClientChannel & { close?: () => void })?.close?.();
+            this.releaseConnection();
+            this.handleDisconnect("SSH client disposed", this.mOnClose);
+        } else if (!this.mCacheKey) {
+            this.mSshClient?.end();
+        }
     }
 
     public [Symbol.dispose](): void {
@@ -252,6 +319,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         }
         this.mDisconnectHandled = true;
         this.mClosed = true;
+        this.releaseConnection();
         Logger.getAppLogger().debug(reason);
         // Give onClose a chance to claim pending requests via collectAllRequests()
         // before rejecting whatever's left, so those fail fast instead of timing out
@@ -344,8 +412,15 @@ export class ZSshClient extends RpcClientApi implements Disposable {
             this.mSshClient.exec(wrappedCmd, (err, stream) => {
                 if (err) {
                     Logger.getAppLogger().error(`Error running SSH command: ${err}`);
+                    this.mInvalidateConnection?.();
                     reject(err);
                 } else {
+                    this.mSshStream = stream;
+                    if (this.mClosed) {
+                        stream.close();
+                        reject(new Error("SSH client closed during server startup"));
+                        return;
+                    }
                     let settled = false;
                     const removeListeners = () => {
                         stream.stderr.removeListener("data", onData);
@@ -415,6 +490,13 @@ export class ZSshClient extends RpcClientApi implements Disposable {
             this.mStartupOutput += data;
             const errMsg = Logger.getAppLogger().error("Error starting Zowe server: %s\n%s", command, data);
             const [exitCode, cleanOutput] = this.stripExitCode(this.mStartupOutput);
+            if (/FOTS166[89]/.test(this.mStartupOutput)) {
+                throw new ImperativeError({
+                    msg: "Password expired on target system",
+                    errorCode: "EPASSWD_EXPIRED",
+                    additionalDetails: cleanOutput,
+                });
+            }
             if (data.includes("FSUM7351") || exitCode === 127) {
                 throw new ImperativeError({
                     msg: "Server not found",
