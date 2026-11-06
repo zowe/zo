@@ -659,6 +659,23 @@ void zo_uss_tests()
         ExpectWithContext(rc, response).ToBe(0);
         Expect(response).Not().ToContain("test");
       });
+      it("should not create a file through a dangling symbolic link", [&]() -> void
+      {
+        std::string target = get_random_uss(ussTestDir);
+        std::string link = get_random_uss(ussTestDir);
+        TestFileGuard link_guard(link.c_str(), 'l', target.c_str());
+
+        std::string command = zo_command + " uss create-file " + link + " --mode 777 --overwrite";
+        {
+          test_utils::ErrorStreamCapture c;
+          rc = execute_command_with_output(command, response);
+        }
+        ExpectWithContext(rc, response).ToBe(255);
+        Expect(response).ToContain("Path '" + link + "' is a symbolic link");
+
+        struct stat st{};
+        Expect(lstat(target.c_str(), &st)).ToBe(-1);
+      });
     });
     describe("delete", [&]() -> void
     {

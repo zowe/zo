@@ -426,6 +426,48 @@ void zut_tests()
         expect(error.empty()).ToBe(false);
       });
 
+      it("refuses to create a file through a dangling symbolic link", []() -> void
+      {
+        const std::string target = get_random_uss("/tmp");
+        const std::string link = get_random_uss("/tmp");
+        TestFileGuard link_guard(link.c_str(), 'l', target.c_str());
+
+        std::string error;
+        const int rc = zut_write_file_private(link, "secret", error);
+        struct stat st{};
+        const bool target_created = lstat(target.c_str(), &st) == 0;
+        unlink(target.c_str());
+
+        expect(rc).Not().ToBe(RTNCD_SUCCESS);
+        expect(error).ToContain("path is a symbolic link");
+        expect(target_created).ToBe(false);
+      });
+
+      it("refuses to write through a symbolic link to an existing file", []() -> void
+      {
+        const std::string target = get_random_uss("/tmp");
+        const std::string link = get_random_uss("/tmp");
+        {
+          std::ofstream pre(target.c_str(), std::ios::binary);
+          pre << "existing content";
+        }
+        chmod(target.c_str(), 0644);
+        TestFileGuard link_guard(link.c_str(), 'l', target.c_str());
+
+        std::string error;
+        const int rc = zut_write_file_private(link, "secret", error);
+        std::ifstream in(target.c_str(), std::ios::binary);
+        const std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        struct stat st{};
+        stat(target.c_str(), &st);
+        unlink(target.c_str());
+
+        expect(rc).Not().ToBe(RTNCD_SUCCESS);
+        expect(error).ToContain("path is a symbolic link");
+        expect(content).ToBe(std::string("existing content"));
+        expect(static_cast<int>(st.st_mode & 0777)).ToBe(0644);
+      });
+
       it("writes binary data with null bytes intact", []() -> void
       {
         const std::string path = get_random_uss("/tmp");
