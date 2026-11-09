@@ -1525,10 +1525,10 @@ static int zds_write_sequential(ZDS *zds, const std::string &dsn, const std::str
   const bool isTextMode = zds->encoding_opts.data_type != eDataTypeBinary;
   std::string dsname = dsn;
   TruncationTracker truncation;
-  // Build fopen flags with actual recfm/lrecl/blksize from DSCB
-  // Use text mode - the C runtime handles ASA control characters and record boundaries
+  // Preserve existing data set attributes in binary mode.
+  // Use DSCB attributes in text mode to retain ASA handling and record boundaries.
   const std::string fopen_flags = zds->encoding_opts.data_type == eDataTypeBinary
-                                      ? "wb"
+                                      ? "wb,recfm=*"
                                       : zds_build_text_write_flags(attrs);
 
   {
