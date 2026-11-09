@@ -1253,7 +1253,9 @@ std::string zut_read_input(std::istream &input_stream)
 
 int zut_write_file_private(const std::string &path, const std::string &data, std::string &error)
 {
-  std::string temp_path = path + ".tmp";
+  time_t now = time(0);
+
+  std::string temp_path = path + "." + std::to_string(now) + ".tmp";
   struct stat file_stats;
 
   if (unlink(temp_path.c_str()) == -1 && errno != ENOENT)
