@@ -577,37 +577,13 @@ void rotation_tests(bool server)
 
 void log_directory_validation_tests()
 {
-  it("prefers the explicit server log directory without changing the command log directory", []()
-  {
-    ScopedLogger scope;
-    const std::string dir = scope.root + "/explicit logs/nested";
-    scope.logger.initialize_server(false, false, dir + "///");
-    LOG_WARN("explicit server directory record");
-    scope.logger.shutdown();
-
-    Expect(read_file_contents(dir + "/zowex_server.log")).ToContain("explicit server directory record");
-    Expect(file_exists(scope.dir)).ToBe(false);
-    struct stat permissions;
-    Expect(stat((dir + "/zowex_server.log").c_str(), &permissions)).ToBe(0);
-    Expect(static_cast<int>(permissions.st_mode & 0777)).ToBe(0600);
-
-    scope.logger.initialize();
-    ZLOG_WARN("command environment directory record");
-    scope.logger.shutdown();
-    Expect(read_file_contents(scope.log_path(false))).ToContain("command environment directory record");
-  });
-
-  it("rejects parent traversal from explicit paths or log environment variables before creating directories", []()
+  it("rejects parent traversal from either log environment variable before creating directories", []()
   {
     ScopedLogger scope;
     const std::string traversal = scope.root + "/nested/../escaped";
+    setenv("ZO_LOGS_DIR", traversal.c_str(), 1);
     {
       ScopedStderrSuppressor suppress_stderr;
-      scope.logger.initialize_server(false, false, traversal);
-      LOG_ERROR("rejected explicit directory record");
-      scope.logger.shutdown();
-      Expect(file_exists(scope.dir)).ToBe(false);
-      setenv("ZO_LOGS_DIR", traversal.c_str(), 1);
       scope.logger.initialize_server();
       LOG_ERROR("rejected override record");
       scope.logger.shutdown();

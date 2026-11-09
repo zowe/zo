@@ -150,7 +150,7 @@ void ZServer::run(const server::Options &opts)
 {
   options = opts;
 
-  ZLogger::get_instance().initialize_server(options.verbose, false, options.logs_dir);
+  ZLogger::get_instance().initialize_server(options.verbose);
   LOG_INFO("Starting zo server with %lld workers and %lld seconds until request timeout (verbose=%s)", options.num_workers, options.request_timeout, options.verbose ? "true" : "false");
 
   setup_signal_handlers();
@@ -204,7 +204,6 @@ static int handle_server(plugin::InvocationContext &context)
 {
   server::Options opts;
   opts.verbose = context.get<bool>("verbose", opts.verbose);
-  opts.logs_dir = context.get<std::string>("logs-dir", opts.logs_dir);
   opts.request_timeout = context.get<long long>("request-timeout", opts.request_timeout);
   opts.exec_dir = ZServer::get_instance().get_exec_dir();
 
@@ -272,11 +271,6 @@ void register_commands(Command &root_command)
                               "enable INFO and DEBUG logging (default: WARN and above)",
                               ArgType_Flag, false,
                               ArgValue(false));
-  server_cmd->add_keyword_arg("logs-dir",
-                              make_aliases("--logs-dir"),
-                              "server log directory (default: ZO_LOGS_DIR or ~/.zowex/logs)",
-                              ArgType_Single, false,
-                              ArgValue(std::string()), true);
   server_cmd->add_keyword_arg("request-timeout",
                               make_aliases("-t", "--request-timeout"),
                               "request timeout in seconds before a worker is restarted",

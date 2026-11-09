@@ -8,7 +8,6 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 - Fixed the `parseSearchOutput` method splitting a member into several entries when SuperC search output spans page breaks. [#1182](https://github.com/zowe/zo/issues/1182)
 - Added prompt for user to confirm saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
-- Added the `logsDir` client option to choose the remote `zo server` log directory. [#1221](https://github.com/zowe/zo/pull/1221)
 
 ## `1.1.0`
 

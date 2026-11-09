@@ -30,7 +30,6 @@ struct Options
   bool verbose = false;
   long long request_timeout = 60;
   std::string exec_dir = ".";
-  std::string logs_dir;
 };
 
 void register_commands(parser::Command &root_command);

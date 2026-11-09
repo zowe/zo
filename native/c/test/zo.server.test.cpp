@@ -203,24 +203,6 @@ void zo_server_tests()
       Expect(response).ToContain("\"message\":\"zo server is ready to accept input\"");
       Expect(response).ToContain("\"status\":\"ready\"");
     });
-    it("should treat an all-digit log directory name as a path", []() -> void
-    {
-      const std::string logs_dir = std::to_string(getpid());
-      Expect(mkdir(logs_dir.c_str(), 0700)).ToBe(0);
-
-      ServerHandle server = start_server("ZO_LOGS_DIR=logs " + zo_server_command + " --verbose --logs-dir " + logs_dir, true);
-      stop_server(server);
-
-      const std::string log_path = logs_dir + "/zowex_server.log";
-      std::ifstream file(log_path);
-      const std::string contents((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-      file.close();
-      unlink(log_path.c_str());
-      rmdir(logs_dir.c_str());
-
-      Expect(contents).ToContain("[INFO] Starting zo server");
-      Expect(contents).ToContain("[DEBUG] Registering command handlers");
-    });
     it("should ignore an invalid ZO_NUM_WORKERS when a worker CLI argument is supplied", []() -> void
     {
       ServerHandle server = start_server("ZO_NUM_WORKERS=invalid " + zo_server_command + " --num-workers 10");
@@ -256,7 +238,7 @@ void zo_server_tests()
         const std::string test_dir = get_random_uss("/tmp");
         Expect(mkdir(test_dir.c_str(), 0700)).ToBe(0);
 
-        ServerHandle server = start_server("ZO_NUM_WORKERS=2 " + zo_server_command + " " + test_case.first + " --verbose --logs-dir " + test_dir, true);
+        ServerHandle server = start_server("ZO_NUM_WORKERS=2 ZO_LOGS_DIR=" + test_dir + " " + zo_server_command + " " + test_case.first + " --verbose", true);
         stop_server(server);
 
         const std::string log_path = std::string(test_dir) + "/zowex_server.log";
@@ -264,6 +246,7 @@ void zo_server_tests()
         const std::string contents((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         file.close();
         unlink(log_path.c_str());
+        unlink((log_path + ".lock").c_str());
         rmdir(test_dir.c_str());
 
         Expect(contents).ToContain(std::string("Starting zo server with ") + test_case.second + " workers");
