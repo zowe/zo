@@ -7,6 +7,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## Recent Changes
 
 - Added `--dsn` to `zo system cert export`/`import`, letting a certificate be exported to, or imported from, a sequential data set or PDS/E member on the server instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
+- Added a prompt to the `zowe zo config setup` command to confirm saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
 
 ## `1.1.0`
 

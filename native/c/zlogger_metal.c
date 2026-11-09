@@ -510,15 +510,10 @@ void ZLGCLEAN(void)
   ZNT_NAME name = {"ZWXLOGGER"};
   if (logger && logger->initialized)
   {
-    /* Log cleanup message before closing */
-    if (logger->use_dd && logger->log_io)
-    {
-      ZLGWRDD(ZLOGLEVEL_INFO, "Metal C logger cleanup - closing DD");
-    }
-    else
-    {
-      ZLGWRWTO(ZLOGLEVEL_INFO, "Metal C logger cleanup");
-    }
+    int level = ZLOGLEVEL_INFO;
+    ZLGWRITE(&level, logger->use_dd && logger->log_io
+                         ? "Metal C logger cleanup - closing DD"
+                         : "Metal C logger cleanup");
 
 #if defined(__IBM_METAL__)
     /* Close the DD if it was opened */

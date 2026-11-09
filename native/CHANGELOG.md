@@ -10,12 +10,16 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `--dsn` to `zo system cert import`/`export`, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)
+- `c`: Unified `LOG_*` and `ZLOG_*` logging for command and server handlers using standard C++ file I/O, preserving per-user log paths, truncation, and bounded FIFO rotation while restricting Metal C logging to Debug builds. [#107](https://github.com/zowe/zowex/issues/107)
+- `c`: Validated log directories and file ownership before writing, rejected traversal and linked log targets, preserved the open append stream on rotation failure, treated fatal exit messages as literal text, and made Metal C cleanup respect the configured log level. [#1204](https://github.com/zowe/zo/pull/1204)
 - `c`: Secured default listings for the `zo tool ccnedsct` command by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned directories (`0700` UNIX permissions) under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
 - `c`: Removed the unused `zut_alloc_debug` and `ZUTDBGMG` debugging functions. [#1216](https://github.com/zowe/zo/pull/1216)
 - `c`: Improved handling for JSON-RPC responses of 16 MB or more by JSON-escaping generated output. [#1217](https://github.com/zowe/zo/pull/1217)
+- `c`: Added the `NOPRTCC` parm to `zo tool search` when invoked through RPC so SuperC listings no longer contain page breaks or repeated page titles. [#1182](https://github.com/zowe/zo/issues/1182)
 
 ## `1.1.0`
 
+- `c`: Fixed binary writes (`--encoding binary`) to PDS and PDSE members keeping only the first record. The data is now written as record-sized pieces instead of being split on newline bytes. [#1207](https://github.com/zowe/zowex/issues/1207)
 - **Breaking:** `c`: Protected PKCS#12 certificate exports with PBES2/AES-256-CBC and PBKDF2-HMAC-SHA-256 instead of RC4/SHA-1, without an algorithm downgrade on failure. Export now requires System SSL APAR OA64899 support, active ICSF, and an 8–128-character passphrase; documented the need for strong, unique passphrases against offline guessing. [#1205](https://github.com/zowe/zo/pull/1205)
 - `c`: Added additional error logging when zo fails to parse IDCAMS output while attempting to resolve a data set alias. [#1198](https://github.com/zowe/zo/pull/1198)
 - `c`: Added z/OSMF-compatible `execSystem`, `execMember`, `execSubmitted`, `execStarted`, and `execEnded` fields to job list and status JSON responses, enabling submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
