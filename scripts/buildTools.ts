@@ -16,13 +16,14 @@ import * as path from "node:path";
 import { PassThrough, pipeline, Readable, Transform, type TransformCallback } from "node:stream";
 import { promisify } from "node:util";
 import { DeferredPromise, DeferredPromiseStatus, type IProfile, ProfileInfo } from "@zowe/imperative";
+import { SshKnownHosts } from "@zowe/zos-uss-for-zowe-sdk";
 import * as chokidar from "chokidar";
 import * as yaml from "js-yaml";
-import { Client, PseudoTtyOptions, type ClientCallback, type SFTPWrapper } from "ssh2";
+import { Client, type ClientCallback, type ConnectConfig, type PseudoTtyOptions, type SFTPWrapper } from "ssh2";
 
 interface IConfig {
     sshProfile: string | IProfile;
-    /** Pinned SSH host key fingerprint (`SHA256:<base64>` as shown by `ssh-keygen -lf`, or 64-char hex). */
+    /** Optional pinned SSH host key fingerprint (`SHA256:<base64>` as shown by `ssh-keygen -lf`, or 64-char hex). Overrides known_hosts. */
     hostFingerprint?: string;
     deployDir: string;
     preBuildCmd?: string;
@@ -1844,6 +1845,15 @@ async function buildSshClient(sshProfile: IProfile, hostFingerprint?: string): P
     if (hostFingerprint != null && pinned == null) {
         throw new Error('Invalid "hostFingerprint" in config.yaml. Expected "SHA256:<base64>" or 64 hex characters.');
     }
+    const port = Number(sshProfile.port) || 22;
+    // Prefer the key algorithms already trusted in known_hosts so the presented key can be matched
+    const knownAlgorithms = pinned == null ? SshKnownHosts.getHostKeyAlgorithms(sshProfile.host, port) : [];
+    const knownPattern = new RegExp(
+        `^(?:${knownAlgorithms
+            .flatMap((alg) => (alg === "ssh-rsa" ? ["rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"] : [alg]))
+            .map((alg) => alg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("|")})$`,
+    );
     const client = new Client();
     return new Promise((resolve, reject) => {
         let hostKeyError: Error | undefined;
@@ -1861,28 +1871,55 @@ async function buildSshClient(sshProfile: IProfile, hostFingerprint?: string): P
             username: sshProfile.user,
             privateKey: sshProfile.privateKey ? fs.readFileSync(sshProfile.privateKey) : undefined,
             keepaliveInterval: 30e3,
-            hostHash: "sha256",
+            ...(knownAlgorithms.length > 0
+                ? {
+                      // ssh2 accepts a RegExp here (and skips unsupported names) but its typings don't
+                      algorithms: {
+                          serverHostKey: { remove: knownPattern, prepend: knownPattern },
+                      } as unknown as ConnectConfig["algorithms"],
+                  }
+                : {}),
             // Runs before any credentials are sent; failing closed aborts the handshake
-            hostVerifier: (presented: string) => {
-                const presentedBuf = Buffer.from(presented, "hex");
+            hostVerifier: (key: Buffer) => {
+                const presentedBuf = crypto.createHash("sha256").update(key).digest();
                 const display = `SHA256:${presentedBuf.toString("base64").replace(/=+$/, "")}`;
-                if (pinned == null) {
-                    hostKeyError = new Error(
-                        `No "hostFingerprint" is pinned for host ${sshProfile.host}. The server presented ${display}. ` +
-                            "Confirm it matches the host's own key (run `ssh-keygen -lf <host key file>` on the host), " +
-                            'then set "hostFingerprint" in config.yaml.',
-                    );
+                const fail = (message: string) => {
+                    hostKeyError = new Error(message);
                     return false;
+                };
+                let known: ReturnType<typeof SshKnownHosts.verify>;
+                try {
+                    known = SshKnownHosts.verify(sshProfile.host, key, port);
+                } catch (err) {
+                    return fail(`Could not read known_hosts: ${(err as Error).message}`);
                 }
-                const pinnedBuf = Buffer.from(pinned, "hex");
-                if (presentedBuf.length !== pinnedBuf.length || !crypto.timingSafeEqual(presentedBuf, pinnedBuf)) {
-                    hostKeyError = new Error(
-                        `Host key mismatch for ${sshProfile.host}: server presented ${display}, which does not match ` +
-                            'the pinned "hostFingerprint". Refusing to connect.',
+                if (known.status === "revoked") {
+                    return fail(`The key presented by ${sshProfile.host} (${display}) is revoked in known_hosts.`);
+                }
+                if (pinned != null) {
+                    const pinnedBuf = Buffer.from(pinned, "hex");
+                    return presentedBuf.length === pinnedBuf.length && crypto.timingSafeEqual(presentedBuf, pinnedBuf)
+                        ? true
+                        : fail(
+                              `Host key mismatch for ${sshProfile.host}: server presented ${display}, which does not match ` +
+                                  'the pinned "hostFingerprint". Refusing to connect.',
+                          );
+                }
+                if (known.status === "trusted") {
+                    return true;
+                }
+                if (known.status === "changed") {
+                    return fail(
+                        `The host key for ${sshProfile.host} has changed. The server presented ${display}` +
+                            `${known.knownFingerprint ? `, but known_hosts has ${known.knownFingerprint}` : ""}. ` +
+                            "Refusing to connect.",
                     );
-                    return false;
                 }
-                return true;
+                return fail(
+                    `${sshProfile.host} is not in known_hosts and no "hostFingerprint" is pinned. The server presented ${display}. ` +
+                        "Confirm it matches the host's own key (run `ssh-keygen -lf <host key file>` on the host), " +
+                        'then connect once with `ssh` to add it to known_hosts, or set "hostFingerprint" in config.yaml.',
+                );
             },
         });
     });

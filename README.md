@@ -37,7 +37,7 @@ See [Troubleshooting](./doc/troubleshooting.md) if the server fails to start wit
 ## Setup
 
 1. Clone this repository and run `npm install` to install project dependencies.
-2. Create a config file by copying `config.example.yaml` to `config.yaml`. Update the properties in the file for your environment, including `hostFingerprint` (the z/OS SSH host key fingerprint, for example, from `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the host). Connections fail closed if the host key does not match.
+2. Create a config file by copying `config.example.yaml` to `config.yaml`. Update the properties in the file for your environment. The z/OS SSH host key is checked against `~/.ssh/known_hosts` (connect once with `ssh` to add it); alternatively, set `hostFingerprint` in the config. Connections fail if the host key can't be verified.
 3. For a quick start, run `npm run all` which performs the following tasks:
    1. `z:upload` - Upload source files<br/>
    2. `z:build` - Build native binaries on z/OS<br/>
@@ -130,7 +130,6 @@ We use a custom build tool for interacting with z/OS that defines the following 
 >
 >   another:
 >     sshProfile: ssh2
->     hostFingerprint: "SHA256:..."
 >     deployDir: /tmp/zowex
 > ```
 

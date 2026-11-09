@@ -13,9 +13,10 @@ profiles:
     #   privateKey: /Users/ibmuser/.ssh/id_rsa
     #   # password: password  # Use password instead of private key
 
-    # Pinned SSH host key fingerprint of the z/OS host (required; connections fail closed on mismatch).
+    # Optional: pin the SSH host key fingerprint of the z/OS host. By default the host key is checked
+    # against ~/.ssh/known_hosts (connect once with `ssh` to add it). A pinned value takes precedence.
     # e.g. on the host: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
-    hostFingerprint: "SHA256:<base64-fingerprint>"
+    # hostFingerprint: "SHA256:<base64-fingerprint>"
 
     # USS directory on z/OS where native code is built
     deployDir: ~/zowex
