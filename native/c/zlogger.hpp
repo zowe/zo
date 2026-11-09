@@ -244,10 +244,12 @@ private:
   }
 
   // Keep large header-only logging paths out of callers to limit code growth.
-  __attribute__((noinline)) void initialize_log_file(bool truncate)
+  __attribute__((noinline)) void initialize_log_file(bool truncate, const std::string &logs_dir_override = "")
   {
     m_pending_initialization = false;
-    const std::string logs_dir = zlog_util::resolve_logs_dir();
+    const std::string logs_dir = logs_dir_override.empty()
+                                     ? zlog_util::resolve_logs_dir()
+                                     : zlog_util::to_absolute_path(zlog_util::strip_trailing_slashes(logs_dir_override));
     if (!zlog_util::is_valid_logs_dir(logs_dir) || !zlog_util::make_dirs(logs_dir))
     {
       std::cerr << "Failed to create logs directory: " << logs_dir << std::endl;
@@ -307,13 +309,13 @@ private:
 #endif
   }
 
-  void configure(bool server_mode, bool verbose, bool truncate)
+  void configure(bool server_mode, bool verbose, bool truncate, const std::string &logs_dir = "")
   {
     close_log_file();
     m_server_mode.store(server_mode, std::memory_order_relaxed);
-    m_level.store(get_level_from_environment(verbose ? ZLOGLEVEL_DEBUG : ZLOGLEVEL_INFO), std::memory_order_relaxed);
+    m_level.store(verbose ? ZLOGLEVEL_DEBUG : get_level_from_environment(ZLOGLEVEL_WARN), std::memory_order_relaxed);
     m_rotation_stall_warned = false;
-    initialize_log_file(truncate);
+    initialize_log_file(truncate, logs_dir);
   }
 
   // Never replace the active log unless it has been archived successfully.
@@ -363,7 +365,7 @@ private:
     m_log_file = nullptr;
     m_rotation_stall_warned = false;
     m_initialized = open_log_file(true);
-    if (m_initialized)
+    if (m_initialized && should_log(ZLOGLEVEL_INFO))
     {
       write_timestamp();
       std::fputs(" [INFO] Log file rolled over due to size limit\n", m_log_file);
@@ -404,7 +406,7 @@ private:
   }
 
 protected:
-  ZLogger() : m_level(get_level_from_environment(ZLOGLEVEL_INFO))
+  ZLogger() : m_level(get_level_from_environment(ZLOGLEVEL_WARN))
   {
 #if defined(ZLOG_ENABLE) && defined(__MVS__)
     initialize();
@@ -423,10 +425,10 @@ public:
     configure(false, false, false);
   }
 
-  void initialize_server(bool verbose = false, bool truncate = false)
+  void initialize_server(bool verbose = false, bool truncate = false, const std::string &logs_dir = "")
   {
     const std::lock_guard<std::mutex> lock(m_log_mutex);
-    configure(true, verbose, truncate);
+    configure(true, verbose, truncate, logs_dir);
   }
 
   bool is_server_mode() const

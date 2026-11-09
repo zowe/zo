@@ -150,7 +150,7 @@ void ZServer::run(const server::Options &opts)
 {
   options = opts;
 
-  ZLogger::get_instance().initialize_server(options.verbose);
+  ZLogger::get_instance().initialize_server(options.verbose, false, options.logs_dir);
   LOG_INFO("Starting zo server with %lld workers and %lld seconds until request timeout (verbose=%s)", options.num_workers, options.request_timeout, options.verbose ? "true" : "false");
 
   setup_signal_handlers();

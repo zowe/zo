@@ -229,8 +229,8 @@ void rotation_boundary_tests(bool server)
     Expect(file_size(path)).ToBe(100L * 1024L);
     Expect(file_exists(path + ".1")).ToBe(false);
 
-    LOG_INFO("crossed boundary record");
-    ZLOG_INFO("new active record");
+    LOG_WARN("crossed boundary record");
+    ZLOG_WARN("new active record");
     scope.logger.shutdown();
     Expect(file_exists(path + ".1")).ToBe(true);
     const std::string archived = read_file_contents(path + ".1");
@@ -263,6 +263,7 @@ void rotation_retention_tests(bool server)
     Expect(file_size(path + ".1")).ToBeLessThan(110L * 1024L);
     Expect(read_file_contents(path + ".1")).ToContain("rotation record #0:");
     Expect(read_file_contents(path)).ToContain("rotation record #149:");
+    Expect(read_file_contents(path)).Not().ToContain("[INFO]");
 
     struct stat permissions;
     Expect(stat(path.c_str(), &permissions)).ToBe(0);
@@ -384,7 +385,7 @@ void shared_session_rotation_tests(bool server)
       const std::string padding(3500, 'x');
       for (int i = 0; i < 32; ++i)
       {
-        LOG_INFO("peer record #%d: %s", i, padding.c_str());
+        LOG_WARN("peer record #%d: %s", i, padding.c_str());
       }
       scope.logger.shutdown();
       _exit(0);
@@ -406,7 +407,7 @@ void shared_session_rotation_tests(bool server)
     Expect(archived).ToContain("peer record #0:");
     Expect(read_file_contents(path)).ToContain("peer record #31:");
 
-    LOG_INFO("parent after peer rotation");
+    LOG_WARN("parent after peer rotation");
     scope.logger.shutdown();
     Expect(read_file_contents(path)).ToContain("parent after peer rotation");
     Expect(read_file_contents(path)).ToContain("peer record #31:");
@@ -421,9 +422,9 @@ void private_log_file_tests()
   {
     ScopedLogger scope;
     scope.logger.initialize_server();
-    LOG_INFO("private server output");
+    LOG_WARN("private server output");
     scope.logger.initialize();
-    ZLOG_INFO("private command output");
+    ZLOG_WARN("private command output");
     scope.logger.shutdown();
 
     Expect(read_file_contents(scope.log_path())).ToContain("private server output");
@@ -441,7 +442,7 @@ void private_log_file_tests()
 void server_level_tests()
 {
 
-  it("uses INFO or verbose DEBUG defaults and gives nonempty environment levels precedence", []()
+  it("defaults to WARN and lets verbose override environment log levels", []()
   {
     ScopedLogger scope;
     struct LevelCase
@@ -452,12 +453,15 @@ void server_level_tests()
       LogLevel threshold;
     };
     const LevelCase cases[] = {
-        {"normal-default", nullptr, false, ZLOGLEVEL_INFO},
+        {"normal-default", nullptr, false, ZLOGLEVEL_WARN},
         {"verbose-default", nullptr, true, ZLOGLEVEL_DEBUG},
-        {"empty-env", "", true, ZLOGLEVEL_DEBUG},
-        {"error-env", "ERROR", true, ZLOGLEVEL_ERROR},
+        {"empty-env", "", false, ZLOGLEVEL_WARN},
+        {"invalid-env", "invalid", false, ZLOGLEVEL_WARN},
+        {"error-env", "ERROR", false, ZLOGLEVEL_ERROR},
+        {"verbose-over-error", "ERROR", true, ZLOGLEVEL_DEBUG},
         {"trace-env", "tRaCe", false, ZLOGLEVEL_TRACE},
-        {"off-env", "OFF", true, ZLOGLEVEL_OFF}};
+        {"off-env", "OFF", false, ZLOGLEVEL_OFF},
+        {"verbose-over-off", "OFF", true, ZLOGLEVEL_DEBUG}};
     const LogLevel levels[] = {ZLOGLEVEL_TRACE, ZLOGLEVEL_DEBUG, ZLOGLEVEL_INFO,
                                ZLOGLEVEL_WARN, ZLOGLEVEL_ERROR, ZLOGLEVEL_FATAL};
     const char *names[] = {"trace", "debug", "info", "warn", "error", "fatal"};
@@ -505,14 +509,14 @@ void server_lifecycle_tests()
     write_file_contents(scope.log_path(false), "separate command record\n");
 
     scope.logger.initialize_server();
-    ZLOG_INFO("appended server record");
+    ZLOG_WARN("appended server record");
     scope.logger.shutdown();
     const std::string appended = read_file_contents(path);
     Expect(appended).ToContain("existing active record");
     Expect(appended).ToContain("appended server record");
 
     scope.logger.initialize_server(false, true);
-    LOG_INFO("fresh server record");
+    LOG_WARN("fresh server record");
     scope.logger.shutdown();
     const std::string truncated = read_file_contents(path);
     Expect(truncated).ToContain("fresh server record");
@@ -527,7 +531,7 @@ void server_lifecycle_tests()
   {
     ScopedLogger scope;
     scope.logger.initialize();
-    ZLOG_INFO("command before failed server initialization");
+    ZLOG_WARN("command before failed server initialization");
     const std::string command_before = read_file_contents(scope.log_path(false));
     Expect(command_before).ToContain("command before failed server initialization");
     write_file_contents(scope.root + "/blocked", "not a directory\n");
@@ -543,10 +547,10 @@ void server_lifecycle_tests()
 
     setenv("ZO_LOGS_DIR", scope.dir.c_str(), 1);
     scope.logger.initialize_server();
-    LOG_INFO("reinitialized server LOG record");
-    ZLOG_INFO("reinitialized server ZLOG record");
+    LOG_WARN("reinitialized server LOG record");
+    ZLOG_WARN("reinitialized server ZLOG record");
     scope.logger.initialize();
-    ZLOG_INFO("reinitialized command record");
+    ZLOG_WARN("reinitialized command record");
     scope.logger.shutdown();
 
     const std::string server = read_file_contents(scope.log_path());
@@ -573,13 +577,37 @@ void rotation_tests(bool server)
 
 void log_directory_validation_tests()
 {
-  it("rejects parent traversal from either log environment variable before creating directories", []()
+  it("prefers the explicit server log directory without changing the command log directory", []()
+  {
+    ScopedLogger scope;
+    const std::string dir = scope.root + "/explicit logs/nested";
+    scope.logger.initialize_server(false, false, dir + "///");
+    LOG_WARN("explicit server directory record");
+    scope.logger.shutdown();
+
+    Expect(read_file_contents(dir + "/zowex_server.log")).ToContain("explicit server directory record");
+    Expect(file_exists(scope.dir)).ToBe(false);
+    struct stat permissions;
+    Expect(stat((dir + "/zowex_server.log").c_str(), &permissions)).ToBe(0);
+    Expect(static_cast<int>(permissions.st_mode & 0777)).ToBe(0600);
+
+    scope.logger.initialize();
+    ZLOG_WARN("command environment directory record");
+    scope.logger.shutdown();
+    Expect(read_file_contents(scope.log_path(false))).ToContain("command environment directory record");
+  });
+
+  it("rejects parent traversal from explicit paths or log environment variables before creating directories", []()
   {
     ScopedLogger scope;
     const std::string traversal = scope.root + "/nested/../escaped";
-    setenv("ZO_LOGS_DIR", traversal.c_str(), 1);
     {
       ScopedStderrSuppressor suppress_stderr;
+      scope.logger.initialize_server(false, false, traversal);
+      LOG_ERROR("rejected explicit directory record");
+      scope.logger.shutdown();
+      Expect(file_exists(scope.dir)).ToBe(false);
+      setenv("ZO_LOGS_DIR", traversal.c_str(), 1);
       scope.logger.initialize_server();
       LOG_ERROR("rejected override record");
       scope.logger.shutdown();
@@ -602,7 +630,7 @@ void log_directory_validation_tests()
     setenv("ZO_LOGS_DIR", "./relative logs///", 1);
     scope.logger.initialize_server();
     const int restored = chdir(previous_dir);
-    LOG_INFO("relative directory record");
+    LOG_WARN("relative directory record");
     scope.logger.shutdown();
     Expect(restored).ToBe(0);
     Expect(read_file_contents(scope.root + "/relative logs/zowex_server.log")).ToContain("relative directory record");
@@ -666,7 +694,7 @@ void log_file_validation_tests()
       signal(SIGALRM, SIG_DFL);
       alarm(3);
       scope.logger.initialize_server();
-      LOG_INFO("peer recovered after rejected initialization");
+      LOG_WARN("peer recovered after rejected initialization");
       scope.logger.shutdown();
       _exit(0);
     }

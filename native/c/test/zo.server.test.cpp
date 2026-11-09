@@ -219,7 +219,7 @@ void zo_server_tests()
       rmdir(logs_dir.c_str());
 
       Expect(contents).ToContain("[INFO] Starting zo server");
-      Expect(contents).ToContain("[DEBUG] Verbose logging enabled");
+      Expect(contents).ToContain("[DEBUG] Registering command handlers");
     });
     it("should ignore an invalid ZO_NUM_WORKERS when a worker CLI argument is supplied", []() -> void
     {

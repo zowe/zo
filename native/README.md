@@ -41,8 +41,8 @@ The logger supports the following log levels (in order of verbosity):
 
 - `TRACE` (T) - Most verbose, includes all debugging information
 - `DEBUG` (D) - Debugging information
-- `INFO` (I) - General informational messages (default)
-- `WARN` (W) - Warning messages
+- `INFO` (I) - General informational messages
+- `WARN` (W) - Warning messages (default)
 - `ERROR` (E) - Error messages
 - `FATAL` (F) - Fatal errors that may cause program termination
 - `OFF` - Disable all logging
@@ -56,7 +56,7 @@ Set the log level for `zo` using the `ZO_LOG_LEVEL` environment variable:
 ZO_LOG_LEVEL=TRACE ./zo --it
 ```
 
-`ZO_LOG_LEVEL` applies to both command and server mode and takes precedence over the server's `--verbose` option. Without an explicit level, the default is `INFO`, or `DEBUG` for `zo server --verbose`. Level names are case-insensitive; `WARNING` is accepted as an alias for `WARN`. `OFF` disables file messages. To change the level programmatically, use `ZLogger::set_log_level(LogLevel)`. In Debug builds this also updates the Metal C level; `ZLGSTLVL` changes only the Metal C level. `ZLOG_FATAL` writes a fatal diagnostic without exiting; `LOG_FATAL` also prints to stderr and exits with status 1.
+`ZO_LOG_LEVEL` applies to both command and server mode. Both default to `WARN` without an explicit level. `zo server --verbose` selects `DEBUG`, overriding `ZO_LOG_LEVEL`. Level names are case-insensitive; `WARNING` is accepted as an alias for `WARN`. `OFF` disables file messages unless `--verbose` is passed. To change the level programmatically, use `ZLogger::set_log_level(LogLevel)`. In Debug builds this also updates the Metal C level; `ZLGSTLVL` changes only the Metal C level. `ZLOG_FATAL` writes a fatal diagnostic without exiting; `LOG_FATAL` also prints to stderr and exits with status 1.
 
 Override where log files are written using the `ZO_LOGS_DIR` environment variable. This is useful for shared installations where users may not have write access to the default location, or for redirecting logs elsewhere for troubleshooting:
 
@@ -65,11 +65,13 @@ Override where log files are written using the `ZO_LOGS_DIR` environment variabl
 ZO_LOGS_DIR=/tmp/my-zowex-logs ./zo --it
 ```
 
+`zo server --logs-dir <path>` overrides `ZO_LOGS_DIR`; when neither is provided, logs go to `~/.zowex/logs`.
+
 Relative log directories are resolved against the current working directory. Paths containing `..` components or control characters are rejected before creating directories. The canonical log directory must belong to the effective user and must not be group- or world-writable; invalid locations disable logging rather than falling back to another directory. C++ log files must be regular, singly linked files owned by that user. Their open descriptors are checked before any truncation or output, so symbolic or hard links cannot redirect log writes.
 
 Both C++ logs append by default and roll over after exceeding 100 KiB, keeping one active file and nine backups (`.1` through `.9`) in FIFO order, roughly 1 MiB per log. If archiving the active file fails, logging continues through the existing append stream rather than reopening or truncating it; data preservation takes precedence over the size limit. A persistent rotation failure warns once after the active file exceeds twice the limit. Formatted C++ messages are bounded to 4095 bytes. The `fatal(message, exit_code)` overload treats its message as literal text, including percent sequences, and exits with the requested status.
 
-`ZLogger::initialize()` selects command mode and appends. `initialize_server(verbose, truncate)` selects server mode; `truncate` defaults to `false`, and explicitly setting it to `true` clears only the active server log, not its backups. `shutdown()` closes logging until either initialization method is called again. The Debug-only Metal C logger retains its BSAM record formatting and truncation behavior; it does not participate in C++ log rotation.
+`ZLogger::initialize()` selects command mode and appends. `initialize_server(verbose, truncate, logs_dir)` selects server mode; `truncate` defaults to `false`, and explicitly setting it to `true` clears only the active server log, not its backups. The optional `logs_dir` overrides the server log directory without changing the environment or subsequent command-mode logging. `shutdown()` closes logging until either initialization method is called again. The Debug-only Metal C logger retains its BSAM record formatting and truncation behavior; it does not participate in C++ log rotation.
 
 ### PKCS#12 certificate export
 
