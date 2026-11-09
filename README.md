@@ -37,7 +37,7 @@ See [Troubleshooting](./doc/troubleshooting.md) if the server fails to start wit
 ## Setup
 
 1. Clone this repository and run `npm install` to install project dependencies.
-2. Create a config file by copying `config.example.yaml` to `config.yaml`. Update the properties in the file for your environment, including `hostFingerprint` (the z/OS SSH host key fingerprint, e.g. from `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the host). Connections fail closed if the host key does not match.
+2. Create a config file by copying `config.example.yaml` to `config.yaml`. Update the properties in the file for your environment, including `hostFingerprint` (the z/OS SSH host key fingerprint, for example, from `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the host). Connections fail closed if the host key does not match.
 3. For a quick start, run `npm run all` which performs the following tasks:
    1. `z:upload` - Upload source files<br/>
    2. `z:build` - Build native binaries on z/OS<br/>
