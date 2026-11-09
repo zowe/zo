@@ -1571,7 +1571,8 @@ async function build(connection: Client) {
 async function make(connection: Client, inDir?: string) {
     const pwd = inDir ?? deployDirs.cDir;
     const targets = args.filter((arg, idx) => idx > 0 && !arg.startsWith("--")).join(" ");
-    const response = await runCommandInShell(connection, `cd ${pwd} && make ${targets} ${BUILD_TYPE_FLAG()}\n`, {
+    // z/OS make requires build-type options before targets.
+    const response = await runCommandInShell(connection, `cd ${pwd} && make ${BUILD_TYPE_FLAG()} ${targets}\n`, {
         stepName: `Running make ${targets || "all"}`,
     });
     console.log(response);
