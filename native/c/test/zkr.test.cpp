@@ -865,7 +865,7 @@ void zkr_tests()
       // byte-identical; round-trip validity (re-import succeeds) is what
       // proves the bytes survived the data set unmangled.
       itif(
-          "exports a certificate to a data set and re-imports it, for a "
+          "exports a certificate twice to the same data set and re-imports it, for a "
           "sequential DSN and a PDS/E member",
           [&]() -> void
       {
@@ -908,6 +908,13 @@ void zkr_tests()
         // Sequential data set.
         std::string out;
         int rc = execute_command_with_output(
+            zo_command + " system cert export " + owner + " " + ring1 + " -l '" + real_label +
+                "' -F p12 -p " + dsn_pass + " --dsn " + seq_dsn,
+            out);
+        ExpectWithContext(rc, out).ToBe(0);
+
+        // Reuse the sequential data set to catch record format changes after the first write.
+        rc = execute_command_with_output(
             zo_command + " system cert export " + owner + " " + ring1 + " -l '" + real_label +
                 "' -F p12 -p " + dsn_pass + " --dsn " + seq_dsn,
             out);
