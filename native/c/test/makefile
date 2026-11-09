@@ -161,6 +161,10 @@ build-out/zo.job.server.test.o \
 build-out/server.worker.test.o \
 build-out/server_validator.o \
 build-out/server.validator.test.o \
+build-out/server.builder.test.o \
+build-out/server_dispatcher.o \
+build-out/server_rpcio.o \
+build-out/server_rpc_server.o \
 build-out/server_logger.test.o \
 build-out/plugin.test.o \
 build-out/plugin.o
@@ -213,6 +217,18 @@ build-out/zusf.o:
 
 build-out/server_validator.o:
 	ln -sf ../../build-out/server/validator.o build-out/server_validator.o
+
+build-out/server_dispatcher.o:
+	ln -sf ../../build-out/server/dispatcher.o $@
+
+build-out/server_rpcio.o:
+	ln -sf ../../build-out/server/rpcio.o $@
+
+build-out/server_rpc_server.o:
+	ln -sf ../../build-out/server/rpc_server.o $@
+
+build-out/server.builder.test.o: server/builder.test.cpp ../server/builder.cpp ../server/rpcio.hpp ../ztemp.hpp
+	$(CXX) $(CXXFLAGS) $(CPP_LIST_FLAG) -c server/builder.test.cpp -o $@
 
 build-out/plugin.o: ../extend/plugin.cpp
 	$(CXX) $(CXXFLAGS) $(CPP_LIST_FLAG) -c $^ -o $@

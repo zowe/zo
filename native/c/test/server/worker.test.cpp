@@ -9,6 +9,9 @@
  *
  */
 
+// Keep the worker mock separate from the real RPC server linked by builder tests.
+#define RpcServer WorkerTestRpcServer
+
 #include "worker.test.hpp"
 #include "../ztest.hpp"
 #include "../../server/worker.hpp"
@@ -469,3 +472,5 @@ void server_worker_tests()
 }
 // Include the implementation so the stubs above satisfy the real compilation unit.
 #include "../server/worker.cpp"
+
+#undef RpcServer

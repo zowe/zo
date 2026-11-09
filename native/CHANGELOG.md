@@ -12,6 +12,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Removed the unused `zut_alloc_debug` and `ZUTDBGMG` debugging functions. [#1216](https://github.com/zowe/zo/pull/1216)
 - `c`: Improved handling for JSON-RPC responses of 16 MB or more by JSON-escaping generated output. [#1217](https://github.com/zowe/zo/pull/1217)
 - `c`: Added the `NOPRTCC` parm to `zo tool search` when invoked through RPC so SuperC listings no longer contain page breaks or repeated page titles. [#1182](https://github.com/zowe/zo/issues/1182)
+- `c`: Improved error handling for RPC commands when input transforms fail, preventing invalid base64 or FIFO setup errors from reaching write handlers and truncating data sets or USS files.
+- `c`: Changed destination of FIFO pipes used for streaming to be inside the `~/.zowex/temp` directory, with automatic cleanup when requests finish, including after exceptions.
 
 ## `1.1.0`
 
