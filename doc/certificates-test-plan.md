@@ -157,6 +157,14 @@ For release validation on a real system, in addition to the automated suites:
 
 ## 4. Running the suites
 
+On RACF systems, confirm that the RACF subsystem address space is running
+before running the certificate lifecycle tests. DataRefresh (`zkr_refresh`)
+depends on it even when earlier certificate operations succeed. When DIGTCERT
+is RACLISTed, the test user also needs RACF SPECIAL or class authority for
+DIGTCERT to refresh it; the `can_mutate` ring-creation probe does not check this.
+For operator checks, startup, and the observed `SAF 8 / ESM 8 / reason 92`
+failure, see [Certificate refresh troubleshooting](./troubleshooting.md#certificate-refresh-fails-with-saf-8-esm-8-reason-92).
+
 ```bash
 npm run z:test                       # full C++ suite on the configured system
 npm run z:test -- certificates       # only the certificate suites
