@@ -24,6 +24,13 @@
 #define _XOPEN_SOURCE_EXTENDED 1
 #endif
 
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#ifndef _XPLATFORM_SOURCE
+#define _XPLATFORM_SOURCE
+#endif
+
 #include <limits.h>
 #include <limits>
 #include <climits>
@@ -36,6 +43,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <string>
+#include <memory>
 #include <iconv.h>
 #include <grp.h>
 #include <pwd.h>
@@ -52,9 +60,6 @@
 #include "zbase64.h"
 #include "iefzb4d2.h"
 
-#ifndef _XPLATFORM_SOURCE
-#define _XPLATFORM_SOURCE
-#endif
 #include <sys/xattr.h>
 #include <vector>
 #include <ctime>
@@ -1867,6 +1872,259 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
   return RTNCD_SUCCESS;
 }
 
+namespace
+{
+class ZusfFileDescriptor
+{
+  int fd_;
+
+public:
+  explicit ZusfFileDescriptor(int fd = -1) : fd_(fd)
+  {
+  }
+  ZusfFileDescriptor(const ZusfFileDescriptor &) = delete;
+  ZusfFileDescriptor &operator=(const ZusfFileDescriptor &) = delete;
+
+  ~ZusfFileDescriptor()
+  {
+    reset();
+  }
+
+  int get() const
+  {
+    return fd_;
+  }
+
+  void reset(int fd = -1)
+  {
+    const int saved_errno = errno;
+    if (fd_ != -1)
+      close(fd_);
+    fd_ = fd;
+    errno = saved_errno;
+  }
+};
+
+struct ZusfMetadataPath
+{
+  ZusfFileDescriptor parent;
+  std::string name;
+  bool requires_directory = false;
+};
+
+// Follow links in the requested parent path, pinning each directory before resolving the next component.
+int zusf_open_metadata_parent(ZUSF *zusf, const std::string &file, ZusfMetadataPath &target)
+{
+  if (file.empty() || file.find('\0') != std::string::npos)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Invalid USS path");
+    return RTNCD_FAILURE;
+  }
+
+  target.requires_directory = file.back() == '/';
+  std::string path = file;
+  while (path.size() > 1 && path.back() == '/')
+    path.pop_back();
+
+  const auto last_slash = path.find_last_of('/');
+  const size_t name_start = last_slash == std::string::npos ? 0 : last_slash + 1;
+  target.name = path == "/" ? "." : path.substr(name_start);
+  target.parent.reset(open(path.front() == '/' ? "/" : ".", O_PATH | O_DIRECTORY | O_CLOEXEC));
+  if (target.parent.get() == -1)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not anchor path '%s': %s", file.c_str(), strerror(errno));
+    return RTNCD_FAILURE;
+  }
+
+  const size_t parent_end = last_slash == std::string::npos ? 0 : last_slash;
+  for (size_t start = path.front() == '/' ? 1 : 0; start < parent_end;)
+  {
+    const size_t end = path.find('/', start);
+    const std::string component = path.substr(start, end - start);
+    start = end + 1;
+    if (component.empty() || component == ".")
+      continue;
+
+    const int next_fd = openat(target.parent.get(), component.c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC);
+    if (next_fd == -1)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Could not safely resolve path '%s': %s", file.c_str(), strerror(errno));
+      return RTNCD_FAILURE;
+    }
+    target.parent.reset(next_fd);
+  }
+  return RTNCD_SUCCESS;
+}
+
+struct ZusfMetadataEntry
+{
+  int parent;
+  const char *name;
+  const char *path;
+};
+
+int zusf_apply_metadata_at(ZUSF *zusf, const ZusfMetadataEntry &entry, attrib_t &attributes)
+{
+  // z/OS rejects O_PATH descriptors in __fchattr. Resolve only the basename, atomically without following links.
+  if (__chattrat(entry.parent, const_cast<char *>(entry.name), &attributes, sizeof(attributes), AT_SYMLINK_NOFOLLOW) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not update attributes of USS item '%s': %s", entry.path, strerror(errno));
+    return RTNCD_FAILURE;
+  }
+  return RTNCD_SUCCESS;
+}
+
+int zusf_update_metadata_fd(ZUSF *zusf, int fd, attrib_t &attributes, bool recursive, const ZusfMetadataEntry &entry);
+
+// z/OS 2.5 has no fdopendir; verify the pathname-opened stream before reading any entries.
+DIR *zusf_open_metadata_directory(ZUSF *zusf, const char *name, const struct stat &expected)
+{
+  std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(name), &closedir);
+  if (!dir)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not create directory stream for '%s': %s", name, strerror(errno));
+    return nullptr;
+  }
+  const int stream_fd = dirfd(dir.get());
+  struct stat actual;
+  if (stream_fd == -1 || fstat(stream_fd, &actual) == -1)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not stat directory stream for '%s': %s", name, strerror(errno));
+    return nullptr;
+  }
+  if (actual.st_dev != expected.st_dev || actual.st_ino != expected.st_ino)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Directory '%s' changed while opening its stream", name);
+    return nullptr;
+  }
+  return dir.release();
+}
+
+int zusf_update_directory_metadata(ZUSF *zusf, int fd, attrib_t &attributes, const char *name,
+                                   const struct stat &file_stats)
+{
+  std::unique_ptr<DIR, decltype(&closedir)> dir(zusf_open_metadata_directory(zusf, name, file_stats), &closedir);
+  if (!dir)
+    return RTNCD_FAILURE;
+
+  std::string child_path(name);
+  if (child_path.back() != '/')
+    child_path += '/';
+  const size_t parent_length = child_path.size();
+
+  while (true)
+  {
+    errno = 0;
+    struct dirent *entry = readdir(dir.get());
+    if (entry == nullptr)
+    {
+      if (errno != 0)
+      {
+        ZDIAG_SET_MSG(&zusf->diag, "Could not read directory '%s': %s", name, strerror(errno));
+        return RTNCD_FAILURE;
+      }
+      break;
+    }
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+      continue;
+
+    // Only a single entry name is resolved relative to the already opened parent.
+    ZusfFileDescriptor child(openat(fd, entry->d_name, O_PATH | O_NOFOLLOW | O_CLOEXEC));
+    if (child.get() == -1)
+    {
+      if (errno == ELOOP)
+        continue;
+      ZDIAG_SET_MSG(&zusf->diag, "Could not safely open child '%s': %s", entry->d_name, strerror(errno));
+      return RTNCD_FAILURE;
+    }
+    child_path.resize(parent_length);
+    child_path += entry->d_name;
+    const ZusfMetadataEntry child_entry{fd, entry->d_name, child_path.c_str()};
+    const int rc = zusf_update_metadata_fd(zusf, child.get(), attributes, true, child_entry);
+    if (rc != RTNCD_SUCCESS)
+      return rc;
+  }
+  return RTNCD_SUCCESS;
+}
+
+int zusf_update_metadata_fd(ZUSF *zusf, int fd, attrib_t &attributes, bool recursive, const ZusfMetadataEntry &entry)
+{
+  struct stat file_stats;
+  if (fstat(fd, &file_stats) == -1)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not stat opened USS item '%s': %s", entry.path, strerror(errno));
+    return RTNCD_FAILURE;
+  }
+  if (S_ISLNK(file_stats.st_mode))
+    return RTNCD_SUCCESS;
+
+  const bool is_dir = S_ISDIR(file_stats.st_mode);
+  // Grant directory access first when requested; defer restrictive changes until after traversal.
+  const mode_t owner_access = S_IRUSR | S_IXUSR;
+  const bool change_first = recursive && is_dir && attributes.att_modechg &&
+                            (attributes.att_mode & owner_access) == owner_access;
+  if (change_first && zusf_apply_metadata_at(zusf, entry, attributes) != RTNCD_SUCCESS)
+    return RTNCD_FAILURE;
+
+  if (recursive && is_dir && zusf_update_directory_metadata(zusf, fd, attributes, entry.path, file_stats) != RTNCD_SUCCESS)
+    return RTNCD_FAILURE;
+
+  if (change_first || (attributes.att_filetagchg && is_dir))
+    return RTNCD_SUCCESS;
+  return zusf_apply_metadata_at(zusf, entry, attributes);
+}
+
+int zusf_update_metadata_path(ZUSF *zusf, const std::string &file, attrib_t &attributes, bool recursive)
+{
+  ZusfMetadataPath target;
+  if (zusf_open_metadata_parent(zusf, file, target) != RTNCD_SUCCESS)
+    return RTNCD_FAILURE;
+
+  struct stat file_stats;
+  if (fstatat(target.parent.get(), target.name.c_str(), &file_stats, AT_SYMLINK_NOFOLLOW) == -1)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not stat path '%s': %s", file.c_str(), strerror(errno));
+    return RTNCD_FAILURE;
+  }
+  if (S_ISLNK(file_stats.st_mode))
+  {
+    if (!attributes.att_ownerchg || target.requires_directory)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Refusing to update attributes through symbolic link '%s'", file.c_str());
+      return RTNCD_FAILURE;
+    }
+    // An explicitly requested link can be chowned, but its target must never be followed.
+    if (fchownat(target.parent.get(), target.name.c_str(), attributes.att_uid, attributes.att_gid,
+                 AT_SYMLINK_NOFOLLOW) != 0)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Could not change ownership of symbolic link '%s': %s", file.c_str(), strerror(errno));
+      return RTNCD_FAILURE;
+    }
+    return RTNCD_SUCCESS;
+  }
+
+  const int flags = O_PATH | O_NOFOLLOW | O_CLOEXEC | (target.requires_directory ? O_DIRECTORY : 0);
+  ZusfFileDescriptor fd(openat(target.parent.get(), target.name.c_str(), flags));
+  if (fd.get() == -1 || fstat(fd.get(), &file_stats) == -1)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not safely open path '%s': %s", file.c_str(), strerror(errno));
+    return RTNCD_FAILURE;
+  }
+  if (S_ISLNK(file_stats.st_mode))
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' changed to a symbolic link", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (!recursive && S_ISDIR(file_stats.st_mode) && !attributes.att_filetagchg)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' is a folder and recursive is false", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  const ZusfMetadataEntry entry{target.parent.get(), target.name.c_str(), file.c_str()};
+  return zusf_update_metadata_fd(zusf, fd.get(), attributes, recursive, entry);
+}
+} // namespace
+
 /**
  * Changes the permissions of a USS file or directory.
  *
@@ -1878,49 +2136,10 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
  */
 int zusf_chmod_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode, bool recursive)
 {
-  // TODO(zFernand0): Add recursive option for directories
-  struct stat file_stats;
-  if (stat(file.c_str(), &file_stats) == -1)
-  {
-    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' does not exist", file.c_str());
-    return RTNCD_FAILURE;
-  }
-
-  if (!recursive && S_ISDIR(file_stats.st_mode))
-  {
-    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' is a folder and recursive is false", file.c_str());
-    return RTNCD_FAILURE;
-  }
-
-  chmod(file.c_str(), mode);
-  if (recursive && S_ISDIR(file_stats.st_mode))
-  {
-    DIR *dir = opendir(file.c_str());
-    if (dir == nullptr)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Could not open directory '%s'", file.c_str());
-      return RTNCD_FAILURE;
-    }
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != nullptr)
-    {
-      if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0)
-      {
-        const std::string child_path = zusf_join_path(file, std::string((const char *)entry->d_name));
-        struct stat file_stats;
-        stat(child_path.c_str(), &file_stats);
-
-        const auto rc = zusf_chmod_uss_file_or_dir(zusf, child_path, mode, S_ISDIR(file_stats.st_mode));
-        if (0 != rc)
-        {
-          closedir(dir);
-          return rc;
-        }
-      }
-    }
-    closedir(dir);
-  }
-  return 0;
+  attrib_t attributes{};
+  attributes.att_modechg = 1;
+  attributes.att_mode = mode;
+  return zusf_update_metadata_path(zusf, file, attributes, recursive);
 }
 
 int zusf_delete_uss_item(ZUSF *zusf, const std::string &file, bool recursive)
@@ -2079,21 +2298,6 @@ static bool resolve_gid_from_str(const std::string &s, gid_t &out)
  */
 int zusf_chown_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::string &owner, bool recursive)
 {
-  struct stat file_stats;
-  // Verify target exists and capture current metadata
-  if (stat(file.c_str(), &file_stats) == -1)
-  {
-    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' does not exist", file.c_str());
-    return RTNCD_FAILURE;
-  }
-
-  // Refuse to descend into a directory if caller didn’t request recursion
-  if (S_ISDIR(file_stats.st_mode) && !recursive)
-  {
-    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' is a folder and recursive is false", file.c_str());
-    return RTNCD_FAILURE;
-  }
-
   // Split owner into user[:group]
   std::string userPart = owner;
   std::string groupPart;
@@ -2131,65 +2335,15 @@ int zusf_chown_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::s
     return RTNCD_FAILURE;
   }
 
-  // Preserve current group explicitly if only user was supplied
-  if (gid == (gid_t)-1)
-    gid = file_stats.st_gid;
-
-  // Attempt chown
-  const auto rc = chown(file.c_str(), uid, gid);
-  if (rc != 0)
-  {
-    ZDIAG_SET_MSG(&zusf->diag, "chown failed for path '%s', errno %d", file.c_str(), errno);
-    return RTNCD_FAILURE;
-  }
-
-  // Recurse into directories if requested
-  if (recursive && S_ISDIR(file_stats.st_mode))
-  {
-    DIR *dir = opendir(file.c_str());
-    if (!dir)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Could not open directory '%s'", file.c_str());
-      return RTNCD_FAILURE;
-    }
-
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != nullptr)
-    {
-      if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0)
-      {
-        const std::string child_path = zusf_join_path(file, std::string((const char *)entry->d_name));
-        struct stat child_stats;
-        if (stat(child_path.c_str(), &child_stats) == -1)
-        {
-          closedir(dir);
-          ZDIAG_SET_MSG(&zusf->diag, "Could not stat child path '%s'", child_path.c_str());
-          return RTNCD_FAILURE;
-        }
-
-        const auto rc = zusf_chown_uss_file_or_dir(zusf, child_path, owner, S_ISDIR(child_stats.st_mode));
-        if (rc != 0)
-        {
-          closedir(dir);
-          return rc;
-        }
-      }
-    }
-    closedir(dir);
-  }
-
-  return 0;
+  attrib_t attributes{};
+  attributes.att_ownerchg = 1;
+  attributes.att_uid = uid;
+  attributes.att_gid = gid;
+  return zusf_update_metadata_path(zusf, file, attributes, recursive);
 }
 
 int zusf_chtag_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::string &tag, bool recursive)
 {
-  struct stat file_stats;
-  if (stat(file.c_str(), &file_stats) == -1)
-  {
-    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' does not exist", file.c_str());
-    return RTNCD_FAILURE;
-  }
-
   int ccsid;
 
   // First try to parse as a numeric CCSID
@@ -2210,48 +2364,9 @@ int zusf_chtag_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::s
       return RTNCD_FAILURE;
     }
   }
-  const auto is_dir = S_ISDIR(file_stats.st_mode);
-  if (!is_dir)
-  {
-    attrib_t attr;
-    memset(&attr, 0, sizeof(attr));
-    attr.att_filetagchg = 1;
-    attr.att_filetag.ft_ccsid = ccsid;
-    attr.att_filetag.ft_txtflag = int(ccsid != 65535 && ccsid != 0);
-
-    const auto rc = __chattr((char *)file.c_str(), &attr, sizeof(attr));
-    if (0 != rc)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Failed to update attributes for path '%s'", file.c_str());
-      return RTNCD_FAILURE;
-    }
-  }
-  else if (recursive)
-  {
-    DIR *dir = opendir(file.c_str());
-    if (dir == nullptr)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Could not open directory '%s'", file.c_str());
-      return RTNCD_FAILURE;
-    }
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != nullptr)
-    {
-      if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0)
-      {
-        const std::string child_path = zusf_join_path(file, std::string((const char *)entry->d_name));
-        struct stat file_stats;
-        stat(child_path.c_str(), &file_stats);
-
-        const auto rc = zusf_chtag_uss_file_or_dir(zusf, child_path, tag, S_ISDIR(file_stats.st_mode));
-        if (0 != rc)
-        {
-          closedir(dir);
-          return rc;
-        }
-      }
-    }
-    closedir(dir);
-  }
-  return 0;
+  attrib_t attributes{};
+  attributes.att_filetagchg = 1;
+  attributes.att_filetag.ft_ccsid = ccsid;
+  attributes.att_filetag.ft_txtflag = int(ccsid != 65535 && ccsid != 0);
+  return zusf_update_metadata_path(zusf, file, attributes, recursive);
 }
