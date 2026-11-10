@@ -36,6 +36,9 @@ jobs:
     concurrency:
       group: "zos-build"
     timeout-minutes: 20
+    env:
+      # Build and tests share native objects, so they must use the same build type.
+      ZOWE_NATIVE_DEBUG: ${{ inputs.debug && '1' || '0' }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,8 +80,6 @@ jobs:
           VERSION: ${{ inputs.version }}
 
       - name: Build on z/OS
-        env:
-          ZOWE_NATIVE_DEBUG: ${{ inputs.debug && '1' || '0' }}
         run: npm run z:rebuild
 
       # Informational, uploaded as an artifact for inspection. Does not gate: what keeps the binary
