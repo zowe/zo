@@ -4504,7 +4504,7 @@ int zds_idcams(const std::string &sysInData, std::string &output, std::string &e
   return rc;
 }
 
-int validate_data_set_name(std::string dsn)
+int validate_data_set_name(const std::string &dsn)
 {
   int indexInSegment = 0;
   int numSegments = 1;
