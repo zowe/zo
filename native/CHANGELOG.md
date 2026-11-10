@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `c`: Added validation for the data set name argument to the `zo ds resolve-alias` command. [TODO](TODO)
 - `c`: Added additional validation for the output file of the `zo system cert export` command. [1225](https://github.com/zowe/zo/pull/1225)
 - `c`: Hardened recursive USS chmod, chown, and chtag commands with descriptor-anchored traversal. [#1222](https://github.com/zowe/zo/pull/1222)
 - `c`: Unified `LOG_*` and `ZLOG_*` logging for command and server handlers using standard C++ file I/O, preserving per-user log paths, truncation, and bounded FIFO rotation while restricting Metal C logging to Debug builds. [#107](https://github.com/zowe/zowex/issues/107)
