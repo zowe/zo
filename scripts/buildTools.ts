@@ -23,9 +23,9 @@ import { Client, type ClientCallback, type ConnectConfig, type PseudoTtyOptions,
 
 interface IConfig {
     sshProfile: string | IProfile;
+    deployDir: string;
     /** Optional pinned SSH host key fingerprint (`SHA256:<base64>` as shown by `ssh-keygen -lf`, or 64-char hex). Overrides known_hosts. */
     hostFingerprint?: string;
-    deployDir: string;
     preBuildCmd?: string;
     testEnv?: Record<string, string>;
 }
