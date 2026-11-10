@@ -2710,10 +2710,10 @@ void zds_tests()
         Expect(result).ToBe(1);
       });
 
-      it("should fail if there is only one segment", [&]() -> void
+      it("should succeed if there is only one segment", [&]() -> void
       {
         int result = validate_data_set_name("DATASET");
-        Expect(result).ToBe(1);
+        Expect(result).ToBe(0);
       });
 
       it("should fail with illegal characters", [&]() -> void

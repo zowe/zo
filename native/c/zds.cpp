@@ -4507,7 +4507,6 @@ int zds_idcams(const std::string &sysInData, std::string &output, std::string &e
 int validate_data_set_name(const std::string &dsn)
 {
   int indexInSegment = 0;
-  int numSegments = 1;
   if (dsn.length() > MAX_DS_LENGTH)
   {
     return 1;
@@ -4522,7 +4521,6 @@ int validate_data_set_name(const std::string &dsn)
       {
         return 1; // '.' cannot appear as the first character in a segment
       }
-      numSegments += 1;
       indexInSegment = 0; // new segment started by .
       continue;
     }
@@ -4545,6 +4543,6 @@ int validate_data_set_name(const std::string &dsn)
     }
     indexInSegment++;
   }
-  // there must be at least two segments and the string can't end with '.'
-  return indexInSegment > 0 && numSegments >= 2 ? 0 : 1;
+  // the string can't end with '.'
+  return indexInSegment > 0 ? 0 : 1;
 }
