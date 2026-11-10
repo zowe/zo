@@ -4504,12 +4504,12 @@ int zds_idcams(const std::string &sysInData, std::string &output, std::string &e
   return rc;
 }
 
-int validate_data_set_name(const std::string &dsn)
+bool validate_data_set_name(const std::string &dsn)
 {
   int indexInSegment = 0;
   if (dsn.length() > MAX_DS_LENGTH)
   {
-    return 1;
+    return false;
   }
   const std::string allowedFirstSegmentChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#@$";
   const std::string allowedDsnChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#@$-0123456789";
@@ -4519,7 +4519,7 @@ int validate_data_set_name(const std::string &dsn)
     {
       if (indexInSegment == 0)
       {
-        return 1; // '.' cannot appear as the first character in a segment
+        return false; // '.' cannot appear as the first character in a segment
       }
       indexInSegment = 0; // new segment started by .
       continue;
@@ -4527,22 +4527,22 @@ int validate_data_set_name(const std::string &dsn)
 
     if (indexInSegment > 7)
     {
-      return 1; // over max segment length
+      return false; // over max segment length
     }
 
     if (indexInSegment == 0)
     {
       if (allowedFirstSegmentChars.find(std::toupper(ch)) == std::string::npos)
       {
-        return 1;
+        return false;
       }
     }
     else if (allowedDsnChars.find(std::toupper(ch)) == std::string::npos)
     {
-      return 1;
+      return false;
     }
     indexInSegment++;
   }
-  // the string can't end with '.'
-  return indexInSegment > 0 ? 0 : 1;
+
+  return indexInSegment > 0; // the string can't end with '.'
 }
