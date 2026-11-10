@@ -15,7 +15,6 @@ namespace ds
 {
 using namespace plugin;
 
-int validate_data_set_name(std::string dsn);
 int create_with_attributes(InvocationContext &result);
 int handle_data_set_create_fb(InvocationContext &result);
 int handle_data_set_create_vb(InvocationContext &result);

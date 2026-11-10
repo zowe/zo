@@ -33,27 +33,6 @@ using namespace commands::format;
 namespace ds
 {
 
-/**
- * @brief returns 0 if the provided data set name is valid, else a non-zero integer.
- * @param dsn - a data set name to validate. does not handle member names.
- */
-int validate_data_set_name(std::string dsn)
-{
-  if (dsn.length() > MAX_DS_LENGTH)
-  {
-    return 1;
-  }
-  const std::string allowedDsnChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#@$.-0123456789";
-  for (auto ch : dsn)
-  {
-    if (allowedDsnChars.find(std::toupper(ch)) == std::string::npos)
-    {
-      return 1;
-    }
-  }
-  return 0;
-}
-
 int process_data_set_create_result(InvocationContext &context, ZDS *zds, int rc, const std::string &dsn, std::string_view response)
 {
   if (0 != rc)

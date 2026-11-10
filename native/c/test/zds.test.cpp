@@ -789,7 +789,6 @@ void zds_tests()
         Expect(out.size()).ToBe(vb_input.size());
         Expect(out == vb_input).ToBe(true);
       });
-
     });
 
     describe("copy datasets", [&]() -> void
@@ -2664,6 +2663,81 @@ void zds_tests()
         {
           rc = zds_write(write_opts, large_data);
         }).ToAbend();
+      });
+    });
+
+    describe("validate_data_set_name", [&]() -> void
+    {
+      it("should fail on a data set name starting with a dot", [&]() -> void
+      {
+        int result = validate_data_set_name(".DATA.SET");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail on a data set name ending with a dot", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET.");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail on a data set name containing multiple dots", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA..SET");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail on a data set segment starting with a number", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.1SET");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail on a data set segment with too many characters", [&]() -> void
+      {
+        int result = validate_data_set_name("DATAAAAAA.SET");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail on a data set with a member", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET(MEM)");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail on a data set with too long a name", [&]() -> void
+      {
+        int result = validate_data_set_name("AAAAAAAA.AAAAAAAA.AAAAAAAA.AAAAAAAA.AAAAAAAA.A");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail if there is only one segment", [&]() -> void
+      {
+        int result = validate_data_set_name("DATASET");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail with illegal characters", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET.MY'SET");
+        Expect(result).ToBe(1);
+      });
+
+      it("should fail with an accent", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET.H\x71LLO"); // E with acute accent
+        Expect(result).ToBe(1);
+      });
+
+      it("should succeed with a properly formatted name", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET");
+        Expect(result).ToBe(0);
+      });
+
+      it("should succeed with a properly formatted name in lower case", [&]() -> void
+      {
+        int result = validate_data_set_name("data.set");
+        Expect(result).ToBe(0);
       });
     });
   });
