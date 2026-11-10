@@ -1843,7 +1843,7 @@ function normalizeFingerprint(fingerprint?: string): string | null {
 
 async function buildSshClient(sshProfile: IProfile, hostFingerprint?: string): Promise<Client> {
     const pinned = normalizeFingerprint(hostFingerprint);
-    if (hostFingerprint != null && pinned == null) {
+    if (hostFingerprint?.trim() && pinned == null) {
         throw new Error('Invalid "hostFingerprint" in config.yaml. Expected "SHA256:<base64>" or 64 hex characters.');
     }
     const port = Number(sshProfile.port) || 22;

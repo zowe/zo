@@ -23,6 +23,8 @@ on:
         required: true
       SSH_MARIST_ZNP_ID:
         required: true
+      SSH_MARIST_HOST_KEY:
+        required: true
   workflow_dispatch:
 
 permissions:
@@ -60,6 +62,7 @@ jobs:
                 user: "${{ secrets.SSH_MARIST_ZNP_ID }}"
                 password: "${{ secrets.SSH_MARIST_ZNP_PASS }}"
               deployDir: "/ZOWE/tmp/zowex"
+              hostFingerprint: "${{ secrets.SSH_MARIST_HOST_KEY }}"
               # Open XL C/C++ 2.1 is the newest compiler IBM supports on z/OS 2.5, our minimum
               # supported release. Open XL 2.2 requires z/OS 3.1+, and its newer libc++ raises the
               # Language Environment runtime level every consumer of this artifact must carry.
