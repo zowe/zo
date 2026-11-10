@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <csignal>
+
 #include <fcntl.h>
 #include <iostream>
 #include <string>
@@ -1268,19 +1269,51 @@ int zut_open_for_write(const std::string &path, mode_t mode, bool truncate)
 
 int zut_write_file_private(const std::string &path, const std::string &data, std::string &error)
 {
-  int fd = zut_open_for_write(path, S_IRUSR | S_IWUSR, true);
-  if (fd == -1)
+  struct stat file_stats;
+  if (lstat(path.c_str(), &file_stats) == 0)
   {
-    error = "could not open '" + path + "': " + (errno == ELOOP ? "path is a symbolic link" : strerror(errno));
+    if (S_ISLNK(file_stats.st_mode))
+    {
+      error = "could not open '" + path + "': path is a symbolic link";
+      return RTNCD_FAILURE;
+    }
+  }
+  else if (errno != ENOENT)
+  {
+    error = "could not stat '" + path + "': " + strerror(errno);
     return RTNCD_FAILURE;
   }
 
-  // O_CREAT's mode only applies when the file is newly created, so an existing
-  // file with looser permissions needs to be tightened explicitly.
-  if (fchmod(fd, S_IRUSR | S_IWUSR) == -1)
+  // Publish a complete private file without truncating the old output or its hard links.
+  std::string temp_path = path + ".XXXXXX";
+  const int temp_fd = mkstemp(temp_path.data());
+  if (temp_fd == -1)
   {
-    error = "could not set permissions on '" + path + "': " + strerror(errno);
-    close(fd);
+    error = "could not open '" + temp_path + "': " + strerror(errno);
+    return RTNCD_FAILURE;
+  }
+
+  // Restore owner read/write permissions even under a restrictive umask.
+  if (fchmod(temp_fd, S_IRUSR | S_IWUSR) == -1)
+  {
+    error = "could not set permissions on '" + temp_path + "': " + strerror(errno);
+    close(temp_fd);
+    unlink(temp_path.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (fstat(temp_fd, &file_stats) == -1)
+  {
+    error = "could not stat '" + temp_path + "': " + strerror(errno);
+    close(temp_fd);
+    unlink(temp_path.c_str());
+    return RTNCD_FAILURE;
+  }
+
+  if (!S_ISREG(file_stats.st_mode) || file_stats.st_nlink != 1 || file_stats.st_uid != geteuid())
+  {
+    error = "Failed to create '" + temp_path + "' with the expected permissions.";
+    close(temp_fd);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
 
@@ -1288,24 +1321,32 @@ int zut_write_file_private(const std::string &path, const std::string &data, std
   size_t remaining = data.size();
   while (remaining > 0)
   {
-    ssize_t written = write(fd, buf, remaining);
+    ssize_t written = write(temp_fd, buf, remaining);
     if (written == -1)
     {
       if (errno == EINTR)
       {
         continue;
       }
-      error = "could not write to '" + path + "': " + strerror(errno);
-      close(fd);
+      error = "could not write to '" + temp_path + "': " + strerror(errno);
+      close(temp_fd);
+      unlink(temp_path.c_str());
       return RTNCD_FAILURE;
     }
     buf += written;
     remaining -= static_cast<size_t>(written);
   }
 
-  if (close(fd) == -1)
+  if (close(temp_fd) == -1)
   {
-    error = "could not close '" + path + "': " + strerror(errno);
+    error = "could not close '" + temp_path + "': " + strerror(errno);
+    unlink(temp_path.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (rename(temp_path.c_str(), path.c_str()) != 0)
+  {
+    error = "Unable to move temporary path '" + temp_path + "' to '" + path + "': " + strerror(errno);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
 

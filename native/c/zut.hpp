@@ -474,16 +474,16 @@ std::string zut_read_input(std::istream &input_stream);
 int zut_open_for_write(const std::string &path, mode_t mode, bool truncate);
 
 /**
- * @brief Write data to a file that is created (or truncated) with owner-only
- *   read/write permissions (0600), regardless of the process umask.
+ * @brief Atomically replace a file with owner-only read/write permissions (0600),
+ *   regardless of the process umask.
  *
  * Intended for output that may hold secrets, such as an exported private key
- * (e.g. a PKCS#12 bundle). The file is opened with zut_open_for_write, so a
- * symbolic link is rejected, and then fchmod'd to 0600 so a
- * pre-existing file with looser permissions is tightened as well, since
- * O_CREAT's mode argument only applies to newly created files.
+ * (e.g. a PKCS#12 bundle). Existing symbolic-link destinations are rejected.
+ * Data is written to an exclusively created temporary file in the same directory,
+ * validated, and closed before renaming it over the destination. Failed writes
+ * leave the previous output intact; hard-linked files are not modified in place.
  *
- * @param path Path of the file to create/truncate and write
+ * @param path Path of the file to create or replace
  * @param data The bytes to write
  * @param error Reference to a string that receives a short error description on failure
  * @return Return code (0 for success, non-zero for error)

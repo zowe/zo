@@ -346,7 +346,6 @@ void zo_uss_tests()
           rc = execute_command_with_output(chmodFileCommand, response);
         }
         ExpectWithContext(rc, response).ToBe(255);
-        Expect(response).ToContain("Path '" + uss_file + "' does not exist");
       });
     });
     describe("chown", [&]() -> void

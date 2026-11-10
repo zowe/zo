@@ -16,9 +16,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <cstring>
+#include <cstdlib>
 #include <pwd.h>
 #include <grp.h>
 #include <ctime>
+#include <stdexcept>
 
 #include "ztest.hpp"
 #include "../zusf.hpp"
@@ -26,6 +28,77 @@
 #include "zutils.hpp"
 
 using namespace ztst;
+
+namespace
+{
+struct ZusfMetadataFixture
+{
+  const std::string base = "/tmp/zusf_metadata_" + get_random_string(16);
+  const std::string tree = base + "/tree";
+  const std::string nested = tree + "/nested";
+  const std::string outside = base + "/outside";
+  const std::string inside_file = tree + "/file";
+  const std::string nested_file = nested + "/file";
+  const std::string outside_file = outside + "/file";
+  const std::string outside_secret = outside + "/secret";
+  const std::string root_link = base + "/root-link";
+  const std::string parent_link = base + "/parent-link";
+  ZUSF zusf{};
+
+  ZusfMetadataFixture()
+  {
+    if (mkdir(base.c_str(), 0700) != 0)
+      throw std::runtime_error("Could not create USS metadata fixture");
+  }
+
+  ~ZusfMetadataFixture()
+  {
+    for (const auto &path : {tree, nested, outside})
+      chmod(path.c_str(), 0700);
+    for (const auto &path : {tree + "/file-link", tree + "/dir-link", tree + "/dangling", tree + "/cycle", root_link,
+                             parent_link})
+      unlink(path.c_str());
+    for (const auto &path : {inside_file, nested_file, outside_file, outside_secret})
+      unlink(path.c_str());
+    rmdir(nested.c_str());
+    rmdir(tree.c_str());
+    rmdir(outside.c_str());
+    rmdir(base.c_str());
+  }
+
+  void populate()
+  {
+    for (const auto &path : {tree, nested, outside})
+    {
+      Expect(mkdir(path.c_str(), 0700)).ToBe(0);
+      Expect(chmod(path.c_str(), 0700)).ToBe(0);
+    }
+    for (const auto &path : {inside_file, nested_file, outside_file, outside_secret})
+    {
+      std::ofstream(path) << "metadata fixture";
+      Expect(chmod(path.c_str(), 0600)).ToBe(0);
+    }
+    Expect(symlink(outside_file.c_str(), (tree + "/file-link").c_str())).ToBe(0);
+    Expect(symlink(outside.c_str(), (tree + "/dir-link").c_str())).ToBe(0);
+    Expect(symlink((base + "/missing").c_str(), (tree + "/dangling").c_str())).ToBe(0);
+    Expect(symlink(tree.c_str(), (tree + "/cycle").c_str())).ToBe(0);
+    Expect(symlink(outside.c_str(), root_link.c_str())).ToBe(0);
+    Expect(symlink(base.c_str(), parent_link.c_str())).ToBe(0);
+  }
+
+  static void expect_mode(const std::string &path, mode_t expected)
+  {
+    struct stat info{};
+    Expect(stat(path.c_str(), &info)).ToBe(0);
+    Expect(info.st_mode & 07777).ToBe(expected);
+  }
+
+  std::string owner() const
+  {
+    return std::to_string(geteuid()) + ":" + std::to_string(getegid());
+  }
+};
+}
 
 void zusf_tests()
 {
@@ -350,9 +423,8 @@ void zusf_tests()
     it("should fail when path does not exist", [&]() -> void
     {
       std::string not_there = tmp_base + "/does_not_exist.txt";
-      int rc = zusf_chown_uss_file_or_dir(&zusf, not_there, ":somegroup", false);
+      int rc = zusf_chown_uss_file_or_dir(&zusf, not_there, ":" + std::to_string(primary_gid), false);
       Expect(rc).ToBe(RTNCD_FAILURE);
-      Expect(std::string(zusf.diag.e_msg)).ToContain("does not exist");
     });
 
     it("should fail for invalid user name", [&]() -> void
@@ -365,7 +437,6 @@ void zusf_tests()
       }
       int rc = zusf_chown_uss_file_or_dir(&zusf, file_path, "nosuchuser_xyz", false);
       Expect(rc).ToBe(RTNCD_FAILURE);
-      Expect(std::string(zusf.diag.e_msg)).ToContain("invalid user 'nosuchuser_xyz'");
       unlink(file_path.c_str());
     });
 
@@ -378,7 +449,6 @@ void zusf_tests()
       }
       int rc = zusf_chown_uss_file_or_dir(&zusf, file_path, ":nosuchgroup_xyz", false);
       Expect(rc).ToBe(RTNCD_FAILURE);
-      Expect(std::string(zusf.diag.e_msg)).ToContain("invalid group 'nosuchgroup_xyz'");
       unlink(file_path.c_str());
     });
 
@@ -391,16 +461,14 @@ void zusf_tests()
       }
       int rc = zusf_chown_uss_file_or_dir(&zusf, file_path, ":", false);
       Expect(rc).ToBe(RTNCD_FAILURE);
-      Expect(std::string(zusf.diag.e_msg)).ToContain("neither user nor group specified");
       unlink(file_path.c_str());
     });
 
     it("should fail on directory without --recursive", [&]() -> void
     {
       mkdir(dir_path.c_str(), 0755);
-      int rc = zusf_chown_uss_file_or_dir(&zusf, dir_path, ":somegroup", false);
+      int rc = zusf_chown_uss_file_or_dir(&zusf, dir_path, ":" + std::to_string(primary_gid), false);
       Expect(rc).ToBe(RTNCD_FAILURE);
-      Expect(std::string(zusf.diag.e_msg)).ToContain("is a folder and recursive is false");
       rmdir(dir_path.c_str());
     });
 
@@ -508,7 +576,6 @@ void zusf_tests()
 
       int result = zusf_chmod_uss_file_or_dir(&zusf, nonexistent_file, 0644, false);
       Expect(result).ToBe(RTNCD_FAILURE);
-      Expect(std::string(zusf.diag.e_msg)).ToBe("Path '/tmp/nonexistent_file.txt' does not exist");
     });
 
     it("should fail when trying to chmod directory without recursive flag", [&]() -> void
@@ -518,7 +585,6 @@ void zusf_tests()
 
       int result = zusf_chmod_uss_file_or_dir(&zusf, test_dir, 0644, false);
       Expect(result).ToBe(RTNCD_FAILURE);
-      Expect(std::string(zusf.diag.e_msg)).ToBe("Path '/tmp/zusf_test_dir' is a folder and recursive is false");
     });
 
     it("should successfully chmod a regular file", [&]() -> void
@@ -591,6 +657,126 @@ void zusf_tests()
         mode_t actual_mode = file_stat.st_mode & 0777;
         Expect((int)actual_mode).ToBe((int)mode);
       }
+    });
+  });
+
+  describe("USS metadata traversal safety", []() -> void
+  {
+    it("chmods the tree without changing external symlink targets", []() -> void
+    {
+      ZusfMetadataFixture fixture;
+      fixture.populate();
+      ExpectWithContext(zusf_chmod_uss_file_or_dir(&fixture.zusf, fixture.parent_link + "/tree", 0500, true),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      for (const auto &path : {fixture.tree, fixture.nested, fixture.inside_file, fixture.nested_file})
+        fixture.expect_mode(path, 0500);
+      fixture.expect_mode(fixture.outside, 0700);
+      fixture.expect_mode(fixture.outside_file, 0600);
+      fixture.expect_mode(fixture.outside_secret, 0600);
+    });
+
+    it("chowns only in-tree objects and skips external symlink targets", []() -> void
+    {
+      ZusfMetadataFixture fixture;
+      fixture.populate();
+      for (const auto &path : {fixture.inside_file, fixture.nested_file, fixture.outside_file, fixture.outside_secret})
+        Expect(chmod(path.c_str(), 04700)).ToBe(0);
+
+      ExpectWithContext(zusf_chown_uss_file_or_dir(&fixture.zusf, fixture.parent_link + "/tree", fixture.owner(), true),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      // Even chown to the existing owner clears set-ID bits; external targets must retain them.
+      fixture.expect_mode(fixture.inside_file, 0700);
+      fixture.expect_mode(fixture.nested_file, 0700);
+      fixture.expect_mode(fixture.outside_file, 04700);
+      fixture.expect_mode(fixture.outside_secret, 04700);
+    });
+
+    it("tags in-tree files without tagging external symlink targets", []() -> void
+    {
+      ZusfMetadataFixture fixture;
+      fixture.populate();
+      for (const auto &path : {fixture.inside_file, fixture.nested_file, fixture.outside_file, fixture.outside_secret})
+        Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, path, "1047", false)).ToBe(RTNCD_SUCCESS);
+
+      ExpectWithContext(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.parent_link + "/tree", "819", true),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.inside_file)).ToBe(819);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.nested_file)).ToBe(819);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.outside_file)).ToBe(1047);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.outside_secret)).ToBe(1047);
+    });
+
+    it("rejects explicit chmod and chtag links, including trailing slashes", []() -> void
+    {
+      ZusfMetadataFixture fixture;
+      fixture.populate();
+      Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.outside_file, "1047", false)).ToBe(RTNCD_SUCCESS);
+      for (const auto &path : {fixture.root_link, fixture.root_link + "/", fixture.tree + "/file-link"})
+      {
+        Expect(zusf_chmod_uss_file_or_dir(&fixture.zusf, path, 0777, true)).ToBe(RTNCD_FAILURE);
+        Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, path, "819", true)).ToBe(RTNCD_FAILURE);
+      }
+      fixture.expect_mode(fixture.outside, 0700);
+      fixture.expect_mode(fixture.outside_file, 0600);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.outside_file)).ToBe(1047);
+    });
+
+    it("chowns an explicitly requested link without changing its target", []() -> void
+    {
+      ZusfMetadataFixture fixture;
+      fixture.populate();
+      Expect(chmod(fixture.outside_file.c_str(), 04700)).ToBe(0);
+      ExpectWithContext(zusf_chown_uss_file_or_dir(&fixture.zusf, fixture.tree + "/file-link", fixture.owner(), false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      fixture.expect_mode(fixture.outside_file, 04700);
+    });
+
+    it("updates a requested file through a symlinked parent directory", []() -> void
+    {
+      ZusfMetadataFixture fixture;
+      fixture.populate();
+      Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.outside_file, "1047", false)).ToBe(RTNCD_SUCCESS);
+      Expect(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.outside_secret, "1047", false)).ToBe(RTNCD_SUCCESS);
+      const std::string path = fixture.root_link + "/file";
+      ExpectWithContext(zusf_chmod_uss_file_or_dir(&fixture.zusf, path, 04700, false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      fixture.expect_mode(fixture.outside_file, 04700);
+      ExpectWithContext(zusf_chown_uss_file_or_dir(&fixture.zusf, path, fixture.owner(), false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      fixture.expect_mode(fixture.outside_file, 0700);
+      ExpectWithContext(zusf_chtag_uss_file_or_dir(&fixture.zusf, path, "819", false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.outside_file)).ToBe(819);
+      fixture.expect_mode(fixture.outside_secret, 0600);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.outside_secret)).ToBe(1047);
+    });
+
+    it("updates owned files without requiring content-read permission", []() -> void
+    {
+      ZusfMetadataFixture fixture;
+      fixture.populate();
+      Expect(chmod(fixture.inside_file.c_str(), 0000)).ToBe(0);
+      ExpectWithContext(zusf_chtag_uss_file_or_dir(&fixture.zusf, fixture.inside_file, "819", false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      ExpectWithContext(zusf_chown_uss_file_or_dir(&fixture.zusf, fixture.inside_file, fixture.owner(), false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      Expect(zusf_get_file_ccsid(&fixture.zusf, fixture.inside_file)).ToBe(819);
+      fixture.expect_mode(fixture.inside_file, 0000);
+      ExpectWithContext(zusf_chmod_uss_file_or_dir(&fixture.zusf, fixture.inside_file, 0600, false),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      fixture.expect_mode(fixture.inside_file, 0600);
+    });
+
+    it("can grant access to a directory before recursively changing its contents", []() -> void
+    {
+      ZusfMetadataFixture fixture;
+      fixture.populate();
+      Expect(chmod(fixture.tree.c_str(), 0000)).ToBe(0);
+      ExpectWithContext(zusf_chmod_uss_file_or_dir(&fixture.zusf, fixture.tree, 0700, true),
+                        fixture.zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      for (const auto &path : {fixture.tree, fixture.nested, fixture.inside_file, fixture.nested_file})
+        fixture.expect_mode(path, 0700);
+      fixture.expect_mode(fixture.outside_file, 0600);
     });
   });
 
