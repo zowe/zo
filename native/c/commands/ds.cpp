@@ -32,6 +32,7 @@ using namespace commands::format;
 
 namespace ds
 {
+
 int process_data_set_create_result(InvocationContext &context, ZDS *zds, int rc, const std::string &dsn, std::string_view response)
 {
   if (0 != rc)
@@ -673,6 +674,12 @@ int handle_data_set_resolve_alias(InvocationContext &context)
 {
   int rc = 0;
   std::string aliasDsn = context.get<std::string>("dsn", "");
+  if (!validate_data_set_name(aliasDsn))
+  {
+    context.error_stream() << "The specified data set name is invalid. Specify a valid data set name." << std::endl;
+    return RTNCD_FAILURE;
+  }
+
   std::transform(aliasDsn.begin(), aliasDsn.end(), aliasDsn.begin(), ::toupper);
   const auto result = obj();
   std::string idcamsOutput = "";

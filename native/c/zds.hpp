@@ -374,4 +374,10 @@ int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *
  */
 int zds_idcams(const std::string &sysInData, std::string &output, std::string &error);
 
+/**
+ * @brief returns true if the provided data set name is valid, otherwise false.
+ * @param dsn - a data set name to validate. does not handle member names.
+ */
+bool validate_data_set_name(const std::string &dsn);
+
 #endif
