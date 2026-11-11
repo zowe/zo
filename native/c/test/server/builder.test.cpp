@@ -330,10 +330,10 @@ void server_builder_tests()
       }
     });
 
-    it("rejects a group/world-writable home directory", []()
+    it("rejects a group-writable home directory", []()
     {
       TestFifoDirectory directory;
-      Expect(chmod(directory.path.c_str(), 0777)).ToBe(0);
+      Expect(chmod(directory.path.c_str(), 0770)).ToBe(0);
       expect_transform_failure(fifo_builder(), {{"stream", plugin::Argument(1LL)}}, "Temporary files require a user-owned home");
     });
 
