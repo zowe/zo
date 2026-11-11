@@ -8,7 +8,7 @@ The server mediates all requests and dispatches them to appropriate command hand
 
 ## Configuration
 
-The `ZO_NUM_WORKERS` environment variable, if set, overrides the `--num-workers` argument for `zo server`. This is useful for system administrators who want to control server concurrency at the environment level without modifying client configurations.
+The `--num-workers` argument (or `-w`) for `zo server` takes precedence over the `ZO_NUM_WORKERS` environment variable. If the argument is omitted, the server uses `ZO_NUM_WORKERS` when set, otherwise it defaults to 10 workers. This lets system administrators set default server concurrency at the environment level while allowing client configurations to override it.
 
 ## Request and response processing
 
