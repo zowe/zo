@@ -1874,8 +1874,9 @@ async function buildSshClient(sshProfile: IProfile, hostFingerprint?: string): P
             keepaliveInterval: 30e3,
             ...(knownAlgorithms.length > 0
                 ? {
-                      // ssh2 accepts a RegExp here (and skips unsupported names) but its typings don't
+                      // ssh2 accepts a RegExp here (and skips unsupported names) but its typings don't.
                       algorithms: {
+                          ...sshProfile.algorithms,
                           serverHostKey: { remove: knownPattern, prepend: knownPattern },
                       } as unknown as ConnectConfig["algorithms"],
                   }
