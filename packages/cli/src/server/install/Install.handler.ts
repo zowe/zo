@@ -13,6 +13,7 @@ import {
     ConfigUtils,
     type ICommandHandler,
     type IHandlerParameters,
+    ImperativeConfig,
     type ITaskWithStatus,
     TaskStage,
 } from "@zowe/imperative";
@@ -35,6 +36,7 @@ export default class ServerInstallHandler implements ICommandHandler {
         let caughtError: Error;
         try {
             const installStatus = await ZSshUtils.installServer(session, serverPath, {
+                skipCache: ImperativeConfig.instance.daemonContext?.stream == null,
                 onProgress: (progressIncrement) => {
                     task.percentComplete += progressIncrement;
                 },

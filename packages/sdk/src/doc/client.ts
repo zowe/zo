@@ -13,6 +13,9 @@ import type { CommandRequest, CommandResponse } from "./rpc/common";
 import type { ProgressCallback, RpcPromise } from "./types";
 
 export interface ClientOptions {
+    /** Open a dedicated transport instead of reusing the SDK connection cache (default: false). */
+    skipCache?: boolean;
+
     /**
      * Maximum number of unanswered keep-alive messages before the connection is considered dead
      * (default: 3)

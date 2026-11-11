@@ -10,28 +10,27 @@
  */
 
 import type { ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
-import { type Config, NodeSSH } from "node-ssh";
-import { ZSshUtils } from "../ZSshUtils";
+import type { NodeSSH } from "node-ssh";
+import { SshClientCache, type SshConnectionLease } from "../SshClientCache";
 
+/**
+ * Compatibility wrapper for a scoped cache lease.
+ * @deprecated Pass SshSession directly to SDK methods. Hold a SshClientCache lease for a longer workflow if needed.
+ */
 export class SessionContext implements Disposable {
-    private sshConn?: NodeSSH;
-    private connectPromise?: Promise<NodeSSH>;
+    private lease?: Promise<SshConnectionLease>;
+    private disposed = false;
+    private activeLease?: SshConnectionLease;
 
     constructor(private readonly session: SshSession) {}
 
     public [Symbol.dispose](): void {
-        if (this.sshConn != null) {
-            this.sshConn.dispose();
-        } else if (this.connectPromise != null) {
-            // A connect is still in flight (e.g. dispose ran while concurrent calls were still
-            // establishing it). Dispose must stay synchronous, so dispose it once it settles
-            // instead of leaking the socket; swallow a failed connect because getSsh handles
-            // the error and disposes the attempted connection.
-            this.connectPromise.then(
-                (ssh) => ssh.dispose(),
-                () => {},
-            );
-        }
+        if (this.disposed) return;
+        this.disposed = true;
+        this.lease?.then(
+            (lease) => lease[Symbol.dispose](),
+            () => {},
+        );
     }
 
     public get ISshSession(): ISshSession {
@@ -39,26 +38,19 @@ export class SessionContext implements Disposable {
     }
 
     public async getSsh(): Promise<NodeSSH> {
-        if (this.sshConn != null && !this.sshConn.isConnected()) {
-            this.sshConn.dispose();
-            this.sshConn = undefined;
-            this.connectPromise = undefined;
+        if (this.disposed) throw new Error("SSH session context has been disposed");
+        if (this.activeLease && !this.activeLease.ssh.isConnected()) {
+            this.activeLease[Symbol.dispose]();
+            this.activeLease = undefined;
+            this.lease = undefined;
         }
-        this.connectPromise ??= (async () => {
-            const ssh = new NodeSSH();
-            try {
-                await ssh.connect(ZSshUtils.buildSshConfig(this.session) as Config);
-                this.sshConn = ssh;
-                return ssh;
-            } catch (error) {
-                ssh.dispose();
-                throw error;
-            }
-        })();
+        this.lease ??= SshClientCache.inst.acquire(this.session);
         try {
-            return await this.connectPromise;
+            const lease = await this.lease;
+            this.activeLease = lease;
+            return lease.ssh;
         } catch (error) {
-            this.connectPromise = undefined;
+            this.lease = undefined;
             throw error;
         }
     }

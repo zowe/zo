@@ -5,8 +5,9 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean && rimraf bin",
-    "lint": "npx @biomejs/biome check --write src",
+    "lint": "npx @biomejs/biome check --write src tests vitest.config.ts",
     "package": "node ../../scripts/bundleCliTgz.js ../../dist",
+    "test": "vitest run --coverage",
     "watch": "tsc -b -w"
   },
   "keywords": [],

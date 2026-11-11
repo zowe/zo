@@ -9,7 +9,7 @@
  *
  */
 
-import { type ICommandHandler, type IHandlerParameters, TextUtils } from "@zowe/imperative";
+import { type ICommandHandler, type IHandlerParameters, ImperativeConfig, TextUtils } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import {
     type ClientOptions,
@@ -169,6 +169,7 @@ export abstract class SshBaseHandler implements ICommandHandler {
 
     private buildSshClientOptions(commandParameters: IHandlerParameters): ClientOptions {
         return {
+            skipCache: ImperativeConfig.instance.daemonContext?.stream == null,
             numWorkers: 1,
             requestTimeout: commandParameters.arguments.responseTimeout,
             responseTimeout: commandParameters.arguments.responseTimeout,

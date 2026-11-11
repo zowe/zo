@@ -49,6 +49,7 @@ export default class ServerInstallHandler implements ICommandHandler {
         }
 
         const profile = await cliPromptApi.promptForProfile(undefined, {
+            skipCache: ImperativeConfig.instance.daemonContext?.stream == null,
             setExistingProfile: false,
             disableCreateNewProfile: true,
         });

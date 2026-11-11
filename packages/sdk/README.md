@@ -84,6 +84,44 @@ npx tsx sample.ts IBMUSER
 
 Pass `ClientOptions` like `serverPath` as the second argument to `ZSshClient.create(session, options)`. For available options, see the [doc/client.ts file](./src/doc/client.ts).
 
+## SSH connection reuse
+
+`SshClientCache.inst` shares authenticated connections between profile validation, SSH utilities,
+SFTP deployment, and `ZSshClient.create`. Existing session-based method calls continue to work;
+equivalent sessions resolve to the same connection. Transport identity uses the user, host, and port;
+server-client keys additionally include the server path, e.g. `ssh://user@host:22/opt/zo`.
+Credentials are excluded from cache keys. Profile validation publishes a connection only after
+both authentication and a validation command succeed.
+
+Idle connections close after ten minutes. An active server client or workflow lease prevents expiry
+from interrupting its operations. `SessionContext` is deprecated; SDK methods accept plain `SshSession`
+objects and look up the cached transport automatically. For a longer workflow, use
+`using lease = await SshClientCache.inst.acquire(session)` to hold its connection until the scope ends.
+Disposing a client closes its server channel and releases the transport for reuse. Use `skipCache: true` to create a dedicated connection that closes on disposal:
+
+```typescript
+using client = await ZSshClient.create(session, { skipCache: true });
+```
+
+`installServer`, `uninstallServer`, and profile validation also accept `skipCache` in their existing
+options object. This lets short-lived CLI commands close dedicated connections without extra lifecycle wrappers.
+
+For explicit invalidation, import `SshClientCache` and use the client's key:
+
+```typescript
+SshClientCache.inst.invalidate(client.cacheKey);
+```
+
+Invalidation immediately closes the shared transport and affects every client using that connection.
+`cacheKey` is undefined for dedicated or native SSH clients. Experimental native SSH cannot adopt the
+`node-ssh` connection used for validation and SFTP deployment, so server startup authenticates separately.
+Disable experimental native SSH when the entire workflow must reuse one MFA authentication.
+`SshClientCache.inst.dispose()` closes all cached clients and transports, including idle connections.
+
+Extenders can subclass `SshClientCache` to override settings, deployment confirmation, progress, and
+error presentation while inheriting server caching and deployment sequencing. Install that subclass
+as the SDK singleton with the protected static `setInstance` method, as the VS Code adapter does.
+
 ## Building from Source
 
 1. From the root of this repository, run `npm install` to install all the dependencies
