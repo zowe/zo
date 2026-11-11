@@ -20,6 +20,8 @@ on:
         required: true
       SSH_MARIST_ZNP_ID:
         required: true
+      SSH_MARIST_HOST_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -52,6 +54,7 @@ jobs:
                 user: "${{ secrets.SSH_MARIST_ZNP_ID }}"
                 password: "${{ secrets.SSH_MARIST_ZNP_PASS }}"
               deployDir: "/ZOWE/tmp/zowex"
+              hostFingerprint: "${{ secrets.SSH_MARIST_HOST_KEY }}"
               # Keep in step with zos-build.yml: Open XL C/C++ 2.1 is the newest compiler IBM
               # supports on z/OS 2.5, our minimum supported release. See
               # native/c/compat/README.md and https://github.com/zowe/zowex/issues/871.
