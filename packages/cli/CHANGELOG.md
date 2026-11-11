@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- BugFix: Fixed an issue where the exit code of `zowe zo` commands would remain zero even when the commands terminated with an error. [TODO](TODO)
+- BugFix: Fixed an issue where the exit code of `zowe zo` commands would remain zero even when the commands terminated with an error. [#1230](https://github.com/zowe/zo/pull/1230)
 - Added a prompt to the `zowe zo config setup` command to confirm saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
 
 ## `1.1.0`
