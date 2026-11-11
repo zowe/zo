@@ -54,6 +54,6 @@
   },
   "peerDependencies": {
     "@zowe/imperative": "^8.39.0",
-    "@zowe/zos-uss-for-zowe-sdk": "^8.39.0"
+    "@zowe/zos-uss-for-zowe-sdk": "^8.42.0"
   }
 }
