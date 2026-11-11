@@ -23,6 +23,8 @@ on:
         required: true
       SSH_MARIST_ZNP_ID:
         required: true
+      SSH_MARIST_HOST_KEY:
+        required: true
   workflow_dispatch:
 
 permissions:
@@ -60,6 +62,7 @@ jobs:
                 user: "${{ secrets.SSH_MARIST_ZNP_ID }}"
                 password: "${{ secrets.SSH_MARIST_ZNP_PASS }}"
               deployDir: "/ZOWE/tmp/zowex"
+              hostFingerprint: "${{ secrets.SSH_MARIST_HOST_KEY }}"
               # Open XL C/C++ 2.1 is the newest compiler IBM supports on z/OS 2.5, our minimum
               # supported release. Open XL 2.2 requires z/OS 3.1+, and its newer libc++ raises the
               # Language Environment runtime level every consumer of this artifact must carry.
@@ -114,17 +117,20 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          RUN_ID=$(gh run list --workflow=zos-build.yml --branch=main --event=push --status=success --limit=1 --json=databaseId --jq='.[0].databaseId' 2>/dev/null || true)
+          read -r RUN_ID MAIN_SHA <<< "$(gh run list --workflow=zos-build.yml --branch=main --event=push --status=success --limit=1 --json=databaseId,headSha --jq='.[0] | [.databaseId, .headSha] | @tsv' 2>/dev/null || true)"
           [[ -n "$RUN_ID" ]] && gh run download "$RUN_ID" --name zowe-server-release --dir /tmp/main 2>/dev/null || true
-          node -e '
+          MAIN_SHA="$MAIN_SHA" node -e '
             const childProcess = require("child_process");
             const fs = require("fs");
             const paxSize = (pax) => parseInt(childProcess.execSync(`zcat ${pax} | tar -tvf - | awk \x27{sum += $3} END {print sum}\x27`));
             const pr = paxSize("dist/server.pax.Z");
             const main = fs.existsSync("/tmp/main/server.pax.Z") ? paxSize("/tmp/main/server.pax.Z") : 0;
             const pct = main ? ((pr - main) / main * 100).toFixed(2) : 0;
-            const change = !main ? "" : !Number(pct) ? " (no change)" : ` (${pct > 0 ? "+" : ""}${pct}% from main)`;
+            const sha = process.env.MAIN_SHA;
+            const baseline = `[\`${sha.slice(0, 7)}\`](${process.env.REPO_URL}/commit/${sha})`;
+            const change = !main ? "" : !Number(pct) ? " (no change)" : ` (${pct > 0 ? "+" : ""}${pct}% from ${baseline})`;
             console.log(`line=- Extracted size: ${(pr / 1048576).toFixed(2)} MB${change}`);
           ' >> "$GITHUB_OUTPUT"
 

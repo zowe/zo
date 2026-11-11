@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- Build tooling now verifies the z/OS SSH host key against `~/.ssh/known_hosts` or an optional `hostFingerprint` in `config.yaml`, and fails if it can't be verified. [#1224](https://github.com/zowe/zo/pull/1224)
 - `c`: Added validation for the data set name argument to the `zo ds resolve-alias` command. [#1229](https://github.com/zowe/zo/pull/1229)
 - `c`: Added additional validation for the output file of the `zo system cert export` command. [#1225](https://github.com/zowe/zo/pull/1225)
 - `c`: Hardened recursive USS chmod, chown, and chtag commands with descriptor-anchored traversal. [#1222](https://github.com/zowe/zo/pull/1222)
@@ -15,6 +16,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Removed the unused `zut_alloc_debug` and `ZUTDBGMG` debugging functions. [#1216](https://github.com/zowe/zo/pull/1216)
 - `c`: Improved handling for JSON-RPC responses of 16 MB or more by JSON-escaping generated output. [#1217](https://github.com/zowe/zo/pull/1217)
 - `c`: Added the `NOPRTCC` parm to `zo tool search` when invoked through RPC so SuperC listings no longer contain page breaks or repeated page titles. [#1182](https://github.com/zowe/zo/issues/1182)
+- `c`: Defaulted command and server logging to WARN and made `zo server --verbose` select DEBUG over the `ZO_LOG_LEVEL` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
+- `c`: Made explicit `zo server --num-workers` and `-w` values override the `ZO_NUM_WORKERS` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
 
 ## `1.1.0`
 
@@ -371,3 +374,4 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 - Initial release
+
