@@ -141,10 +141,6 @@ The existing table and CSV columns are unchanged; the execution fields are avail
 
 ## Certificates
 
-See [Testing certificates and key rings](./certificates-testing.md) for test
-commands, required authority, and fixture setup for the native service and Python
-bindings.
-
 | Operation                | z/OSMF | FTP | `zo`<br>Backend | `zo`<br>Server | Python<br>Bindings | Node.js<br>SDK | CLI<br>Plug-in | VS Code |
 | ------------------------ | ------ | --- | --------------- | -------------- | ------------------ | -------------- | -------------- | ------- |
 | List key rings           | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
