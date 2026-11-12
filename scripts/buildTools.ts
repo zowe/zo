@@ -1693,10 +1693,10 @@ async function upload(connection: Client, sshProfile: IProfile) {
             const watcher = new WatchUtils(connection, sshProfile);
             if (args[1] == null) {
                 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../package.json"), "utf-8"));
-                try {
-                    const gitHash = childProcess.execSync(`git rev-parse --short HEAD`).toString().trim();
+                const gitHash = getShortHash();
+                if (gitHash !== "local") {
                     packageJson.gitHash = `+${gitHash}`;
-                } catch {}
+                }
                 pendingUploads.push(
                     uploadFile(
                         sftpcon,
