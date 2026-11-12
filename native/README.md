@@ -41,8 +41,8 @@ The logger supports the following log levels (in order of verbosity):
 
 - `TRACE` (T) - Most verbose, includes all debugging information
 - `DEBUG` (D) - Debugging information
-- `INFO` (I) - General informational messages (default)
-- `WARN` (W) - Warning messages
+- `INFO` (I) - General informational messages
+- `WARN` (W) - Warning messages (default)
 - `ERROR` (E) - Error messages
 - `FATAL` (F) - Fatal errors that may cause program termination
 - `OFF` - Disable all logging
@@ -56,7 +56,7 @@ Set the log level for `zo` using the `ZO_LOG_LEVEL` environment variable:
 ZO_LOG_LEVEL=TRACE ./zo --it
 ```
 
-`ZO_LOG_LEVEL` applies to both command and server mode and takes precedence over the server's `--verbose` option. Without an explicit level, the default is `INFO`, or `DEBUG` for `zo server --verbose`. Level names are case-insensitive; `WARNING` is accepted as an alias for `WARN`. `OFF` disables file messages. To change the level programmatically, use `ZLogger::set_log_level(LogLevel)`. In Debug builds this also updates the Metal C level; `ZLGSTLVL` changes only the Metal C level. `ZLOG_FATAL` writes a fatal diagnostic without exiting; `LOG_FATAL` also prints to stderr and exits with status 1.
+`ZO_LOG_LEVEL` applies to both command and server mode. Both default to `WARN` without an explicit level. `zo server --verbose` selects `DEBUG`, overriding `ZO_LOG_LEVEL`. Level names are case-insensitive; `WARNING` is accepted as an alias for `WARN`. `OFF` disables file messages unless `--verbose` is passed. To change the level programmatically, use `ZLogger::set_log_level(LogLevel)`. In Debug builds this also updates the Metal C level; `ZLGSTLVL` changes only the Metal C level. `ZLOG_FATAL` writes a fatal diagnostic without exiting; `LOG_FATAL` also prints to stderr and exits with status 1.
 
 Override where log files are written using the `ZO_LOGS_DIR` environment variable. This is useful for shared installations where users may not have write access to the default location, or for redirecting logs elsewhere for troubleshooting:
 
