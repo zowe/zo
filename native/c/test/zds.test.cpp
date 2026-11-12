@@ -1160,8 +1160,12 @@ void zds_tests()
         int rc = zds_delete_member_shared(&zds, dsname + "(NOEXIST)");
         Expect(rc).ToBe(RTNCD_FAILURE);
         Expect(zds.diag.detail_rc).ToBe(ZDS_RTNCD_NOT_FOUND);
-        Expect(zds_member_exists(dsname, "NOEXIST")).ToBe(false);
-        Expect(zds_member_exists(dsname, "KEEP1")).ToBe(true);
+
+        std::vector<ZDSMem> members;
+        ZDS list_zds = {};
+        ExpectWithContext(zds_list_members(&list_zds, dsname, members), list_zds.diag.e_msg).ToBe(0);
+        Expect(members.size()).ToBe(1);
+        Expect(members[0].name).ToBe("KEEP1");
       });
 
       it("should delete data set successfully when valid", [&]() -> void

@@ -2310,10 +2310,31 @@ int zds_delete_member_shared(ZDS *zds, const std::string &dsn)
 {
   std::string member_dsn = dsn;
   std::transform(member_dsn.begin(), member_dsn.end(), member_dsn.begin(), ::toupper);
+  const auto member_start = member_dsn.find('(');
+  const std::string member_name = member_dsn.substr(member_start + 1, member_dsn.find(')', member_start) - member_start - 1);
+
+  std::vector<ZDSMem> members;
+  ZDS list_zds{};
+  int rc = zds_list_members(&list_zds, member_dsn.substr(0, member_start), members);
+  if (0 != rc)
+  {
+    memcpy(&zds->diag, &list_zds.diag, sizeof(zds->diag));
+    return rc;
+  }
+  const bool member_not_found = std::none_of(members.begin(), members.end(), [&member_name](const ZDSMem &member)
+  {
+    return member.name == member_name;
+  });
+  if (member_not_found)
+  {
+    ZDIAG_SET_MSG(&zds->diag, "Member %s not found in data set: %s", member_name.c_str(), member_dsn.substr(0, member_start).c_str());
+    zds->diag.detail_rc = ZDS_RTNCD_NOT_FOUND;
+    return RTNCD_FAILURE;
+  }
 
   IO_CTRL *ioc = nullptr;
   zds->delete_only = 1;
-  int rc = zds_open_output_bpam(zds, member_dsn, ioc);
+  rc = zds_open_output_bpam(zds, member_dsn, ioc);
   if (0 != rc)
   {
     return rc;
