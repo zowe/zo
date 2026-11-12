@@ -26,6 +26,34 @@ its side deck and runtime selection to the build, then running the installed-whe
 tests with that interpreter. The Limited API alone does not make these binaries
 compatible with future Python versions.
 
+### GitHub Actions artifacts and releases
+
+The **z/OS Python Build** workflow builds the wheel after the binding tests pass
+and archives it with its SHA-256 file in the `zowe-python-wheel` Actions artifact.
+It runs for matching pull requests and can also be started with **Run workflow**.
+The CI host must provide IBM Python 3.11, 3.13, and 3.14 under
+`/usr/lpp/IBM/cyp/`; set the `ZPY_PYTHON_ROOT` repository variable to use another
+installation root with the same `v3rXX/pyz/bin/python` layout.
+
+To publish, run the existing **Release** workflow with an explicit `version`.
+It passes that version to the Python build, downloads the wheel from the same
+workflow run, verifies its checksum and Twine metadata, and uploads it to
+Zowe's `pypi-release-local` repository. A `dry-run` still builds, archives, and
+checks the wheel but skips the upload. Nightly releases do not publish wheels.
+
+Publishing uses the existing `ARTIFACTORY_USERNAME` and `ARTIFACTORY_PASSWORD`
+GitHub secrets, available to the `release` environment. These credentials must
+have deploy permission for `pypi-release-local`; the password secret can contain
+an Artifactory access token. Twine uses the
+[PyPI upload endpoint](https://docs.jfrog.com/artifactory/docs/pypi-repositories),
+`https://zowe.jfrog.io/artifactory/api/pypi/pypi-release-local/`.
+
+Install a published version on z/OS with:
+
+```sh
+python -m pip install --index-url https://zowe.jfrog.io/artifactory/api/pypi/pypi-release-local/simple zo==1.0.2
+```
+
 ### Install in a fresh z/OS venv
 
 Select a supported IBM Python interpreter, then run:
