@@ -117,8 +117,12 @@ public class ZoCertificateController {
         if (format != null && !"pem".equalsIgnoreCase(format)) {
             throw new IllegalArgumentException("GET export supports pem only; use POST for p12");
         }
+        if (file != null || dsn != null) {
+            // Writing a server-side destination is state-changing: require POST (and its CSRF header)
+            throw new IllegalArgumentException("GET export only returns certificate data; use POST to write to a file or data set");
+        }
         return noStore(certificateService.exportCertificate(owner, ring, label,
-                new ExportRequest("pem", file, dsn, null)));
+                new ExportRequest("pem", null, null, null)));
     }
 
     @PostMapping(RING_CERT + "/export")

@@ -11,7 +11,6 @@
 
 package org.zowe.zo.ffm;
 
-import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -35,8 +34,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * FFM implementation of {@link ZoRpcClient} over libzo_java.so's zo_c_rpc_call.
  *
- * Wire format is ISO-8859-1 JSON: requests are written with non-ASCII escaped as \\uXXXX so
- * the native ASCII-to-EBCDIC conversion is lossless. Native log records are forwarded to the
+ * Wire format is ISO-8859-1 JSON. Non-ASCII Latin-1 characters are sent unescaped so the
+ * native ISO8859-1 to IBM-1047 conversion maps them; zo's JSON parser would otherwise turn a
+ * {@code \\u00XX} escape into the raw byte 0xXX, which is a different character in EBCDIC.
+ * Characters outside Latin-1 cannot be represented and are rejected before dispatch. Native log records are forwarded to the
  * "org.zowe.zo.native" logger on the calling thread, so MDC (user, request id) applies.
  */
 @Slf4j
@@ -47,9 +48,7 @@ public class ZoRpcBindings implements ZoRpcClient {
     // Bound for a single JSON-RPC response; content-heavy methods stay on the typed shims.
     private static final long MAX_RESPONSE_LENGTH = FfmUtils.MAX_DATA_STRING_LENGTH;
 
-    private final ObjectMapper mapper = JsonMapper.builder()
-            .enable(JsonWriteFeature.ESCAPE_NON_ASCII)
-            .build();
+    private final ObjectMapper mapper = JsonMapper.builder().build();
     private final AtomicInteger nextId = new AtomicInteger(1);
 
     @Override
@@ -62,9 +61,19 @@ public class ZoRpcBindings implements ZoRpcClient {
         }
         request.put("id", nextId.getAndUpdate(i -> i == Integer.MAX_VALUE ? 1 : i + 1));
 
+        String requestJson;
+        try {
+            requestJson = mapper.writeValueAsString(request);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Request parameters could not be serialized");
+        }
+        if (!requestJson.chars().allMatch(c -> c <= 0xFF)) {
+            throw new IllegalArgumentException("Request contains characters that cannot be represented in IBM-1047");
+        }
+
         JsonNode response;
         try {
-            response = mapper.readTree(Native.call(mapper.writeValueAsString(request)));
+            response = mapper.readTree(Native.call(requestJson));
         } catch (ZoRpcException e) {
             throw e;
         } catch (Exception e) {

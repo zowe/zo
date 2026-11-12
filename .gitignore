@@ -36,3 +36,6 @@ native/java/app/build
 application.yml
 .idea/
 native/java/dist/
+# zo-rest Zowe extension sources are tracked despite the generic bin/ and application.yml rules
+!native/java/zowe-extension/bin/
+!native/java/zowe-extension/config/application.yml

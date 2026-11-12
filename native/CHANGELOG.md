@@ -6,6 +6,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `c`: Added `RpcServer::call()`, which runs a JSON-RPC request through the same parse, validation and dispatch path as `zo server` but returns the response instead of writing it to stdout, so the zo command handlers can be embedded in another process. The stdio server is unchanged. [#TBD](https://github.com/zowe/zowex/pulls)
+- `c`: Added a host-sink mode to the zo logger so an embedding multi-tenant process (the Java REST API) owns log output; the CLI and `zo server` keep writing per-user log files. [#TBD](https://github.com/zowe/zowex/pulls)
+- `java`: Added `libzo_java.so` entry points for the zo REST API: an allowlisted in-process RPC bridge, and binary-safe data set and USS content I/O with ETags. [#TBD](https://github.com/zowe/zowex/pulls)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)

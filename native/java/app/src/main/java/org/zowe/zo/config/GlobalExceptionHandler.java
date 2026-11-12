@@ -62,6 +62,7 @@ public class GlobalExceptionHandler {
             case ZoRpcException.METHOD_NOT_FOUND -> HttpStatus.NOT_IMPLEMENTED;
             case ZoRpcException.ETAG_MISMATCH -> HttpStatus.PRECONDITION_FAILED;
             case ZoRpcException.NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case ZoRpcException.CONFLICT -> HttpStatus.CONFLICT;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
         log.warn("zo RPC {} failed: code={}, message={}", ex.getMethod(), ex.getCode(), ex.getMessage());

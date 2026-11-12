@@ -31,6 +31,8 @@ public class ZoRpcException extends Exception {
     public static final int ETAG_MISMATCH = -32010;
     /** Implementation-defined: the target data set, member or file does not exist. */
     public static final int NOT_FOUND = -32011;
+    /** Implementation-defined: the target already exists and overwriting was not requested. */
+    public static final int CONFLICT = -32012;
 
     private final String method;
     private final int code;

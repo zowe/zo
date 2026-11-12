@@ -69,18 +69,16 @@ void set_data(ZoContentResult_C *result, const std::string &data)
   }
 }
 
-// Mirrors the zo view/write handlers: encoding goes through zut_prepare_encoding, the local
-// encoding is the caller-side codepage.
+// Mirrors the zo RPC registrations (rpc_commands.cpp), which default "encoding" to IBM-1047
+// for data set and USS content; the local encoding is the caller-side codepage.
 template <typename T>
 bool apply_encoding(T &target, const ZoContentOptions_C *options, std::string &error)
 {
+  const bool has_encoding = options && options->encoding && *options->encoding;
+  zut_prepare_encoding(has_encoding ? ebcdic_arg(options->encoding) : std::string("IBM-1047"), &target.encoding_opts);
   if (!options)
   {
     return true;
-  }
-  if (options->encoding && *options->encoding)
-  {
-    zut_prepare_encoding(ebcdic_arg(options->encoding), &target.encoding_opts);
   }
   if (options->local_encoding && *options->local_encoding)
   {
@@ -179,26 +177,26 @@ bool valid_dsname_text(const std::string &dsname)
   return !dsname.empty() && dsname.find('\'') == std::string::npos;
 }
 
+// Validates the EBCDIC form; letter ranges are not contiguous in EBCDIC, so use an explicit set.
 bool valid_volser_text(const ZoContentOptions_C *options)
 {
-  if (!options || !options->volser)
+  if (!options || !options->volser || !*options->volser)
   {
     return true;
   }
-  const size_t len = std::strlen(options->volser);
-  if (len == 0 || len > 6)
-  {
-    return len == 0;
-  }
-  for (size_t i = 0; i < len; ++i)
-  {
-    const char c = options->volser[i];
-    if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '@' || c == '#' || c == '$'))
-    {
-      return false;
-    }
-  }
-  return true;
+  const std::string volser = ebcdic_arg(options->volser);
+  static const char allowed[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$";
+  return volser.size() <= 6 && volser.find_first_not_of(allowed) == std::string::npos;
+}
+
+// Password-protected data sets must be rejected before any OPEN-based probe, which could
+// otherwise enter password-prompt processing and block the request thread.
+bool password_guard(ZDS &zds, const std::string &dsname, bool for_write)
+{
+  std::string base;
+  std::string member;
+  split_member(dsname, base, member);
+  return zds_validate_no_password(&zds, base, for_write) == RTNCD_SUCCESS;
 }
 
 template <typename Fn>
@@ -244,6 +242,13 @@ extern "C"
       if (!apply_encoding(zds, options, error))
       {
         fail(result, ZO_CONTENT_INVALID, error);
+        return;
+      }
+
+      const bool by_volume = options && options->volser && *options->volser;
+      if (!by_volume && !password_guard(zds, dsname, false))
+      {
+        fail(result, ZO_CONTENT_FAILED, std::string("could not read data set: ") + zds.diag.e_msg);
         return;
       }
 
@@ -299,6 +304,16 @@ extern "C"
       }
 
       const bool by_volume = options && options->volser && *options->volser;
+      if (by_volume && options->etag && *options->etag)
+      {
+        fail(result, ZO_CONTENT_INVALID, "conditional (ETag) writes to volume-qualified data sets are not supported");
+        return;
+      }
+      if (!by_volume && !password_guard(zds, dsname, true))
+      {
+        fail(result, ZO_CONTENT_FAILED, std::string("could not write data set: ") + zds.diag.e_msg);
+        return;
+      }
       std::string base;
       std::string member;
       split_member(dsname, base, member);

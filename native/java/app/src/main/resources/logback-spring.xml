@@ -10,7 +10,8 @@ Simple logback config to override apiml configuration coming from dependency
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${CONSOLE_LOG_PATTERN}</pattern>
-            <charset>IBM-1047</charset>
+            <!-- No explicit charset: follow the JVM default so output matches how stdout is tagged
+                 (UTF-8 under the Zowe launcher, EBCDIC in a plain z/OS shell). -->
         </encoder>
     </appender>
 

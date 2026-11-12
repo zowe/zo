@@ -1,0 +1,109 @@
+# zo REST API configuration when installed as a Zowe extension.
+# Every environment-specific value comes from variables exported by bin/start.sh,
+# which derives them from the Zowe launcher's ZWE_* environment. Passwords are passed
+# as environment variables (never -D flags) so they do not appear in process listings.
+server:
+  port: ${ZO_PORT}
+  address: ${ZO_LISTEN_ADDRESS:0.0.0.0}
+  ssl:
+    enabled: true
+    keyStore: ${ZO_KEYSTORE}
+    keyStorePassword: ${ZO_KEYSTORE_PASSWORD}
+    keyStoreType: ${ZO_KEYSTORE_TYPE}
+    keyPassword: ${ZO_KEY_PASSWORD}
+    keyAlias: ${ZO_KEY_ALIAS}
+    trustStore: ${ZO_TRUSTSTORE}
+    trustStorePassword: ${ZO_TRUSTSTORE_PASSWORD}
+    trustStoreType: ${ZO_TRUSTSTORE_TYPE}
+    protocol: TLS
+    enabled-protocols: TLSv1.2,TLSv1.3
+
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  application:
+    name: zo
+
+zo:
+  security:
+    require-csrf-header: ${ZO_REQUIRE_CSRF_HEADER:true}
+
+apiml:
+  enabled: true
+  service:
+    preferIpAddress: false
+    serviceId: zo
+    title: zo REST API
+    description: z/OSMF-compatible data set, USS and jobs REST API plus zo extensions
+    discoveryServiceUrls: ${ZO_DISCOVERY_URLS}
+    scheme: https
+    hostname: ${ZO_HOSTNAME}
+    port: ${ZO_PORT}
+    baseUrl: https://${ZO_HOSTNAME}:${ZO_PORT}
+    contextPath: /
+    authentication:
+      scheme: zoweJwt
+    homePageRelativeUrl: /
+    statusPageRelativeUrl: /application/info
+    healthCheckRelativeUrl: /application/health
+    # Longest gateway URL wins in APIML, so:
+    #   <gateway>/zo/api/v1/zosmf/...  -> /zosmf/...      (Zowe z/OSMF profiles: basePath /zo/api/v1)
+    #   <gateway>/zo/api/v1/...        -> /zo/api/v1/...  (zo extensions)
+    routes:
+      - gateway-url: "api/v1/zosmf"
+        service-url: /zosmf
+      - gateway-url: "api/v1"
+        service-url: /zo/api/v1
+    apiInfo:
+      - apiId: zowe.apiml.zo
+        version: 1.0.0
+        gatewayUrl: api/v1
+        swaggerUrl: https://${ZO_HOSTNAME}:${ZO_PORT}/v3/api-docs
+        documentationUrl: https://docs.zowe.org
+        defaultApi: true
+    catalog:
+      tile:
+        id: zo
+        title: zo REST API
+        description: z/OS data sets, USS files, jobs, keyrings and system information
+        version: 1.0.0
+    ssl:
+      enabled: true
+      verifySslCertificatesOfServices: ${ZO_VERIFY_CERTIFICATES:true}
+      nonStrictVerifySslCertificatesOfServices: ${ZO_NONSTRICT_VERIFY_CERTIFICATES:false}
+      protocol: TLS
+      keyAlias: ${ZO_KEY_ALIAS}
+      keyPassword: ${ZO_KEY_PASSWORD}
+      keyStore: ${ZO_KEYSTORE}
+      keyStorePassword: ${ZO_KEYSTORE_PASSWORD}
+      keyStoreType: ${ZO_KEYSTORE_TYPE}
+      trustStore: ${ZO_TRUSTSTORE}
+      trustStorePassword: ${ZO_TRUSTSTORE_PASSWORD}
+      trustStoreType: ${ZO_TRUSTSTORE_TYPE}
+    customMetadata:
+      apiml:
+        gatewayPort: ${ZO_GATEWAY_PORT}
+        gatewayAuthEndpoint: /gateway/api/v1/auth
+        apiBasePath: /api/v1
+
+# Registration is done by the APIML onboarding enabler (apiml.enabled), not Spring Cloud's
+# own Eureka client; enabling both makes Spring Cloud's auto-registration fail at startup.
+eureka:
+  client:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      base-path: /application
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: ${ZO_LOG_LEVEL:INFO}
+    org.springframework: WARN
+    org.zowe.zo.native: ${ZO_NATIVE_LOG_LEVEL:WARN}

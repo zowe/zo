@@ -175,6 +175,29 @@ public class UssService {
         callOrNotFound("copyUss", params);
     }
 
+    /**
+     * z/OSMF copy semantics: with overwrite=false an existing target must be left untouched.
+     * zo's copy (cp) replaces writable targets even without force, so check first.
+     */
+    public void copyZosmf(String from, String to, CopyOptions options) throws ZoRpcException {
+        if (!options.force() && exists(to)) {
+            throw new ZoRpcException("copyUss", ZoRpcException.CONFLICT, "Target path already exists", null);
+        }
+        copy(from, to, options);
+    }
+
+    private boolean exists(String path) throws ZoRpcException {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("fspath", InputValidator.path(path));
+        try {
+            callOrNotFound("listFiles", params);
+            return true;
+        } catch (ZoRpcException e) {
+            if (e.getCode() == ZoRpcException.NOT_FOUND) return false;
+            throw e;
+        }
+    }
+
     public void move(String from, String to, boolean overwrite) throws ZoRpcException {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("source", InputValidator.path(from));
@@ -211,7 +234,8 @@ public class UssService {
         } catch (ZoRpcException e) {
             String details = e.getDetails();
             String text = ((e.getMessage() == null ? "" : e.getMessage()) + (details == null ? "" : details)).toLowerCase(Locale.ROOT);
-            if (e.getCode() != ZoRpcException.NOT_FOUND && text.contains("no such file or directory")) {
+            if (e.getCode() != ZoRpcException.NOT_FOUND
+                    && (text.contains("no such file or directory") || text.contains("does not exist"))) {
                 throw InputValidator.notFound(method, "Path was not found");
             }
             throw e;

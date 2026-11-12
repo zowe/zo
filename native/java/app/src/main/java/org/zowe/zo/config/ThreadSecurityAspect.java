@@ -33,14 +33,26 @@ public class ThreadSecurityAspect {
                     log.debug("Executing {} as user {}", joinPoint, MDC.get(MDC_USER));
                     return joinPoint.proceed();
                 } catch (Throwable e) {
-                    throw new RuntimeException(e);
+                    throw new ProceedFailure(e);
                 } finally {
                     if (previousUser == null) MDC.remove(MDC_USER);
                     else MDC.put(MDC_USER, previousUser);
                 }
             }).call();
+        } catch (ProceedFailure e) {
+            // Rethrow what the advised method threw so callers can catch their declared exceptions
+            throw e.getCause();
         } finally {
             log.debug("Exiting {} as user {}", joinPoint, platformSecurityService.getCurrentThreadUserId());
+        }
+    }
+
+    /** Carries an exception from the advised method out of the security-environment callable. */
+    private static final class ProceedFailure extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        ProceedFailure(Throwable cause) {
+            super(cause);
         }
     }
 }

@@ -17,7 +17,7 @@ set -e
 [ $# -eq 4 ] || { echo "usage: $0 <jar> <libzo_java.so> <libzowe-commons-secur.so> <out.pax>" >&2; exit 1; }
 
 here=$(cd "$(dirname "$0")" && pwd)
-stage="${TMPDIR:-/tmp}/zo-rest-stage.$$"
+stage="${here}/.stage.$$"
 trap 'rm -rf "${stage}"' EXIT
 mkdir -p "${stage}/bin" "${stage}/config" "${stage}/schemas" "${stage}/lib"
 
@@ -29,7 +29,13 @@ cp "$1" "${stage}/lib/zo-java-app.jar"
 cp "$2" "${stage}/lib/libzo_java.so"
 cp "$3" "${stage}/lib/libzowe-commons-secur.so"
 
-find "${stage}" -type f ! -name '*.jar' ! -name '*.so' -exec chtag -tc IBM-1047 {} \;
+# Shell scripts and the manifest are read by z/OS tools (EBCDIC); files read by the JVM
+# (Spring config) must be UTF-8.
+for yml in "${stage}"/config/*.yml; do
+  iconv -f IBM-1047 -t UTF-8 "${yml}" > "${yml}.utf8" && mv "${yml}.utf8" "${yml}"
+  chtag -tc UTF-8 "${yml}"
+done
+find "${stage}" -type f ! -name '*.jar' ! -name '*.so' ! -path '*/config/*.yml' -exec chtag -tc IBM-1047 {} \;
 chtag -b "${stage}"/lib/*
 chmod 755 "${stage}"/bin/*.sh "${stage}"/lib/*.so
 extattr +p "${stage}"/lib/*.so 2>/dev/null || echo "note: extattr +p not permitted here; bin/install.sh sets it at install time"

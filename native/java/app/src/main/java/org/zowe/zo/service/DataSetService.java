@@ -219,10 +219,16 @@ public class DataSetService {
         return q.maxItems() + 1;
     }
 
-    private static <T> ListPage<T> page(List<T> all, ListQuery q, boolean totalKnown) {
-        boolean more = q.maxItems() > 0 && all.size() > q.maxItems();
-        List<T> items = more ? new ArrayList<>(all.subList(0, q.maxItems())) : all;
-        return new ListPage<>(items, more, more && totalKnown ? all.size() : null);
+    /**
+     * @param fetchedAll     the native call was asked for everything (not just one page)
+     * @param nativeTruncated the native result hit the fetch cap, so later matches may exist
+     */
+    private static <T> ListPage<T> page(List<T> all, ListQuery q, boolean fetchedAll, boolean nativeTruncated) {
+        boolean overflow = q.maxItems() > 0 && all.size() > q.maxItems();
+        List<T> items = overflow ? new ArrayList<>(all.subList(0, q.maxItems())) : all;
+        boolean more = overflow || nativeTruncated;
+        Integer total = more && fetchedAll && !nativeTruncated ? all.size() : null;
+        return new ListPage<>(items, more, total);
     }
 
     /**
@@ -251,7 +257,7 @@ public class DataSetService {
             all.add(info);
         }
         all.sort(Comparator.comparing(DataSetInfo::name));
-        return page(all, q, fetch == MAX_FETCH);
+        return page(all, q, fetch == MAX_FETCH, fetch == MAX_FETCH && result.path("items").size() >= MAX_FETCH);
     }
 
     public ListPage<MemberInfo> listMembers(String dsname, String memberPattern, ListQuery query) throws ZoRpcException {
@@ -275,7 +281,7 @@ public class DataSetService {
             }
         }
         all.sort(Comparator.comparing(MemberInfo::name));
-        return page(all, q, fetch == MAX_FETCH);
+        return page(all, q, fetch == MAX_FETCH, fetch == MAX_FETCH && result.path("items").size() >= MAX_FETCH);
     }
 
     public ZoContentIo.Content read(Target target, ZoContentIo.Options options) throws ZoRpcException {
@@ -321,6 +327,12 @@ public class DataSetService {
     }
 
     public void delete(Target target) throws ZoRpcException {
+        if (target.volser() != null) {
+            // deleteDataset resolves the name through the catalog, which could remove a different
+            // (cataloged) copy than the one on the requested volume.
+            throw new ZoRpcException("deleteDataset", ZoRpcException.METHOD_NOT_FOUND,
+                    "Deleting a volume-qualified (uncataloged) data set is not supported", null);
+        }
         try {
             call("deleteDataset", params("dsname", target.fullName()));
         } catch (ZoRpcException e) {

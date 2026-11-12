@@ -58,7 +58,13 @@ public class DummyPlatformSecurityService extends AccessControlService implement
 
     @Override
     public void afterPropertiesSet() throws Exception {
-       platformAccessControl = new MockPlatformAccessControl();
+        // Identity switching here only changes a ThreadLocal; on z/OS every native call would
+        // run with the server's authority, so refuse to start rather than silently escalate.
+        if ("z/OS".equalsIgnoreCase(System.getProperty("os.name"))) {
+            throw new IllegalStateException("The mock security provider cannot run on z/OS; start with "
+                    + "--spring.profiles.active=zos so requests run under the caller's SAF identity");
+        }
+        platformAccessControl = new MockPlatformAccessControl();
        log.warn("The mock authorization check provider is used. This application should not be used in production");
     }
 }

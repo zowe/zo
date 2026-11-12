@@ -108,8 +108,12 @@ public class ZosmfUssController {
     public ResponseEntity<Void> write(@PathVariable("path") String path,
                                       @RequestBody(required = false) byte[] data,
                                       @RequestHeader(value = "X-IBM-Data-Type", required = false) String dataType,
-                                      @RequestHeader(value = "If-Match", required = false) String ifMatch) throws ZoRpcException {
-        Options options = UssService.parseDataType(dataType);
+                                      @RequestHeader(value = "If-Match", required = false) String ifMatch,
+                                      @RequestHeader(value = HttpHeaders.CONTENT_TYPE, required = false) String contentType)
+            throws ZoRpcException {
+        Options parsed = UssService.parseDataType(dataType);
+        String charset = parsed.isBinary() ? null : requestCharset(contentType);
+        Options options = charset == null ? parsed : new Options(parsed.encoding(), charset, parsed.volume());
         WriteResult result = ussService.write(path, data == null ? new byte[0] : data, options, stripEtag(ifMatch));
         ResponseEntity.BodyBuilder response = ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.NO_CONTENT);
         if (result.etag() != null) response.header(HttpHeaders.ETAG, quote(result.etag()));
@@ -131,7 +135,7 @@ public class ZosmfUssController {
             }
             case "move" -> ussService.move(source(body), path, bool(body.get("overwrite")));
             case "copy" -> {
-                ussService.copy(source(body), path, new CopyOptions(recursive, false, preserve(body), bool(body.get("overwrite"))));
+                ussService.copyZosmf(source(body), path, new CopyOptions(recursive, false, preserve(body), bool(body.get("overwrite"))));
                 return ResponseEntity.status(HttpStatus.CREATED).build();
             }
             default -> throw InputValidator.notImplemented("Utility request '" + name + "' is not supported");
@@ -236,5 +240,17 @@ public class ZosmfUssController {
             if (current != null && current.equals(stripEtag(candidate))) return true;
         }
         return false;
+    }
+
+    /** Caller-side codepage from "text/plain;charset=X" (or a bare codepage name, as some clients send). */
+    private static String requestCharset(String contentType) {
+        if (contentType == null || contentType.isBlank()) return null;
+        for (String part : contentType.split(";")) {
+            String p = part.trim();
+            if (p.toLowerCase(Locale.ROOT).startsWith("charset=")) {
+                return InputValidator.codeset(p.substring(8).replace("\"", ""));
+            }
+        }
+        return contentType.contains("/") ? null : InputValidator.codeset(contentType.trim());
     }
 }

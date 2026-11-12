@@ -1,7 +1,9 @@
 package org.zowe.zo.config;
 
 import org.springframework.context.annotation.Bean;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -50,6 +52,13 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable()) // Typically disabled for stateless APIs
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // Like z/OSMF: unauthenticated requests get 401 with a Basic challenge, not 403
+            .exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, authException) -> {
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setHeader("WWW-Authenticate", "Basic realm=\"zo\"");
+                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                response.getWriter().write("{\"rc\":-1,\"message\":\"Authentication is required\",\"details\":[]}");
+            }))
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers(OPENAPI_WHITELIST).permitAll()
                 .requestMatchers(HEALTH_WHITELIST).permitAll()
