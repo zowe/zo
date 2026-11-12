@@ -1,14 +1,14 @@
 # JSON Output (`--json`)
 
-Every `zowex` command accepts `--json`. With it, the command prints one line of JSON to stdout
-instead of human-readable text, so a script can parse a result without starting `zowex server`
+Every `zo` command accepts `--json`. With it, the command prints one line of JSON to stdout
+instead of human-readable text, so a script can parse a result without starting `zo server`
 and speaking JSON-RPC.
 
 ```console
-$ zowex ds list IBMUSER --json
+$ zo ds list IBMUSER --json
 {"data":{"items":[{"name":"IBMUSER.CNTL"}],"returnedRows":1},"exitCode":0,"stderr":"","success":true}
 
-$ zowex ds list NO.SUCH.THING --json
+$ zo ds list NO.SUCH.THING --json
 {"data":{},"exitCode":1,"stderr":"Warning: no matching results found for: 'NO.SUCH.THING.**'\n","success":false}
 ```
 
@@ -45,7 +45,7 @@ What happens to the text a handler writes to stdout depends on the command:
    handler set:
 
    ```console
-   $ zowex ds view IBMUSER.CNTL(MEMBER) --json --return-etag
+   $ zo ds view IBMUSER.CNTL(MEMBER) --json --return-etag
    {"data":{"data":"//STEP1 EXEC PGM=IEFBR14\n","etag":"8890283"},"exitCode":0,"stderr":"","success":true}
    ```
 
@@ -53,7 +53,7 @@ What happens to the text a handler writes to stdout depends on the command:
    The message it printed becomes `data.data`, so no command yields an empty payload:
 
    ```console
-   $ zowex ds create-fb IBMUSER.TEMP --json
+   $ zo ds create-fb IBMUSER.TEMP --json
    {"data":{"data":"Data set created: 'IBMUSER.TEMP'\n"},"exitCode":0,"stderr":"","success":true}
    ```
 
@@ -89,23 +89,23 @@ rather than assuming:
 Without `--encoding`, native EBCDIC text comes back as a plain string.
 
 ```bash
-zowex ds view "$DSN" --json \
+zo ds view "$DSN" --json \
   | jq -r 'if .encoding == "base64" then (.data.data | @base64d) else .data.data end'
 ```
 
 ## What `--json` does not do
 
-- **Help stays human-readable.** `zowex ds --json` and `zowex ds list --help --json` print help
+- **Help stays human-readable.** `zo ds --json` and `zo ds list --help --json` print help
   text, not an envelope — an envelope wrapped around a help screen serves nobody.
-- **It does not wrap the root command's own output.** `zowex --json ds list IBMUSER` and
-  `zowex ds list IBMUSER --json` are equivalent — the flag is accepted at the root and threaded
-  down to the subcommand. But `zowex --json` on its own just prints help, and `zowex --json --it`
+- **It does not wrap the root command's own output.** `zo --json ds list IBMUSER` and
+  `zo ds list IBMUSER --json` are equivalent — the flag is accepted at the root and threaded
+  down to the subcommand. But `zo --json` on its own just prints help, and `zo --json --it`
   just starts the REPL: that handler owns stdout for its lifetime and frames each result with
   `[rc]` plus an EOT byte that a capture buffer would swallow. Inside the REPL, `--json` works
   per line.
-- **`zowex server --json` starts the server normally.** It already writes JSON-RPC to stdout for
+- **`zo server --json` starts the server normally.** It already writes JSON-RPC to stdout for
   the life of the process, so there is no result to wrap.
-- **`zoweax` does not support it at all.** `zoweax` runs APF-authorized and its console commands
+- **`zoa` does not support it at all.** `zoa` runs APF-authorized and its console commands
   stay privileged, so the authorization-drop hook never fires for them. Serializing an envelope
   would call the z/OS HWTJ services from an authorized job step, which needs a security review
   first, so `--json` is disabled for that binary outright.

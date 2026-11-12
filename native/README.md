@@ -173,6 +173,30 @@ Tests are built via a `makefile` in `c/test` and are also a default build target
 
 Tests may be run from the `c/test` folder via `make test` or from client project using `npm run z:test`.
 
+#### Migrated data set write regression tests
+
+The `migrated data set writes` tests require an active migration service and authority to migrate test data sets.
+The tests are skipped unless `ZNP_TEST_MIGRATION` is set to `HSM` or `CADISK`.
+
+Run the tests from `native/c/test` on z/OS:
+
+```sh
+ZNP_TEST_MIGRATION=HSM ./build-out/ztest_runner 'migrated data set writes'
+# For CA Disk:
+ZNP_TEST_MIGRATION=CADISK ./build-out/ztest_runner 'migrated data set writes'
+```
+
+Each test creates a unique sequential data set under the test user's `ZNP#TEST` qualifier and writes initial content.
+The test submits `HMIGRATE` or `DARCHIVE` and polls the catalog until the volume is `MIGRAT` or `ARCIVE`.
+The test then calls `zds_write` or `zds_write_streamed` without an earlier OPEN or explicit restore.
+Both tests expect success and verify the replacement content.
+The suite registers each created data set for cleanup, including when a write fails.
+
+DFSMShsm migration has a two-minute wait limit.
+CA Disk migration has a 46-minute wait limit per test because archive requests are deferred.
+A migration command error or timeout indicates a setup failure, not reproduction of the write regression.
+The tests detect the regression when a write returns `Writing to RECFM=U data sets is not supported` instead of succeeding.
+
 #### Results
 
 Test results are printed as they are executed, potentially interlaced with joblog output if using `_BPXK_JOBLOG=STDERR`, e.g.:

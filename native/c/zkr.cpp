@@ -622,7 +622,18 @@ int zkr_import_cert(ZKR *zkr, const ZKRImportOptions &opts)
     return record_message(zkr, "IMPORT", "Invalid usage '" + opts.usage + "'. Use CERTAUTH or PERSONAL.");
 
   gsk_buffer buff_in = {0, 0};
-  if (load_pkcs12_file(&buff_in, opts.p12_path, zkr) != RTNCD_SUCCESS)
+  if (!opts.p12_data.empty())
+  {
+    // gsk_free_buffer() below frees buff_in.data with free(), so it must own a
+    // malloc'd copy -- it must not point at the std::string's own storage.
+    char *buffer = static_cast<char *>(malloc(opts.p12_data.size()));
+    if (buffer == NULL)
+      return record_message(zkr, "IMPORT", "Out of memory reading PKCS#12 data");
+    memcpy(buffer, opts.p12_data.data(), opts.p12_data.size());
+    buff_in.data = buffer;
+    buff_in.length = opts.p12_data.size();
+  }
+  else if (load_pkcs12_file(&buff_in, opts.p12_path, zkr) != RTNCD_SUCCESS)
     return RTNCD_FAILURE;
 
   pkcs_cert_key cert_key;
