@@ -36,7 +36,8 @@ void zo_job_list_tests(std::vector<std::string> &_jobs, std::vector<std::string>
       int rc = execute_command(command, stdout_output, stderr_output);
       std::string jobid = TrimChars(stdout_output);
       _jobs.push_back(jobid);
-      if (0 != rc) {
+      if (0 != rc)
+      {
         throw std::runtime_error("Failed to submit job with error: " + stderr_output);
       }
     });
@@ -649,6 +650,16 @@ void zo_job_list_tests(std::vector<std::string> &_jobs, std::vector<std::string>
       rc = execute_command_with_output(zo_command + " job vf " + dsn, response);
       ExpectWithContext(rc, response).ToBe(0);
       Expect(response).ToContain("IEFBR14");
+    });
+
+    it("should reject data sets that exceed the maximum length", [&]()
+    {
+      std::string response;
+      int rc = execute_command_with_output(zo_command +
+                                               " job vf this.data.set.name.is.too.long.far.too.long.to.use.properly.i.fear",
+                                           response);
+      ExpectWithContext(rc, response).ToBe(255);
+      Expect(response).ToContain("exceeds the maximum data set name length");
     });
   });
 }

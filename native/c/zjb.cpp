@@ -276,6 +276,13 @@ __attribute__((optnone)) static int zjb_read_job_dynamic_allocation(ZJB *zjb, st
   dynkey = daldsnam;
   numparms = 1;
   plen = strlen(jobdsn.c_str());
+  if (plen > MAX_FQ_DS_LENGTH)
+  {
+    free(parms);
+    ZDIAG_SET_MSG(&zjb->diag, "The provided data set name '%s' exceeds the maximum data set name length of %lu (includes member name).",
+                  jobdsn.c_str(), MAX_FQ_DS_LENGTH);
+    return RTNCD_FAILURE;
+  }
   memcpy(s99tunit_x[i].s99tunit.s99tukey, &dynkey, sizeof(dynkey));
   memcpy(s99tunit_x[i].s99tunit.s99tunum, &numparms, sizeof(numparms));
   memcpy(s99tunit_x[i].s99tunit.s99tulng, &plen, sizeof(plen));
