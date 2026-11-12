@@ -121,7 +121,7 @@ public class UssService {
         String tag;
         switch (act) {
             case "remove" -> tag = "untagged";
-            case "list" -> throw InputValidator.notImplemented("chtag action 'list' is not supported; use the listing with file tags under /zo/api/v1/fs");
+            case "list" -> throw new IllegalArgumentException("chtag action 'list' returns output; use chtagList");
             case "set" -> {
                 String kind = type == null ? "text" : type.toLowerCase(Locale.ROOT);
                 tag = switch (kind) {
@@ -134,6 +134,22 @@ public class UssService {
             default -> throw new IllegalArgumentException("Invalid chtag action: " + act);
         }
         chtagRaw(path, tag, recursive);
+    }
+
+    /** z/OSMF-style {@code chtag -p} output lines ({@code t IBM-1047 T=on /path}), built from the listing's file tags. */
+    public List<String> chtagList(String path) throws ZoRpcException {
+        String base = InputValidator.path(path);
+        String baseName = base.substring(base.lastIndexOf('/') + 1);
+        UssListing listing = list(base, 1, Integer.MAX_VALUE, UssFilter.NONE);
+        List<String> lines = new ArrayList<>();
+        for (UssEntry e : listing.items()) {
+            String tag = e.filetag() == null ? "untagged" : e.filetag();
+            String kind = tag.equals("binary") ? "b" : tag.equals("untagged") ? "-" : "t";
+            String name = e.name() == null ? "" : e.name();
+            String full = name.startsWith("/") ? name : listing.items().size() == 1 && name.equals(baseName) ? base : base + "/" + name;
+            lines.add(String.format("%s %-12s T=%s  %s", kind, tag, kind.equals("t") ? "on" : "off", full));
+        }
+        return lines;
     }
 
     /** Native chtag: tag is a CCSID number or a display name such as IBM-1047, binary or untagged. */

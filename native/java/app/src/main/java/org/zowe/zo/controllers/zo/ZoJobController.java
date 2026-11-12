@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.zowe.zo.ffm.ZoRpcException;
+import org.zowe.zo.service.InputValidator;
 import org.zowe.zo.service.JobService;
 import org.zowe.zo.service.JobService.JobAction;
 import org.zowe.zo.service.JobService.JobInfo;
@@ -28,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /** zo-native job API. Jobs are addressed by job ID or correlator alone, and fields keep zo's names. */
 @RestController
@@ -43,9 +45,9 @@ public class ZoJobController {
     public List<Map<String, Object>> list(@RequestParam(value = "owner", required = false) String owner,
                                           @RequestParam(value = "prefix", required = false) String prefix,
                                           @RequestParam(value = "status", required = false) String status,
-                                          @RequestParam(value = "maxItems", required = false) Integer maxItems) throws ZoRpcException {
+                                          @RequestParam(value = "maxItems", required = false) String maxItems) throws ZoRpcException {
         List<Map<String, Object>> out = new ArrayList<>();
-        for (JobInfo job : jobService.listJobs(new JobQuery(owner, prefix, null, status, maxItems))) out.add(toMap(job));
+        for (JobInfo job : jobService.listJobs(new JobQuery(owner, prefix, null, status, InputValidator.integer("maxItems", maxItems)))) out.add(toMap(job));
         return out;
     }
 
@@ -70,11 +72,11 @@ public class ZoJobController {
     }
 
     @GetMapping("/{jobId}/spool/{spoolId}")
-    public ResponseEntity<byte[]> readSpool(@PathVariable("jobId") String jobId, @PathVariable("spoolId") int spoolId,
+    public ResponseEntity<byte[]> readSpool(@PathVariable("jobId") String jobId, @PathVariable("spoolId") String spoolId,
                                             @RequestParam(value = "encoding", required = false) String encoding) throws ZoRpcException {
         boolean binary = "binary".equalsIgnoreCase(encoding);
         return ResponseEntity.ok().contentType(binary ? MediaType.APPLICATION_OCTET_STREAM : TEXT_UTF8)
-                .body(jobService.readSpool(jobId, spoolId, encoding));
+                .body(jobService.readSpool(jobId, Objects.requireNonNull(InputValidator.integer("spoolId", spoolId)), encoding));
     }
 
     @GetMapping(value = "/{jobId}/jcl", produces = "text/plain;charset=UTF-8")

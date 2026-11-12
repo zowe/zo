@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.zowe.zo.ffm.ZoRpcException;
+import org.zowe.zo.service.InputValidator;
 import org.zowe.zo.service.UssService;
 import org.zowe.zo.service.UssService.CopyOptions;
 import org.zowe.zo.service.UssService.UssEntry;
@@ -37,9 +38,9 @@ public class ZoUssController {
 
     @GetMapping("/list")
     public Map<String, Object> list(@RequestParam("path") String path,
-                                    @RequestParam(value = "depth", defaultValue = "1") int depth,
-                                    @RequestParam(value = "maxItems", defaultValue = "1000") int maxItems) throws ZoRpcException {
-        UssListing listing = ussService.list(path, depth, maxItems, UssFilter.NONE);
+                                    @RequestParam(value = "depth", defaultValue = "1") String depth,
+                                    @RequestParam(value = "maxItems", defaultValue = "1000") String maxItems) throws ZoRpcException {
+        UssListing listing = ussService.list(path, num("depth", depth), num("maxItems", maxItems), UssFilter.NONE);
         List<Map<String, Object>> items = new ArrayList<>();
         for (UssEntry e : listing.items()) {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -63,10 +64,10 @@ public class ZoUssController {
     /** The {@code zo uss list --long} text listing, including the file tag column. */
     @GetMapping(value = "/listing", produces = "text/plain;charset=UTF-8")
     public String listing(@RequestParam("path") String path,
-                          @RequestParam(value = "depth", defaultValue = "1") int depth,
-                          @RequestParam(value = "maxItems", defaultValue = "1000") int maxItems) throws ZoRpcException {
+                          @RequestParam(value = "depth", defaultValue = "1") String depth,
+                          @RequestParam(value = "maxItems", defaultValue = "1000") String maxItems) throws ZoRpcException {
         StringBuilder out = new StringBuilder();
-        for (UssEntry e : ussService.list(path, depth, maxItems, UssFilter.NONE).items()) {
+        for (UssEntry e : ussService.list(path, num("depth", depth), num("maxItems", maxItems), UssFilter.NONE).items()) {
             out.append(String.join(" ", nvl(e.mode()), nvl(e.links()), nvl(e.user()), nvl(e.group()), nvl(e.size()),
                     nvl(e.filetag()), nvl(e.mtime()), nvl(e.name()))).append('\n');
         }
@@ -90,6 +91,10 @@ public class ZoUssController {
         ussService.copy(from.toString(), to.toString(), new CopyOptions(flag(body, "recursive"), flag(body, "followSymlinks"),
                 flag(body, "preserveAttributes"), flag(body, "force")));
         return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    private static int num(String label, String value) {
+        return InputValidator.integer(label, value);
     }
 
     private static boolean flag(Map<String, Object> body, String key) {

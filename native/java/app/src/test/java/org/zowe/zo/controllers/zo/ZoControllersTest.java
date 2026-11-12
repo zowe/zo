@@ -118,6 +118,13 @@ class ZoControllersTest {
         mockMvc.perform(post("/zo/api/v1/jobs/dataset").contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isBadRequest());
     }
 
+    @Test
+    void nonNumericParamsAre400() throws Exception {
+        mockMvc.perform(get("/zo/api/v1/jobs").param("maxItems", "x")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/zo/api/v1/jobs/JOB00001/spool/abc")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/zo/api/v1/fs/list").param("path", "/u").param("depth", "x")).andExpect(status().isBadRequest());
+    }
+
     private static final String LISTING = "{\"items\":[{\"name\":\"a.txt\",\"mode\":\"-rw-r--r--\",\"links\":1,\"user\":\"IBMUSER\",\"group\":\"SYS1\",\"size\":10,\"filetag\":\"IBM-1047\",\"mtime\":\"2026-01-01T10:00:00\"}]}";
 
     @Test

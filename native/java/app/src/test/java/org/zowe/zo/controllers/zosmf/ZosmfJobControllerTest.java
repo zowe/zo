@@ -347,10 +347,9 @@ class ZosmfJobControllerTest {
         when(rpc.call("releaseJob", Map.of("jobId", "JOB00001"))).thenReturn(json("{\"success\":true}"));
 
         mockMvc.perform(put(JOB).contentType(MediaType.APPLICATION_JSON).content("{\"request\":\"hold\",\"version\":\"2.0\"}")).andExpect(status().isOk());
-        mockMvc.perform(put(JOB).contentType(MediaType.APPLICATION_JSON).content("{\"request\":\"release\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Request was successful."))
-                .andExpect(jsonPath("$.original-jobid").doesNotExist());
+        mockMvc.perform(put(JOB).contentType(MediaType.APPLICATION_JSON).content("{\"request\":\"release\",\"version\":\"1.0\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(content().string(""));
 
         verify(rpc).call("holdJob", Map.of("jobId", "JOB00001"));
         verify(rpc).call("releaseJob", Map.of("jobId", "JOB00001"));
@@ -377,12 +376,37 @@ class ZosmfJobControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.original-jobid").value("JOB00001"))
                 .andExpect(jsonPath("$.status").value(0));
-        mockMvc.perform(delete(JOB))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.jobid").value("JOB00001"))
-                .andExpect(jsonPath("$.message").exists());
+        mockMvc.perform(delete(JOB).header("X-IBM-Job-Modify-Version", "1.0"))
+                .andExpect(status().isAccepted())
+                .andExpect(content().string(""));
 
         verify(rpc, times(2)).call("deleteJob", Map.of("jobId", "JOB00001"));
+    }
+
+    @Test
+    void feedbackWithoutVersionDefaultsToSynchronous() throws Exception {
+        stubJob();
+        when(rpc.call("holdJob", Map.of("jobId", "JOB00001"))).thenReturn(json("{\"success\":true}"));
+
+        mockMvc.perform(put(JOB).contentType(MediaType.APPLICATION_JSON).content("{\"request\":\"hold\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.original-jobid").value("JOB00001"));
+    }
+
+    @Test
+    void nonNumericMaxJobsIs400() throws Exception {
+        mockMvc.perform(get(BASE).param("max-jobs", "abc")).andExpect(status().isBadRequest());
+        verifyNoInteractions(rpc);
+    }
+
+    @Test
+    void filesByCorrelatorBeatsJobnameJobidRoute() throws Exception {
+        when(rpc.call("getJobStatus", Map.of("jobId", CORRELATOR))).thenReturn(job("JOB00001", "MYJOB"));
+        when(rpc.call("listSpools", Map.of("jobId", "JOB00001"))).thenReturn(json("{\"items\":[{\"id\":1,\"ddname\":\"JESMSGLG\"}]}"));
+
+        mockMvc.perform(get(BASE + "/-" + CORRELATOR + "/files"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].ddname").value("JESMSGLG"));
     }
 
     @Test

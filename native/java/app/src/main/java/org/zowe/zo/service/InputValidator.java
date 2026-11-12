@@ -23,7 +23,7 @@ public final class InputValidator {
 
     private static final Pattern JOB_NAME = Pattern.compile("[A-Z0-9@#$]{1,8}");
     private static final Pattern JOB_NAME_PATTERN = Pattern.compile("[A-Z0-9@#$*]{1,8}");
-    private static final Pattern JOB_ID = Pattern.compile("(?:JOB|STC|TSU)\\d{5,8}|[JST]\\d{7}");
+    private static final Pattern JOB_ID = Pattern.compile("(?:JOB|STC|TSU)\\d{5}|[JST]\\d{7}");
     private static final Pattern CORRELATOR = Pattern.compile("[A-Za-z0-9@#$._:~-]{9,64}");
     private static final Pattern STATUS = Pattern.compile("ACTIVE|OUTPUT|INPUT|\\*");
     private static final Pattern DSN = Pattern.compile("[A-Z0-9@#$-]{1,8}(?:\\.[A-Z0-9@#$-]{1,8}){0,21}(?:\\([A-Z0-9@#$]{1,8}\\))?");
@@ -112,6 +112,16 @@ public final class InputValidator {
             segments.add(segment);
         }
         return "/" + String.join("/", segments);
+    }
+
+    /** Parses an optional integer parameter, turning malformed input into a 400. */
+    public static Integer integer(String label, String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Integer.valueOf(value.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid " + label + ": '" + printable(value) + "' is not an integer");
+        }
     }
 
     public static ZoRpcException notImplemented(String message) {

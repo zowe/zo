@@ -46,11 +46,13 @@ public class ZosmfUssController {
 
     @GetMapping
     public ResponseEntity<Map<String, Object>> list(@RequestParam(value = "path", required = false) String path,
-                                                    @RequestParam(value = "depth", defaultValue = "1") int depth,
+                                                    @RequestParam(value = "depth", required = false) String depth,
                                                     @RequestParam(value = "filesys", required = false) String filesys,
                                                     @RequestParam(value = "symlinks", required = false) String symlinks,
                                                     @ModelAttribute ListFilters filters,
-                                                    @RequestHeader(value = "X-IBM-Max-Items", required = false) Integer maxItems) throws ZoRpcException {
+                                                    @RequestHeader(value = "X-IBM-Max-Items", required = false) String maxItemsHeader) throws ZoRpcException {
+        Integer maxItems = InputValidator.integer("X-IBM-Max-Items", maxItemsHeader);
+        int depthValue = depth == null || depth.isBlank() ? 1 : InputValidator.integer("depth", depth);
         if (path == null || path.isEmpty()) throw new IllegalArgumentException("path query parameter is required");
         if (filesys != null && !filesys.equalsIgnoreCase("all")) throw InputValidator.notImplemented("filesys=" + filesys + " is not supported");
         if (symlinks != null && !symlinks.equalsIgnoreCase("report")) throw InputValidator.notImplemented("symlinks=" + symlinks + " is not supported");
@@ -59,7 +61,7 @@ public class ZosmfUssController {
         if (maxItems != null && maxItems < 0) throw new IllegalArgumentException("X-IBM-Max-Items must not be negative");
         int max = maxItems == null ? UssService.DEFAULT_MAX_ITEMS : maxItems == 0 ? Integer.MAX_VALUE : maxItems;
         UssFilter filter = new UssFilter(filters.getName(), filters.getType(), filters.getUser(), filters.getGroup(), filters.getPerm());
-        UssListing listing = ussService.list(path, depth, max, filter);
+        UssListing listing = ussService.list(path, depthValue, max, filter);
         List<Map<String, Object>> items = new ArrayList<>();
         for (UssEntry entry : listing.items()) items.add(toZosmf(entry));
         Map<String, Object> body = new LinkedHashMap<>();
@@ -75,6 +77,7 @@ public class ZosmfUssController {
                                   @RequestParam(value = "path", required = false) String pathParam,
                                   @RequestHeader(value = "X-IBM-Data-Type", required = false) String dataType,
                                   @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch,
+                                  @RequestHeader(value = "X-IBM-Record-Range", required = false) String range,
                                   @RequestParam Map<String, String> query,
                                   @RequestHeader Map<String, String> headers) throws ZoRpcException {
         if ((path.isEmpty() || path.equals("/")) && pathParam != null) {
@@ -86,12 +89,11 @@ public class ZosmfUssController {
             filters.setPerm(query.get("perm"));
             filters.setMtime(query.get("mtime"));
             filters.setSize(query.get("size"));
-            String max = headerIgnoreCase(headers, "X-IBM-Max-Items");
-            String depth = query.get("depth");
-            return list(pathParam, depth == null ? 1 : Integer.parseInt(depth), query.get("filesys"), query.get("symlinks"),
-                    filters, max == null ? null : Integer.valueOf(max));
+            return list(pathParam, query.get("depth"), query.get("filesys"), query.get("symlinks"), filters,
+                    headerIgnoreCase(headers, "X-IBM-Max-Items"));
         }
         Options options = UssService.parseDataType(dataType);
+        if (range != null && options.isBinary()) throw InputValidator.notImplemented("X-IBM-Record-Range is not supported with binary data");
         Content content = ussService.read(path, options);
         HttpHeaders out = new HttpHeaders();
         out.setContentType(options.isBinary() ? MediaType.APPLICATION_OCTET_STREAM : TEXT_UTF8);
@@ -99,7 +101,7 @@ public class ZosmfUssController {
             out.set(HttpHeaders.ETAG, quote(content.etag()));
             if (etagMatches(ifNoneMatch, content.etag())) return ResponseEntity.status(HttpStatus.NOT_MODIFIED).headers(out).build();
         }
-        return ResponseEntity.ok().headers(out).body(content.data());
+        return ResponseEntity.ok().headers(out).body(ZosmfJobController.applyRange(content.data(), range));
     }
 
     @PutMapping(value = "/{*path}", consumes = "!" + MediaType.APPLICATION_JSON_VALUE)
@@ -115,7 +117,7 @@ public class ZosmfUssController {
     }
 
     @PutMapping(value = "/{*path}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Void> utility(@PathVariable("path") String path,
+    public ResponseEntity<?> utility(@PathVariable("path") String path,
                                         @RequestBody Map<String, Object> body) throws ZoRpcException {
         Object req = body.get("request");
         if (!(req instanceof String name)) throw new IllegalArgumentException("'request' is required in the request body");
@@ -123,7 +125,10 @@ public class ZosmfUssController {
         switch (name.toLowerCase(Locale.ROOT)) {
             case "chmod" -> ussService.chmod(path, str(body, "mode"), recursive);
             case "chown" -> ussService.chown(path, str(body, "owner"), str(body, "group"), recursive);
-            case "chtag" -> ussService.chtag(path, str(body, "action"), str(body, "type"), str(body, "codeset"), recursive);
+            case "chtag" -> {
+                if ("list".equalsIgnoreCase(str(body, "action"))) return ResponseEntity.ok(Map.of("stdout", ussService.chtagList(path)));
+                ussService.chtag(path, str(body, "action"), str(body, "type"), str(body, "codeset"), recursive);
+            }
             case "move" -> ussService.move(source(body), path, bool(body.get("overwrite")));
             case "copy" -> {
                 ussService.copy(source(body), path, new CopyOptions(recursive, false, preserve(body), bool(body.get("overwrite"))));

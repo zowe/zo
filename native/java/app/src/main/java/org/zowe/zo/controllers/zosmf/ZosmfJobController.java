@@ -55,12 +55,12 @@ public class ZosmfJobController {
                                           @RequestParam(value = "prefix", required = false) String prefix,
                                           @RequestParam(value = "jobid", required = false) String jobid,
                                           @RequestParam(value = "status", required = false) String status,
-                                          @RequestParam(value = "max-jobs", required = false) Integer maxJobs,
+                                          @RequestParam(value = "max-jobs", required = false) String maxJobs,
                                           @RequestParam(value = "exec-data", required = false) String execData,
                                           HttpServletRequest request) throws ZoRpcException {
         boolean exec = isYes(execData);
         List<Map<String, Object>> out = new ArrayList<>();
-        for (JobInfo job : jobService.listJobs(new JobQuery(owner, prefix, jobid, status, maxJobs))) {
+        for (JobInfo job : jobService.listJobs(new JobQuery(owner, prefix, jobid, status, InputValidator.integer("max-jobs", maxJobs)))) {
             out.add(toZosmf(job, request, exec));
         }
         return out;
@@ -149,7 +149,7 @@ public class ZosmfJobController {
     }
 
     @PutMapping(value = "/{jobname}/{jobid}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> modify(@PathVariable("jobname") String jobname, @PathVariable("jobid") String jobid,
+    public ResponseEntity<Map<String, Object>> modify(@PathVariable("jobname") String jobname, @PathVariable("jobid") String jobid,
                                       @RequestBody Map<String, Object> body) throws ZoRpcException {
         Object req = body.get("request");
         if (!(req instanceof String name)) throw new IllegalArgumentException("'request' is required in the request body");
@@ -166,27 +166,23 @@ public class ZosmfJobController {
     }
 
     @DeleteMapping("/{jobname}/{jobid}")
-    public Map<String, Object> delete(@PathVariable("jobname") String jobname, @PathVariable("jobid") String jobid,
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable("jobname") String jobname, @PathVariable("jobid") String jobid,
                                       @RequestHeader(value = "X-IBM-Job-Modify-Version", required = false) String version) throws ZoRpcException {
         boolean sync = isSync(version);
         return feedback(jobService.modify(jobname, jobid, JobAction.DELETE), sync);
     }
 
     private static boolean isSync(String version) {
-        if (version == null || version.equals("1.0")) return false;
-        if (version.equals("2.0")) return true;
+        if (version == null || version.equals("2.0")) return true;
+        if (version.equals("1.0")) return false;
         throw new IllegalArgumentException("Invalid version: " + version);
     }
 
-    private static Map<String, Object> feedback(JobInfo job, boolean sync) {
+    private static ResponseEntity<Map<String, Object>> feedback(JobInfo job, boolean sync) {
+        if (!sync) return ResponseEntity.accepted().build();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("jobid", job.id());
         out.put("jobname", job.name());
-        if (!sync) {
-            out.put("message", "Request was successful.");
-            out.put("status", 0);
-            return out;
-        }
         out.put("original-jobid", job.id());
         out.put("owner", job.owner());
         putIfPresent(out, "member", job.execMember());
@@ -194,7 +190,7 @@ public class ZosmfJobController {
         putIfPresent(out, "job-correlator", job.correlator());
         out.put("status", 0);
         putIfPresent(out, "retcode", job.retcode());
-        return out;
+        return ResponseEntity.ok(out);
     }
 
     private static void rejectUnsupportedSubmitHeaders(HttpServletRequest request) throws ZoRpcException {

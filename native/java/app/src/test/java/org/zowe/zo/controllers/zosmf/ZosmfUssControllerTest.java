@@ -108,6 +108,29 @@ class ZosmfUssControllerTest {
     }
 
     @Test
+    void nonNumericDepthAndMaxItemsAre400() throws Exception {
+        mockMvc.perform(get(BASE).param("path", "/u").param("depth", "abc")).andExpect(status().isBadRequest());
+        mockMvc.perform(get(BASE).param("path", "/u").header("X-IBM-Max-Items", "many")).andExpect(status().isBadRequest());
+        verifyNoInteractions(rpc);
+    }
+
+    @Test
+    void encodedSegmentsAreDecodedIntoThePath() throws Exception {
+        when(contentIo.readFile(eq("/u/my dir/f.txt"), any())).thenReturn(new Content("x".getBytes(), "E"));
+
+        mockMvc.perform(get(java.net.URI.create(BASE + "/u/my%20dir/f.txt"))).andExpect(status().isOk());
+    }
+
+    @Test
+    void readHonorsRecordRangeForText() throws Exception {
+        when(contentIo.readFile(eq("/u/a"), any())).thenReturn(new Content("l0\nl1\nl2\n".getBytes(), "E"));
+
+        mockMvc.perform(get(BASE + "/u/a").header("X-IBM-Record-Range", "1,1")).andExpect(content().string("l1\n"));
+        mockMvc.perform(get(BASE + "/u/a").header("X-IBM-Record-Range", "0-0").header("X-IBM-Data-Type", "binary"))
+                .andExpect(status().isNotImplemented());
+    }
+
+    @Test
     void listViaTrailingSlashFormUsesPathParameter() throws Exception {
         when(rpc.call(eq("listFiles"), any())).thenReturn(json(LISTING));
 
@@ -245,9 +268,25 @@ class ZosmfUssControllerTest {
     }
 
     @Test
-    void chtagListAndMixedAre501() throws Exception {
+    void chtagListReturnsStdoutLinesFromFileTags() throws Exception {
+        when(rpc.call(eq("listFiles"), any())).thenReturn(json("{\"items\":[{\"name\":\"f\",\"mode\":\"-rw-r--r--\",\"filetag\":\"IBM-1047\"}]}"));
+
         mockMvc.perform(put(BASE + "/u/f").contentType(MediaType.APPLICATION_JSON).content("{\"request\":\"chtag\",\"action\":\"list\"}"))
-                .andExpect(status().isNotImplemented());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stdout[0]", org.hamcrest.Matchers.startsWith("t IBM-1047")))
+                .andExpect(jsonPath("$.stdout[0]", org.hamcrest.Matchers.endsWith("T=on  /u/f")));
+    }
+
+    @Test
+    void chtagListReportsBinaryAndUntagged() throws Exception {
+        when(rpc.call(eq("listFiles"), any())).thenReturn(json("{\"items\":[{\"name\":\"f\",\"filetag\":\"binary\"}]}"));
+
+        mockMvc.perform(put(BASE + "/u/f").contentType(MediaType.APPLICATION_JSON).content("{\"request\":\"chtag\",\"action\":\"list\"}"))
+                .andExpect(jsonPath("$.stdout[0]", org.hamcrest.Matchers.startsWith("b binary")));
+    }
+
+    @Test
+    void chtagMixedIs501() throws Exception {
         mockMvc.perform(put(BASE + "/u/f").contentType(MediaType.APPLICATION_JSON).content("{\"request\":\"chtag\",\"action\":\"set\",\"type\":\"mixed\"}"))
                 .andExpect(status().isNotImplemented());
     }

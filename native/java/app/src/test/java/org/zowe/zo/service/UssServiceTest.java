@@ -161,7 +161,6 @@ class UssServiceTest {
 
     @Test
     void chtagUnsupportedOptionsAre501() {
-        assertEquals(ZoRpcException.METHOD_NOT_FOUND, assertThrows(ZoRpcException.class, () -> service.chtag("/u/f", "list", null, null, false)).getCode());
         assertEquals(ZoRpcException.METHOD_NOT_FOUND, assertThrows(ZoRpcException.class, () -> service.chtag("/u/f", "set", "mixed", "IBM-1047", false)).getCode());
         assertThrows(IllegalArgumentException.class, () -> service.chtag("/u/f", "set", "text", "a b", false));
         verifyNoInteractions(rpc);
