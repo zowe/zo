@@ -11,12 +11,18 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `--dsn` to `zo system cert import`/`export`, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)
+- Build tooling now verifies the z/OS SSH host key against `~/.ssh/known_hosts` or an optional `hostFingerprint` in `config.yaml`, and fails if it can't be verified. [#1224](https://github.com/zowe/zo/pull/1224)
+- `c`: Added validation for the data set name argument to the `zo ds resolve-alias` command. [#1229](https://github.com/zowe/zo/pull/1229)
+- `c`: Added additional validation for the output file of the `zo system cert export` command. [#1225](https://github.com/zowe/zo/pull/1225)
+- `c`: Hardened recursive USS chmod, chown, and chtag commands with descriptor-anchored traversal. [#1222](https://github.com/zowe/zo/pull/1222)
 - `c`: Unified `LOG_*` and `ZLOG_*` logging for command and server handlers using standard C++ file I/O, preserving per-user log paths, truncation, and bounded FIFO rotation while restricting Metal C logging to Debug builds. [#107](https://github.com/zowe/zowex/issues/107)
 - `c`: Validated log directories and file ownership before writing, rejected traversal and linked log targets, preserved the open append stream on rotation failure, treated fatal exit messages as literal text, and made Metal C cleanup respect the configured log level. [#1204](https://github.com/zowe/zo/pull/1204)
 - `c`: Secured default listings for the `zo tool ccnedsct` command by replacing predictable `/tmp` paths with exclusively created, unique files in user-owned directories (`0700` UNIX permissions) under `~/.zowex/ccnedsct`, enforcing `0700` file permissions and rejecting unsafe output directories.
 - `c`: Removed the unused `zut_alloc_debug` and `ZUTDBGMG` debugging functions. [#1216](https://github.com/zowe/zo/pull/1216)
 - `c`: Improved handling for JSON-RPC responses of 16 MB or more by JSON-escaping generated output. [#1217](https://github.com/zowe/zo/pull/1217)
 - `c`: Added the `NOPRTCC` parm to `zo tool search` when invoked through RPC so SuperC listings no longer contain page breaks or repeated page titles. [#1182](https://github.com/zowe/zo/issues/1182)
+- `c`: Defaulted command and server logging to WARN and made `zo server --verbose` select DEBUG over the `ZO_LOG_LEVEL` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
+- `c`: Made explicit `zo server --num-workers` and `-w` values override the `ZO_NUM_WORKERS` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
 
 ## `1.1.0`
 

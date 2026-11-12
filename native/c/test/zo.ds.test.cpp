@@ -2193,13 +2193,21 @@ void zo_ds_tests()
         ExpectWithContext(rc, "Failed to create alias with rc " + std::to_string(rc) +
                                   ". Idcams output/error:" + makeAliasOutput + "\n" + makeAliasError)
             .ToBe(0);
-
         created_aliases.push_back(alias_name);
         std::string response;
         std::string command = zo_command + " data-set resolve-alias " + alias_name;
         rc = execute_command_with_output(command, response);
         ExpectWithContext(rc, response).ToBe(0);
         Expect(response).ToContain("'" + target + "'");
+      });
+
+      it("should reject data sets with invalid characters in their name", [&]() -> void
+      {
+        std::string response;
+        std::string command = zo_command + " data-set resolve-alias FAKE.BAD!%.BAD";
+        int rc = execute_command_with_output(command, response);
+        ExpectWithContext(rc, response).ToBe(255);
+        Expect(response).ToContain("The specified data set name is invalid. Specify a valid data set name.");
       });
     });
 

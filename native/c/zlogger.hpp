@@ -311,7 +311,7 @@ private:
   {
     close_log_file();
     m_server_mode.store(server_mode, std::memory_order_relaxed);
-    m_level.store(get_level_from_environment(verbose ? ZLOGLEVEL_DEBUG : ZLOGLEVEL_INFO), std::memory_order_relaxed);
+    m_level.store(verbose ? ZLOGLEVEL_DEBUG : get_level_from_environment(ZLOGLEVEL_WARN), std::memory_order_relaxed);
     m_rotation_stall_warned = false;
     initialize_log_file(truncate);
   }
@@ -363,7 +363,7 @@ private:
     m_log_file = nullptr;
     m_rotation_stall_warned = false;
     m_initialized = open_log_file(true);
-    if (m_initialized)
+    if (m_initialized && should_log(ZLOGLEVEL_INFO))
     {
       write_timestamp();
       std::fputs(" [INFO] Log file rolled over due to size limit\n", m_log_file);
@@ -404,7 +404,7 @@ private:
   }
 
 protected:
-  ZLogger() : m_level(get_level_from_environment(ZLOGLEVEL_INFO))
+  ZLogger() : m_level(get_level_from_environment(ZLOGLEVEL_WARN))
   {
 #if defined(ZLOG_ENABLE) && defined(__MVS__)
     initialize();
