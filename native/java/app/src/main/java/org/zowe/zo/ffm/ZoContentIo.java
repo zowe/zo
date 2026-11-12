@@ -35,7 +35,8 @@ public interface ZoContentIo {
     record Content(byte[] data, String etag) {
     }
 
-    record WriteResult(String etag, String truncationWarning) {
+    /** @param created true if the write created the member or file (z/OSMF: 201 vs 204) */
+    record WriteResult(String etag, String truncationWarning, boolean created) {
     }
 
     /** @param dsname data set name, optionally with member: {@code HLQ.DATA(MEMBER)} */
