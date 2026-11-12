@@ -19,7 +19,11 @@
 #include "zamtypes.h"
 
 extern const size_t MAX_DS_LENGTH;
-
+/**
+ * @brief Maximum length of a fully qualified data set, including parentheses and
+ *        a member name.
+ */
+extern const size_t MAX_FQ_DS_LENGTH;
 struct ZDSMem
 {
   std::string name;
