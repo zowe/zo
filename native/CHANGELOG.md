@@ -6,6 +6,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `c`: Implemented a shared-allocation fallback for member deletes to avoid `errno=91` (Failed to allocate data set / dataset open in another process). This would happen if the member was in a STEPLIB dataset of a running STC. [#1220](https://github.com/zowe/zo/pull/1220)
+- `c`: Added additional validation for the output file of the `zo system cert export` command. [1225](https://github.com/zowe/zo/pull/1225)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)

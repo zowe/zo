@@ -114,6 +114,7 @@ typedef struct
 
   unsigned int dynalloc : 1; // indicates that the data set was dynamically allocated
   unsigned int has_more : 1;
+  unsigned int delete_only : 1; // open for member delete only; skip record format validation
   unsigned char reserve[12];
 
   unsigned char ebcdic_date[8];

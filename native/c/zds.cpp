@@ -2420,6 +2420,46 @@ int zds_create_dsn_loadlib(ZDS *zds, const std::string &dsn, std::string &respon
   return zds_create_dsn(zds, dsn, attributes, response);
 }
 
+// remove() allocates the library DISP=OLD, which fails while another address space (e.g. NetView) has it open.
+int zds_delete_member_shared(ZDS *zds, const std::string &dsn)
+{
+  std::string member_dsn = dsn;
+  std::transform(member_dsn.begin(), member_dsn.end(), member_dsn.begin(), ::toupper);
+  const auto member_start = member_dsn.find('(');
+  const std::string member_name = member_dsn.substr(member_start + 1, member_dsn.find(')', member_start) - member_start - 1);
+
+  std::vector<ZDSMem> members;
+  ZDS list_zds{};
+  int rc = zds_list_members(&list_zds, member_dsn.substr(0, member_start), members);
+  if (0 != rc)
+  {
+    memcpy(&zds->diag, &list_zds.diag, sizeof(zds->diag));
+    return rc;
+  }
+  const bool member_not_found = std::none_of(members.begin(), members.end(), [&member_name](const ZDSMem &member)
+  {
+    return member.name == member_name;
+  });
+  if (member_not_found)
+  {
+    ZDIAG_SET_MSG(&zds->diag, "Member %s not found in data set: %s", member_name.c_str(), member_dsn.substr(0, member_start).c_str());
+    zds->diag.detail_rc = ZDS_RTNCD_NOT_FOUND;
+    return RTNCD_FAILURE;
+  }
+
+  IO_CTRL *ioc = nullptr;
+  zds->delete_only = 1;
+  rc = zds_open_output_bpam(zds, member_dsn, ioc);
+  if (0 != rc)
+  {
+    return rc;
+  }
+
+  rc = ZDSDMBR(zds, ioc);
+  const int close_rc = zds_close_output_bpam(zds, ioc);
+  return 0 != rc ? rc : close_rc;
+}
+
 int zds_delete_dsn(ZDS *zds, std::string dsn)
 {
   int rc = 0;
@@ -2428,17 +2468,30 @@ int zds_delete_dsn(ZDS *zds, std::string dsn)
 
   if (0 != rc)
   {
-    const auto EOPEN = dsn.find("(") == std::string::npos ? 46 : 91;
+    const int remove_errno = errno;
+    const bool is_member = dsn.find("(") != std::string::npos;
+    const auto EOPEN = is_member ? 91 : 46;
+
+    ZDS shared_zds{};
+    if (is_member && remove_errno == EOPEN && 0 == zds_delete_member_shared(&shared_zds, dsn))
+    {
+      return 0;
+    }
+
     strcpy(zds->diag.service_name, "remove");
-    zds->diag.service_rc = errno;
-    if (errno == EOPEN)
+    zds->diag.service_rc = remove_errno;
+    if (remove_errno == EOPEN)
     {
       // Data set is open in another process so allocating with DISP=OLD failed
-      ZDIAG_SET_MSG(&zds->diag, "Failed to allocate data set '%s' for deletion (errno=%d). Check that it exists and is not in use by another process.", dsn.c_str(), errno);
+      ZDIAG_SET_MSG(&zds->diag, "Failed to allocate data set '%s' for deletion (errno=%d). Check that it exists and is not in use by another process.", dsn.c_str(), remove_errno);
+      if (is_member && shared_zds.diag.e_msg_len > 0 && shared_zds.diag.detail_rc != ZDS_RTNCD_NOT_FOUND && 0 != strcmp(shared_zds.diag.service_name, "BPXWDYN"))
+      {
+        ZDIAG_SET_MSG(&zds->diag, "Could not delete member '%s' (remove errno=%d). Shared delete failed: %s", dsn.c_str(), remove_errno, shared_zds.diag.e_msg);
+      }
     }
     else
     {
-      ZDIAG_SET_MSG(&zds->diag, "Could not delete data set '%s', rc: '%d'", dsn.c_str(), errno);
+      ZDIAG_SET_MSG(&zds->diag, "Could not delete data set '%s', rc: '%d'", dsn.c_str(), remove_errno);
     }
     zds->diag.detail_rc = ZDS_RTNCD_SERVICE_FAILURE;
     return RTNCD_FAILURE;
