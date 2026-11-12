@@ -389,7 +389,7 @@ void zut_tests()
         unlink(path.c_str());
       });
 
-      it("truncates and tightens permissions of an existing file", []() -> void
+      it("replaces an existing file with private output", []() -> void
       {
         const std::string path = get_random_uss("/tmp");
         std::ofstream pre(path.c_str(), std::ios::binary);
@@ -424,6 +424,106 @@ void zut_tests()
 
         expect(rc).Not().ToBe(RTNCD_SUCCESS);
         expect(error.empty()).ToBe(false);
+      });
+
+      it("refuses to create a file through a dangling symbolic link", []() -> void
+      {
+        const std::string target = get_random_uss("/tmp");
+        const std::string link = get_random_uss("/tmp");
+        TestFileGuard link_guard(link.c_str(), 'l', target.c_str());
+
+        std::string error;
+        const int rc = zut_write_file_private(link, "secret", error);
+        struct stat st{};
+        const bool target_created = lstat(target.c_str(), &st) == 0;
+        unlink(target.c_str());
+
+        expect(rc).Not().ToBe(RTNCD_SUCCESS);
+        expect(target_created).ToBe(false);
+        expect(lstat(link.c_str(), &st)).ToBe(0);
+        expect(S_ISLNK(st.st_mode)).ToBe(true);
+      });
+
+      it("refuses to write through a symbolic link to an existing file", []() -> void
+      {
+        const std::string target = get_random_uss("/tmp");
+        const std::string link = get_random_uss("/tmp");
+        {
+          std::ofstream pre(target.c_str(), std::ios::binary);
+          pre << "existing content";
+        }
+        chmod(target.c_str(), 0644);
+        TestFileGuard link_guard(link.c_str(), 'l', target.c_str());
+
+        std::string error;
+        const int rc = zut_write_file_private(link, "secret", error);
+        std::ifstream in(target.c_str(), std::ios::binary);
+        const std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        struct stat st{};
+        stat(target.c_str(), &st);
+        unlink(target.c_str());
+
+        expect(rc).Not().ToBe(RTNCD_SUCCESS);
+        expect(content).ToBe(std::string("existing content"));
+        expect(static_cast<int>(st.st_mode & 0777)).ToBe(0644);
+        expect(lstat(link.c_str(), &st)).ToBe(0);
+        expect(S_ISLNK(st.st_mode)).ToBe(true);
+      });
+
+      it("replaces a hard-linked destination without changing the other file", []() -> void
+      {
+        const std::string target = get_random_uss("/tmp");
+        const std::string path = get_random_uss("/tmp");
+        {
+          std::ofstream pre(target.c_str(), std::ios::binary);
+          pre << "existing content";
+        }
+        chmod(target.c_str(), 0644);
+        expect(link(target.c_str(), path.c_str())).ToBe(0);
+
+        std::string error;
+        const int rc = zut_write_file_private(path, "secret", error);
+        ExpectWithContext(rc, error).ToBe(RTNCD_SUCCESS);
+
+        std::ifstream original(target.c_str(), std::ios::binary);
+        const std::string original_content((std::istreambuf_iterator<char>(original)), std::istreambuf_iterator<char>());
+        expect(original_content).ToBe(std::string("existing content"));
+        std::ifstream output(path.c_str(), std::ios::binary);
+        const std::string output_content((std::istreambuf_iterator<char>(output)), std::istreambuf_iterator<char>());
+        expect(output_content).ToBe(std::string("secret"));
+        struct stat st{};
+        expect(stat(target.c_str(), &st)).ToBe(0);
+        expect(static_cast<int>(st.st_mode & 0777)).ToBe(0644);
+        expect(stat(path.c_str(), &st)).ToBe(0);
+        expect(static_cast<int>(st.st_mode & 0777)).ToBe(0600);
+
+        unlink(path.c_str());
+        unlink(target.c_str());
+      });
+
+      it("preserves an existing directory and removes temporary output when rename fails", []() -> void
+      {
+        const std::string root = get_random_uss("/tmp");
+        TestDirGuard root_guard(root.c_str());
+        const std::string path = root + "/output";
+        TestDirGuard output_guard(path.c_str());
+        const std::string marker = path + "/existing";
+        {
+          std::ofstream pre(marker.c_str(), std::ios::binary);
+          pre << "existing content";
+        }
+
+        std::string error;
+        const int rc = zut_write_file_private(path, "secret", error);
+        expect(rc).ToBe(RTNCD_FAILURE);
+        std::ifstream original(marker.c_str(), std::ios::binary);
+        const std::string content((std::istreambuf_iterator<char>(original)), std::istreambuf_iterator<char>());
+        expect(content).ToBe(std::string("existing content"));
+
+        unlink(marker.c_str());
+        expect(rmdir(path.c_str())).ToBe(0);
+        // A leftover private temporary file would prevent removing this directory.
+        expect(rmdir(root.c_str())).ToBe(0);
       });
 
       it("writes binary data with null bytes intact", []() -> void
