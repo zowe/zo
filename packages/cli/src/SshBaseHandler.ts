@@ -123,9 +123,9 @@ export abstract class SshBaseHandler implements ICommandHandler {
             commandParameters.response.data.setObj(response);
         } catch (error) {
             const translatedError = translateCliError(error as Error);
-
             if ("summary" in translatedError) {
                 // This is an ISshErrorDefinition
+                commandParameters.response.data.setExitCode(1);
                 SshBaseHandler.logTranslatedError(commandParameters, translatedError);
                 return;
             }

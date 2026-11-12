@@ -4535,3 +4535,46 @@ int zds_idcams(const std::string &sysInData, std::string &output, std::string &e
   zut_loop_dynalloc(diag, free_dds);
   return rc;
 }
+
+bool validate_data_set_name(const std::string &dsn)
+{
+  int indexInSegment = 0;
+  if (dsn.length() > MAX_DS_LENGTH)
+  {
+    return false;
+  }
+  const std::string allowedFirstSegmentChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#@$";
+  const std::string allowedDsnChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#@$-0123456789";
+  for (auto &ch : dsn)
+  {
+    if (ch == '.')
+    {
+      if (indexInSegment == 0)
+      {
+        return false; // '.' cannot appear as the first character in a segment
+      }
+      indexInSegment = 0; // new segment started by .
+      continue;
+    }
+
+    if (indexInSegment > 7)
+    {
+      return false; // over max segment length
+    }
+
+    if (indexInSegment == 0)
+    {
+      if (allowedFirstSegmentChars.find(std::toupper(ch)) == std::string::npos)
+      {
+        return false;
+      }
+    }
+    else if (allowedDsnChars.find(std::toupper(ch)) == std::string::npos)
+    {
+      return false;
+    }
+    indexInSegment++;
+  }
+
+  return indexInSegment > 0; // the string can't end with '.'
+}
