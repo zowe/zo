@@ -78,6 +78,7 @@ ZJSON_SCHEMA(ExportCertificateRequest,
     FIELD_REQUIRED(label, STRING),
     FIELD_OPTIONAL(format, STRING),
     FIELD_OPTIONAL(file, STRING),
+    FIELD_OPTIONAL(dsn, STRING),
     FIELD_OPTIONAL(password, STRING)
 );
 
@@ -87,7 +88,8 @@ ZJSON_SCHEMA(ImportCertificateRequest,
     FIELD_REQUIRED(keyring, STRING),
     FIELD_REQUIRED(label, STRING),
     FIELD_REQUIRED(usage, STRING),
-    FIELD_REQUIRED(file, STRING),
+    FIELD_OPTIONAL(file, STRING),
+    FIELD_OPTIONAL(dsn, STRING),
     FIELD_REQUIRED(password, STRING),
     FIELD_OPTIONAL(skipRefresh, BOOL)
 );

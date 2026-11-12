@@ -113,7 +113,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     client.mErrHandler(err);
                 });
                 client.mSshClient.on("ready", () => {
-                    const zowexBin = posix.join(opts.serverPath ?? ZSshClient.DEFAULT_SERVER_PATH, ZSshClient.BIN_NAME);
+                    const zoBin = posix.join(opts.serverPath ?? ZSshClient.DEFAULT_SERVER_PATH, ZSshClient.BIN_NAME);
                     const serverArgs = ["server"];
                     if (opts.numWorkers != null) {
                         serverArgs.push("--num-workers", `${opts.numWorkers}`);
@@ -124,7 +124,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
                     if (opts.verbose) {
                         serverArgs.push("--verbose");
                     }
-                    client.execAsync(ZSshClient.quoteRemotePath(zowexBin), ...serverArgs).then((stream) => {
+                    client.execAsync(ZSshClient.quoteRemotePath(zoBin), ...serverArgs).then((stream) => {
                         established = true;
                         clearTimeout(serverStartupTimeoutId);
                         resolve(stream);

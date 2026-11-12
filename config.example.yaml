@@ -46,4 +46,3 @@ profiles:
     #   # Archival mechanism available on this LPAR (uncomment one):
     #   ZNP_CADISK: "1"      # CA Disk (Broadcom) — uses DARCHIVE / zo data-set restore
     #   ZNP_DFSMSHSM: "1"   # DFSMShsm (IBM)     — uses HMIGRATE / HRECALL
-

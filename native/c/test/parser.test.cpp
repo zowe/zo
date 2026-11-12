@@ -653,7 +653,7 @@ void parser_tests()
 
       it("supports fail-closed authorization hooks: privileged bypasses, non-privileged aborts", []()
       {
-        // mirrors the zowex authorization-drop hook when the drop fails:
+        // mirrors the zo authorization-drop hook when the drop fails:
         // privileged commands skip the drop and run; everything else aborts
         ArgumentParser arg_parser("prog", "fail closed sample");
         arg_parser.add_pre_command_hook([](const Command &cmd, bool is_help_request) -> bool

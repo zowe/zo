@@ -176,7 +176,7 @@ Once compiled, you can test the command directly on z/OS:
 # PONG: Hello, world! at Mon Oct  6 14:23:45 2025
 
 # The object passed to context.set_object() is also what --json prints
-./zowex ping --message "Hello, world!" --json
+./zo ping --message "Hello, world!" --json
 
 # Expected output:
 # {"data":{"data":"PONG: Hello, world!","timestamp":"Mon Oct  6 14:23:45 2025"},"exitCode":0,"stderr":"","success":true}
