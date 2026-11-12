@@ -101,6 +101,7 @@ let deployDirs: {
     javaDir: string;
     javaBindingsDir: string;
     javaSecurDir: string;
+    javaExtensionDir: string;
     pythonSwigDir: string;
 };
 
@@ -2063,6 +2064,7 @@ async function main() {
         javaDir: `${config.deployDir}/java/app`,
         javaBindingsDir: `${config.deployDir}/java/bindings`,
         javaSecurDir: `${config.deployDir}/java/secur`,
+        javaExtensionDir: `${config.deployDir}/java/zowe-extension`,
         pythonSwigDir: `${config.deployDir}/python/swig`,
     };
     const sshClient = await buildSshClient(config.sshProfile as IProfile, config.hostFingerprint);
@@ -2089,19 +2091,50 @@ async function main() {
                 break;
             case "build:java_app":
                 console.log("Building Java App locally...");
-                childProcess.execSync("./gradlew clean build -x test", { stdio: "inherit", cwd: path.resolve(__dirname, "../native/java/app") });
+                childProcess.execSync("./gradlew clean build -x test", {
+                    stdio: "inherit",
+                    cwd: path.resolve(__dirname, "../native/java/app"),
+                });
                 console.log("Uploading Java App JAR to remote...");
-                await runCommandInShell(sshClient, `mkdir -p ${deployDirs.javaDir}/build/libs\n`, { stepName: "Create remote libs dir" });
+                await runCommandInShell(sshClient, `mkdir -p ${deployDirs.javaDir}/build/libs\n`, {
+                    stepName: "Create remote libs dir",
+                });
                 {
                     const sftp = await promisify(sshClient.sftp.bind(sshClient))();
                     await promisify(sftp.fastPut.bind(sftp))(
                         path.resolve(__dirname, "../native/java/app/build/libs/zo-java-app-0.5.0.jar"),
-                        `${deployDirs.javaDir}/build/libs/zo-java-app-0.5.0.jar`
+                        `${deployDirs.javaDir}/build/libs/zo-java-app-0.5.0.jar`,
                     );
                     sftp.end();
                 }
                 console.log("Java App uploaded successfully.");
                 break;
+            case "package:java_extension": {
+                console.log("Building Java App locally...");
+                childProcess.execSync("./gradlew clean build -x test", {
+                    stdio: "inherit",
+                    cwd: path.resolve(__dirname, "../native/java/app"),
+                });
+                const extDir = deployDirs.javaExtensionDir;
+                const sftp = await promisify(sshClient.sftp.bind(sshClient))();
+                await uploadFile(
+                    sftp,
+                    path.resolve(__dirname, "../native/java/app/build/libs/zo-java-app-0.5.0.jar"),
+                    `${extDir}/zo-java-app.jar`,
+                    false,
+                );
+                await runCommandInShell(
+                    sshClient,
+                    `cd ${extDir} && sh package.sh zo-java-app.jar ${deployDirs.javaBindingsDir}/build-out/libzo_java.so ${deployDirs.javaSecurDir}/libzowe-commons-secur.so zo-rest.pax\n`,
+                    { stepName: "Assemble zo-rest Zowe extension" },
+                );
+                const localPax = path.resolve(__dirname, "../native/java/dist/zo-rest.pax");
+                fs.mkdirSync(path.dirname(localPax), { recursive: true });
+                await download(sftp, `${extDir}/zo-rest.pax`, localPax);
+                sftp.end();
+                console.log(`Zowe extension downloaded to ${localPax}`);
+                break;
+            }
             case "clean":
                 await clean(sshClient);
                 break;

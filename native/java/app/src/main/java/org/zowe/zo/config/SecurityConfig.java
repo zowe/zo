@@ -28,6 +28,12 @@ public class SecurityConfig {
             "/swagger-ui.html"
     };
 
+    /** APIML Discovery probes these anonymously; health details are never exposed. */
+    private static final String[] HEALTH_WHITELIST = {
+            "/application/health",
+            "/application/info"
+    };
+
     /**
      * Zowe clients encode '%' in USS paths as %25 (z/OSMF accepts it), which the default
      * strict firewall rejects. All other strict-firewall checks stay enabled.
@@ -46,6 +52,7 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers(OPENAPI_WHITELIST).permitAll()
+                .requestMatchers(HEALTH_WHITELIST).permitAll()
                 .anyRequest().authenticated()
             )
             // Add our custom filters before the standard authentication filter

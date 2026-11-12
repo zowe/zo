@@ -1,0 +1,30 @@
+---
+name: zo-rest
+id: org.zowe.zo.rest
+title: zo REST API
+description: z/OSMF-compatible REST API for data sets, USS files and jobs, plus zo extensions, backed in-process by the zo native libraries.
+license: EPL-2.0
+schemas:
+  configs: schemas/zo-rest-schema.json
+repository:
+  type: git
+  url: https://github.com/zowe/zowex.git
+commands:
+  install: bin/install.sh
+  start: bin/start.sh
+apimlServices:
+  dynamic:
+    - serviceId: zo
+configs:
+  port: 27610
+  # Java 25 or later (FFM API). Defaults to zowe.yaml java.home when unset.
+  javaHome: ""
+  heap:
+    init: 64
+    max: 512
+  logging:
+    level: INFO
+    nativeLevel: WARN
+  security:
+    requireCsrfHeader: true
+  debug: false

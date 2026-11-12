@@ -35,3 +35,4 @@ native/java/app/build
 *.env
 application.yml
 .idea/
+native/java/dist/

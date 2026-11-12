@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "https://zowe.org/schemas/v2/zo-rest",
+  "allOf": [
+    { "$ref": "/schemas/v2/server-base" },
+    {
+      "type": "object",
+      "properties": {
+        "components": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "zo-rest": {
+              "allOf": [
+                { "$ref": "/schemas/v2/server-base#zoweComponent" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 27610 },
+                    "javaHome": { "type": "string", "description": "Java 25+ home for this service" },
+                    "heap": {
+                      "type": "object",
+                      "properties": {
+                        "init": { "type": "integer", "minimum": 16 },
+                        "max": { "type": "integer", "minimum": 64 }
+                      }
+                    },
+                    "logging": {
+                      "type": "object",
+                      "properties": {
+                        "level": { "type": "string", "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"] },
+                        "nativeLevel": { "type": "string", "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "OFF"] }
+                      }
+                    },
+                    "security": {
+                      "type": "object",
+                      "properties": {
+                        "requireCsrfHeader": { "type": "boolean" }
+                      }
+                    },
+                    "debug": { "type": "boolean" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

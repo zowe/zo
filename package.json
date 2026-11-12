@@ -27,6 +27,7 @@
     "z:build:java_secur": "npm run z:upload:java_secur && tsx scripts/buildTools.ts build:java_secur",
     "z:build:java_bindings": "npm run z:upload:java_bindings && tsx scripts/buildTools.ts build:java_bindings",
     "z:build:java_app": "tsx scripts/buildTools.ts build:java_app",
+    "z:package:java_extension": "npm run z:upload java/zowe-extension && tsx scripts/buildTools.ts package:java_extension",
     "z:build:java_full": "npm run z:build:java_secur && npm run z:build:java_bindings && npm run z:build:java_app",
     "z:build:swig": "tsx scripts/buildTools.ts build:swig",
     "z:chdsect": "tsx scripts/buildTools.ts build:chdsect",
