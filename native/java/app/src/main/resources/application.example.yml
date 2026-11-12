@@ -17,16 +17,16 @@ spring:
     compatibility-verifier:
       enabled: true
   application:
-    name: zowex-java-service
+    name: zo-java-service
 
 apiml:
   enabled: true
   service:
     preferIpAddress: false
 
-    serviceId: zowex
-    title: Zowex REST API
-    description: Sample REST API for Zowex functionality
+    serviceId: zo
+    title: zo REST API
+    description: Sample REST API for zo functionality
 
     discoveryServiceUrls: https://<host>:<ds-port>/eureka/
 
@@ -47,7 +47,7 @@ apiml:
         service-url: /zosmf
 
     apiInfo:
-      - apiId: zowe.apiml.zowex.rest
+      - apiId: zowe.apiml.zo.rest
         version: 1.0.0
         gatewayUrl: api/v1
         swaggerUrl: ${apiml.service.scheme}://${apiml.service.hostname}:${apiml.service.port}${apiml.service.contextPath}/v3/api-docs
@@ -55,9 +55,9 @@ apiml:
         defaultApi: true
     catalog:
       tile:
-        id: zowex
-        title: Zowex REST API
-        description: Sample REST API for Zowex functionality
+        id: zo
+        title: zo REST API
+        description: Sample REST API for zo functionality
         version: 1.0.1
     ssl:
       enabled: true

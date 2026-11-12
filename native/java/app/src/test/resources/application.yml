@@ -2,15 +2,15 @@ spring:
   main:
     allow-bean-definition-overriding: true
   application:
-    name: zowex-test
+    name: zo-test
 
 zowe:
   apiml:
     discovery:
       enabled: false
     service:
-      id: zowex-test
-      title: "Zowex Test"
+      id: zo-test
+      title: "zo Test"
       description: "Test"
       version: "0.5.0"
       routingUrl: "https://localhost:10190"

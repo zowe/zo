@@ -29,7 +29,7 @@ C_LIBS = $(C_OUT_DIR)/libzds.a \
          $(C_OUT_DIR)/libzusf.a \
          $(C_OUT_DIR)/libzut.a
 
-all: $(OUT_DIR)/libzowex_java.so
+all: $(OUT_DIR)/libzo_java.so
 
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
@@ -39,8 +39,8 @@ $(OUT_DIR)/%.o: %.cpp
 	@echo 'Building $@'
 	$(CXX) $(CPP_FLAGS) -o $@ $<
 
-$(OUT_DIR)/libzowex_java.so: $(OBJS) $(C_LIBS)
-	@echo 'Building $(OUT_DIR)/libzowex_java.so'
+$(OUT_DIR)/libzo_java.so: $(OBJS) $(C_LIBS)
+	@echo 'Building $(OUT_DIR)/libzo_java.so'
 	$(CXX) $(DLL_BND_FLAGS) -o $@ $^
 	extattr +p $@
 

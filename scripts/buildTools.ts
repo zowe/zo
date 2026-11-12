@@ -2095,8 +2095,8 @@ async function main() {
                 {
                     const sftp = await promisify(sshClient.sftp.bind(sshClient))();
                     await promisify(sftp.fastPut.bind(sftp))(
-                        path.resolve(__dirname, "../native/java/app/build/libs/zowex-java-app-0.5.0.jar"),
-                        `${deployDirs.javaDir}/build/libs/zowex-java-app-0.5.0.jar`
+                        path.resolve(__dirname, "../native/java/app/build/libs/zo-java-app-0.5.0.jar"),
+                        `${deployDirs.javaDir}/build/libs/zo-java-app-0.5.0.jar`
                     );
                     sftp.end();
                 }

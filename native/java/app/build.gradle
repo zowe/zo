@@ -4,7 +4,7 @@ plugins {
     id 'java'
 }
 
-group = 'org.zowe.zowex'
+group = 'org.zowe.zo'
 version = '0.5.0'
 
 java {
@@ -41,7 +41,7 @@ dependencies {
 }
 
 springBoot {
-    mainClass = 'org.zowe.zowex.ZowexApplication'
+    mainClass = 'org.zowe.zo.ZoApplication'
 }
 
 dependencyManagement {

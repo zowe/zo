@@ -1,0 +1,147 @@
+/*
+ * This program and the accompanying materials are made available and may be used, at your option, under either:
+ * * Eclipse Public License v2.0, available at https://www.eclipse.org/legal/epl-v20.html, OR
+ * * Apache License, version 2.0, available at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
+ *
+ * Copyright Contributors to the Zowe Project.
+ */
+package org.zowe.zo.controllers;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.zowe.zo.zos.security.platform.PlatformAccessControl.AccessLevel;
+import org.zowe.zo.zos.security.service.PlatformSecurityService;
+import org.zowe.zo.zos.security.thread.PlatformThreadLevelSecurity;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+import static org.zowe.zo.zos.security.platform.SafConstants.BPX_SERVER;
+import static org.zowe.zo.zos.security.platform.SafConstants.CLASS_FACILITY;
+
+/**
+ * The controller is meant only for thread level security troubleshooting.
+ * It is disabled by default and must not be enabled in production deployments.
+ */
+
+@Tag(name = "Security")
+@RestController
+@RequestMapping("/api/v1/securityTest")
+@ConditionalOnProperty(prefix = "zowe.security", name = "test-endpoints-enabled", havingValue = "true", matchIfMissing = false)
+public class SecurityContextController {
+
+    public static final String DOC_SCHEME_BASIC_AUTH = "basicAuth";
+
+    private final PlatformSecurityService platformSecurityService;
+    private final PlatformThreadLevelSecurity platformThreadLevelSecurity;
+
+    @Autowired
+    public SecurityContextController(PlatformSecurityService platformSecurityService,
+            PlatformThreadLevelSecurity platformThreadLevelSecurity) {
+        this.platformSecurityService = platformSecurityService;
+        this.platformThreadLevelSecurity = platformThreadLevelSecurity;
+    }
+
+    @Operation(summary = "Changes security context on the platform during the call and returns information about user IDs", security = {
+            @SecurityRequirement(name = DOC_SCHEME_BASIC_AUTH) })
+    @GetMapping("/authenticatedUser")
+    public Map<String, String> authenticated(@Parameter(hidden = true) Authentication authentication) {
+        Map<String, String> result = new LinkedHashMap<>();
+        String beforeSwitchUserName = platformSecurityService.getCurrentThreadUserId();
+        boolean accessToBpxServerServer = platformSecurityService.checkPermission(CLASS_FACILITY, BPX_SERVER,
+                AccessLevel.READ);
+        boolean accessToBpxServerUserid = platformSecurityService.checkPermission(authentication.getName(),
+                CLASS_FACILITY, BPX_SERVER, AccessLevel.READ);
+        result.put("authenticatedUserName", authentication.getName());
+        result.put("beforeSwitchUserName", beforeSwitchUserName);
+        result.put("accessToBpxServerServer", Boolean.toString(accessToBpxServerServer));
+        result.put("accessToBpxServerUserid", Boolean.toString(accessToBpxServerUserid));
+
+        platformThreadLevelSecurity.wrapRunnableInEnvironmentForAuthenticatedUser(() -> {
+            String afterSwitchUserName = platformSecurityService.getCurrentThreadUserId();
+            String afterSwitchUserNameSpring = SecurityContextHolder.getContext().getAuthentication().getName();
+            boolean accessToBpxServer = platformSecurityService.checkPermission(CLASS_FACILITY, BPX_SERVER,
+                    AccessLevel.READ);
+            boolean accessToUndefinedResource = platformSecurityService.checkPermission(CLASS_FACILITY, "UNDEFINED",
+                    AccessLevel.READ);
+            boolean accessToUndefinedResourceAllowMissingResource = platformSecurityService
+                    .checkPermission(CLASS_FACILITY, "UNDEFINED", AccessLevel.READ, false);
+            result.put("afterSwitchUserName", afterSwitchUserName);
+            result.put("afterSwitchUserNameSpring", afterSwitchUserNameSpring);
+            result.put("accessToBpxServer", Boolean.toString(accessToBpxServer));
+            result.put("accessToUndefinedResource", Boolean.toString(accessToUndefinedResource));
+            result.put("accessToUndefinedResourceAllowMissingResource",
+                    Boolean.toString(accessToUndefinedResourceAllowMissingResource));
+        }).run();
+
+        try {
+            String afterSwitchUserNameCall = platformThreadLevelSecurity
+                    .wrapCallableInEnvironmentForAuthenticatedUser(platformSecurityService::getCurrentThreadUserId)
+                    .call();
+            result.put("afterSwitchUserNameCall", afterSwitchUserNameCall);
+        } catch (Exception e) {
+            result.put("callException", e.toString());
+        }
+
+        String afterRemoveUserName = platformSecurityService.getCurrentThreadUserId();
+        result.put("afterRemoveUserName", afterRemoveUserName);
+        return result;
+    }
+
+    @Operation(summary = "Checks if the user ID has access to a resource", security = {
+            @SecurityRequirement(name = DOC_SCHEME_BASIC_AUTH) })
+    @GetMapping("/resourceAccess")
+    public Map<String, Object> resourceAccess(@Parameter(hidden = true) Authentication authentication,
+            @RequestParam(value = "resourceClass", required = true) String resourceClass,
+            @RequestParam(value = "resourceName", required = true) String resourceName,
+            @RequestParam(value = "accessLevel", required = true) String accessLevel,
+            @RequestParam(value = "userId", required = false) String userId) {
+        if (userId == null) {
+            userId = authentication.getName();
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        boolean hasAccess = platformSecurityService.checkPermission(userId, resourceClass, resourceName,
+                AccessLevel.valueOf(accessLevel));
+        result.put("hasAccess", hasAccess);
+        result.put("resourceClass", resourceClass);
+        result.put("resourceName", resourceName);
+        result.put("accessLevel", accessLevel);
+        result.put("userId", userId);
+        return result;
+    }
+
+    @Operation(summary = "This endpoint can be accessed only by users that have READ access to any resource in the `JESSPOOL` class", security = {
+            @SecurityRequirement(name = DOC_SCHEME_BASIC_AUTH) })
+    @GetMapping("/safProtectedResource")
+    @PreAuthorize("hasSafResourceAccess('JESSPOOL', 'ALL', 'READ')")
+    public Map<String, String> safProtectedResource(@Parameter(hidden = true) Authentication authentication) {
+        Map<String, String> result = new LinkedHashMap<>();
+        boolean canReadSpool = platformSecurityService.checkPermission(authentication.getName(), "JESSPOOL",
+                "ALL", AccessLevel.READ);
+        result.put("authenticatedUserName", authentication.getName());
+        result.put("canReadSpool", Boolean.toString(canReadSpool));
+        return result;
+    }
+
+    @Operation(summary = "This endpoint can be accessed only by users that have CONTROL access to `SAMPLE.RESOURCE` resource in the `ZOWE` class", security = {
+            @SecurityRequirement(name = DOC_SCHEME_BASIC_AUTH) })
+    @GetMapping("/safDeniedResource")
+    @PreAuthorize("hasSafServiceResourceAccess('RESOURCE', 'CONTROL')")
+    public void safDeniedResource(@Parameter(hidden = true) Authentication authentication) {
+        // This is never called since the nobody has access to the resource
+    }
+}
