@@ -125,7 +125,8 @@ std::string create_keyring(const std::string &owner, const std::string &keyring)
 {
   reject_virtual_keyring(keyring, "create_keyring");
 
-  std::string o = owner, k = keyring;
+  std::string o = owner;
+  std::string k = keyring;
   a2e_inplace(o);
   a2e_inplace(k);
 
@@ -139,7 +140,8 @@ std::string delete_keyring(const std::string &owner, const std::string &keyring)
 {
   reject_virtual_keyring(keyring, "delete_keyring");
 
-  std::string o = owner, k = keyring;
+  std::string o = owner;
+  std::string k = keyring;
   a2e_inplace(o);
   a2e_inplace(k);
 
@@ -184,7 +186,8 @@ long long count_ring(const std::string &owner, const std::string &keyring)
 {
   const bool is_virtual_ring = (keyring == "*");
 
-  std::string o = owner, k = keyring;
+  std::string o = owner;
+  std::string k = keyring;
   a2e_inplace(o);
   a2e_inplace(k);
 
@@ -232,7 +235,10 @@ ZkrCertList list_certificates(const std::string &owner, const std::string &keyri
   // itself (cheaper on enormous rings).
   const bool has_filter = !label.empty() || !usage.empty();
 
-  std::string o = owner, k = keyring, l = label, u = usage;
+  std::string o = owner;
+  std::string k = keyring;
+  std::string l = label;
+  std::string u = usage;
   a2e_inplace(o);
   a2e_inplace(k);
   a2e_inplace(l);
@@ -271,7 +277,9 @@ ZKRCertDetail show_certificate(const std::string &owner, const std::string &keyr
   if (label.empty())
     throw std::invalid_argument("label is required");
 
-  std::string o = owner, k = keyring, l = label;
+  std::string o = owner;
+  std::string k = keyring;
+  std::string l = label;
   a2e_inplace(o);
   a2e_inplace(k);
   a2e_inplace(l);
@@ -300,7 +308,9 @@ std::string set_default_certificate(const std::string &owner, const std::string 
     throw std::invalid_argument("label is required");
   reject_virtual_keyring(keyring, "set_default_certificate");
 
-  std::string o = owner, k = keyring, l = label;
+  std::string o = owner;
+  std::string k = keyring;
+  std::string l = label;
   a2e_inplace(o);
   a2e_inplace(k);
   a2e_inplace(l);
@@ -363,7 +373,9 @@ std::string delete_certificate(const std::string &owner, const std::string &keyr
 
   // database=True maps to the R_datalib virtual key ring ("*"), which removes the
   // certificate from the ESM database rather than a single ring.
-  std::string o = owner, r = database ? "*" : keyring, l = label;
+  std::string o = owner;
+  std::string r = database ? "*" : keyring;
+  std::string l = label;
   a2e_inplace(o);
   a2e_inplace(r);
   a2e_inplace(l);
@@ -511,7 +523,8 @@ std::string import_certificate_from_dsn(const std::string &owner, const std::str
 
   std::string d = dsn;
   a2e_inplace(d);
-  std::string raw, err;
+  std::string raw;
+  std::string err;
   if (zkrio_read_dsn(d, raw, err) != 0)
   {
     e2a_inplace(err);

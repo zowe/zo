@@ -31,6 +31,7 @@
 #include "zutils.hpp"
 #include "../zds.hpp"
 #include "../zkr.hpp"
+#include "../zkrio.hpp"
 #include "../zkrtype.h"
 #include "../zut.hpp"
 
@@ -509,6 +510,53 @@ void zkr_tests()
         Expect(z.diag.e_msg).ToContain("empty");
 
         unlink(path.c_str());
+      });
+    });
+
+    // ---------------------------------------------------------------------
+    // Data set name validation. zkrio rejects malformed names before they
+    // reach BPXWDYN text or fopen, so no data set is opened. No authority needed.
+    // ---------------------------------------------------------------------
+    describe(
+        "zkrio data set name validation (no authority required)",
+        [&]() -> void
+    {
+      const std::vector<std::string> bad_names = {
+          "", "A.B') NEW", "A..B", "A.B.", "1A.B", "TOOLONGQ1.B", "A.B(M", "A.B()", "A.B(M)X", "A.B(TOOLONGMEM)"};
+
+      it("zkrio_read_dsn rejects malformed names",
+         [bad_names]() -> void
+      {
+        for (const auto &dsn : bad_names)
+        {
+          std::string data;
+          std::string err;
+          ExpectWithContext(zkrio_read_dsn(dsn, data, err), dsn).Not().ToBe(0);
+          ExpectWithContext(err, dsn).ToContain("Invalid data set name");
+        }
+      });
+
+      it("zkrio_write_dsn rejects malformed names",
+         [bad_names]() -> void
+      {
+        for (const auto &dsn : bad_names)
+        {
+          std::string err;
+          ExpectWithContext(zkrio_write_dsn(dsn, "data", true, err), dsn).Not().ToBe(0);
+          ExpectWithContext(err, dsn).ToContain("Invalid data set name");
+        }
+      });
+
+      it("zkrio_read_dsn accepts well-formed names",
+         []() -> void
+      {
+        for (const std::string dsn : {"ZKRUT.NOEXIST", "zkrut.noexist", "ZKRUT.NOEXIST(MEM#1)"})
+        {
+          std::string data;
+          std::string err;
+          ExpectWithContext(zkrio_read_dsn(dsn, data, err), dsn).Not().ToBe(0);
+          ExpectWithContext(err.find("Invalid data set name"), dsn).ToBe(std::string::npos);
+        }
       });
     });
 

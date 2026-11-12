@@ -20,7 +20,7 @@
 
 // PKCS#12/PEM payloads. Typemapped to/from Python `bytes` in zkr_py.i -- std_string.i's
 // default `str` typemap would corrupt a PKCS#12 blob, which is not valid UTF-8.
-typedef std::string ZkrBytes;
+using ZkrBytes = std::string;
 
 // Out-param siblings of the native result vectors (D10): zkr_list_rings returns rings
 // with no cap, and list-with-a-warning is a shape the native structs don't carry alone.

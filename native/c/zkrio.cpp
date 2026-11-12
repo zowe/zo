@@ -14,18 +14,39 @@
 #include "ztype.h"
 #include "zut.hpp"
 
+// Reject malformed names before they reach BPXWDYN text (ALLOC DA('...')) or fopen("//'...'").
+static bool zkrio_validate_dsn(const std::string &dsn, std::string &err)
+{
+  const auto open_paren = dsn.find('(');
+  bool valid = validate_data_set_name(dsn.substr(0, open_paren));
+  if (valid && open_paren != std::string::npos)
+    valid = dsn.back() == ')' && zds_is_valid_member_name(dsn.substr(open_paren + 1, dsn.size() - open_paren - 2));
+  if (!valid)
+    err = "Invalid data set name: " + dsn;
+  return valid;
+}
+
 // Read a PKCS#12 blob out of a sequential data set or PDS/E member. Binary mode so
-// LE concatenates V-format record data with no RDWs and no code-page conversion --
-// byte-identical to `cp -B "//'DSN'"`.
+// LE concatenates record data with no RDWs and no code-page conversion --
+// byte-identical to `cp -B "//'DSN'"`. Fixed-format sources are accepted: IBM's GSK
+// (Global Security Kit) ignores the record padding that follows the PKCS#12 DER structure.
 int zkrio_read_dsn(const std::string &dsn, std::string &data, std::string &err)
 {
+  if (!zkrio_validate_dsn(dsn, err))
+    return RTNCD_FAILURE;
+  ZDS zds{};
+  // Check password protection before zds_dataset_exists() opens the data set.
+  if (zds_validate_no_password(&zds, dsn, false) != RTNCD_SUCCESS)
+  {
+    err = zds.diag.e_msg;
+    return RTNCD_FAILURE;
+  }
   if (!zds_dataset_exists(dsn))
   {
     err = "Could not access data set: " + dsn;
     return RTNCD_FAILURE;
   }
 
-  ZDS zds{};
   zut_prepare_encoding("binary", &zds.encoding_opts);
   const int rc = zds_read(ZDSReadOpts{.zds = &zds, .dsname = dsn}, data);
   if (rc != RTNCD_SUCCESS)
@@ -47,6 +68,16 @@ int zkrio_read_dsn(const std::string &dsn, std::string &data, std::string &err)
 //                        text mode -- one line per record.
 int zkrio_write_dsn(const std::string &dsn, const std::string &data, bool is_binary, std::string &err)
 {
+  if (!zkrio_validate_dsn(dsn, err))
+    return RTNCD_FAILURE;
+  std::string created_dsn; // Track new allocations for cleanup if the write fails.
+  ZDS check{};
+  // Check password protection before zds_dataset_exists() opens the data set.
+  if (zds_validate_no_password(&check, dsn, true) != RTNCD_SUCCESS)
+  {
+    err = check.diag.e_msg;
+    return RTNCD_FAILURE;
+  }
   if (!zds_dataset_exists(dsn))
   {
     const auto open_paren = dsn.find('(');
@@ -54,17 +85,8 @@ int zkrio_write_dsn(const std::string &dsn, const std::string &data, bool is_bin
     const bool has_member = open_paren != std::string::npos && close_paren != std::string::npos && close_paren > open_paren;
     const std::string base_dsn = has_member ? dsn.substr(0, open_paren) : dsn;
 
-    if (has_member)
-    {
-      const std::string member = dsn.substr(open_paren + 1, close_paren - open_paren - 1);
-      if (!zds_is_valid_member_name(member))
-      {
-        err = "Invalid member name: " + member;
-        return RTNCD_FAILURE;
-      }
-    }
-
-    // RACDCERT FORMAT(PKCS12DER) parity: PS/VB/LRECL(84)/BLKSIZE(27998).
+    // RACDCERT EXPORT parity: PS/VB/LRECL(84)/BLKSIZE(27998). Used for PEM too: the
+    // 64-column Base64 lines fit, and VB keeps the text byte-exact (FB would blank-pad).
     DS_ATTRIBUTES a{}; // zero-init: zds_create_dsn preserves 0, only negative means "unset"
     a.dsorg = has_member ? "PO" : "PS";
     a.recfm = "V,B"; // mandatory -- FB pads records with blanks, which would change the byte count
@@ -85,6 +107,7 @@ int zkrio_write_dsn(const std::string &dsn, const std::string &data, bool is_bin
       err = "Could not create data set '" + base_dsn + "': " + response;
       return RTNCD_FAILURE;
     }
+    created_dsn = base_dsn;
   }
 
   ZDS zds{}; // eDataTypeText + empty codepage -> zds_use_codepage() is false -> no iconv for PEM
@@ -94,6 +117,12 @@ int zkrio_write_dsn(const std::string &dsn, const std::string &data, bool is_bin
   if (rc != RTNCD_SUCCESS)
   {
     err = zds.diag.e_msg;
+    if (!created_dsn.empty())
+    {
+      ZDS cleanup{};
+      if (zds_delete_dsn(&cleanup, created_dsn) != RTNCD_SUCCESS)
+        err += "; could not remove partially written data set '" + created_dsn + "'";
+    }
     return RTNCD_FAILURE;
   }
   return RTNCD_SUCCESS;

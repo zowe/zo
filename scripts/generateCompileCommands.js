@@ -19,7 +19,10 @@ const flags = fs.readFileSync(path.join(nativeDir, "compile_flags.txt"), "utf8")
 function cppSources(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const filename = path.join(directory, entry.name);
-    return entry.isDirectory() ? cppSources(filename) : filename.endsWith(".cpp") ? [filename] : [];
+    if (entry.isDirectory()) {
+      return cppSources(filename);
+    }
+    return filename.endsWith(".cpp") ? [filename] : [];
   });
 }
 
@@ -29,7 +32,7 @@ const sources = [
     .filter((name) => name.endsWith("_py.cpp"))
     .map((name) => path.join(nativeDir, "python/bindings", name)),
 ];
-const commands = sources.sort().map((file) => ({
+const commands = [...sources].sort((a, b) => a.localeCompare(b)).map((file) => ({
   directory: nativeDir,
   file,
   arguments: ["clang++", "-std=c++17", ...flags, "-c", file],

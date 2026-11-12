@@ -121,7 +121,7 @@ def assemble_wheel(base, native, release):
         target.writestr("_zbind_loader.py", loader)
         for module in MODULES:
             target.writestr(f"_{module}.py",
-                            f"from _zbind_loader import load_extension\nload_extension(__name__)\n")
+                            "from _zbind_loader import load_extension\nload_extension(__name__)\n")
         for tag in runtimes:
             for module in MODULES:
                 name = f"_{module}.abi3.so"

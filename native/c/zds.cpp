@@ -2698,14 +2698,11 @@ int zds_list_members(ZDS *zds, std::string dsn, std::vector<ZDSMem> &members, co
       continue; // unused directory block
     constexpr int count_size = sizeof(rec.count);
     constexpr int block_size = sizeof(rec);
-    if (rec.count < count_size || rec.count > block_size)
+    if ((rec.count < count_size || rec.count > block_size) && !corrupt_directory_block)
     {
-      if (!corrupt_directory_block)
-      {
-        ZDIAG_SET_MSG(&zds->diag, "Corrupt PDS directory block encountered for '%s': used-count %hu outside %d..%d bytes; results may be incomplete", dsn.c_str(), rec.count, count_size, block_size);
-        zds->diag.detail_rc = ZDS_RSNCD_TRUNCATION_WARNING;
-        corrupt_directory_block = true;
-      }
+      ZDIAG_SET_MSG(&zds->diag, "Corrupt PDS directory block encountered for '%s': used-count %hu outside %d..%d bytes; results may be incomplete", dsn.c_str(), rec.count, count_size, block_size);
+      zds->diag.detail_rc = ZDS_RSNCD_TRUNCATION_WARNING;
+      corrupt_directory_block = true;
     }
 
     // The on-disk count includes its own two-byte field.

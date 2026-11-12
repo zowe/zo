@@ -118,6 +118,7 @@ build-out/zds.o \
 build-out/zdsm.o \
 build-out/zkr.test.o \
 build-out/zkr.o \
+build-out/zkrio.o \
 build-out/zam.o \
 build-out/zam24.o \
 build-out/zjb.test.o \
@@ -186,6 +187,9 @@ build-out/zdsm.o:
 
 build-out/zkr.o:
 	ln -sf ../../build-out/zkr.o build-out/zkr.o
+
+build-out/zkrio.o:
+	ln -sf ../../build-out/zkrio.o build-out/zkrio.o
 
 build-out/zam.o:
 	ln -sf ../../build-out/zam.o build-out/zam.o
