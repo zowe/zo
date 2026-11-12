@@ -1210,9 +1210,9 @@ void zo_ds_tests()
     //
     // To verify manually once the fix is in place:
     //   1. Create a plain data set (never archived):
-    //        zowex data-set create HLQ.UNARCHIVED --dsorg PS
+    //        zo data-set create HLQ.UNARCHIVED --dsorg PS
     //   2. Attempt to restore it:
-    //        zowex data-set restore HLQ.UNARCHIVED
+    //        zo data-set restore HLQ.UNARCHIVED
     //   3. Expected (after fix): non-zero RC and a message such as
     //        "Error: data set 'HLQ.UNARCHIVED' is not archived"
     //   4. Actual (current bug): RC 0 and "Data set 'HLQ.UNARCHIVED' restored"

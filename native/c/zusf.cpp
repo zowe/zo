@@ -9,6 +9,10 @@
  *
  */
 
+// O_NOFOLLOW and O_DIRECTORY are only defined under _XPLATFORM_SOURCE, which must precede the first system header.
+#ifndef _XPLATFORM_SOURCE
+#define _XPLATFORM_SOURCE
+#endif
 // z/OS UNIX extensions needed for st_tag in struct stat, etc.
 #ifndef _AE_BIMODAL
 #define _AE_BIMODAL 1
@@ -26,9 +30,6 @@
 
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
-#endif
-#ifndef _XPLATFORM_SOURCE
-#define _XPLATFORM_SOURCE
 #endif
 
 #include <limits.h>
@@ -966,27 +967,45 @@ int zusf_create_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode
         }
       }
     }
-    const auto rc = mkdir(file.c_str(), mode);
+    // Create owner-only so the new directory can be opened, then set the mode through the descriptor:
+    // chmod() by path would follow a symbolic link swapped in after mkdir().
+    const auto rc = mkdir(file.c_str(), S_IRWXU);
     if (0 != rc)
     {
       ZDIAG_SET_MSG(&zusf->diag, "Failed to create directory '%s', errno: %d", file.c_str(), errno);
+      return rc;
     }
-    chmod(file.c_str(), mode);
-    return rc;
-  }
-  else
-  {
-    std::ofstream out(file.c_str());
-    if (out.is_open())
+    const int dir_fd = open(file.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (dir_fd == -1 || fchmod(dir_fd, mode) != 0)
     {
-      out.close();
-      chmod(file.c_str(), mode);
-      return RTNCD_SUCCESS;
+      ZDIAG_SET_MSG(&zusf->diag, "Failed to set mode on directory '%s', errno: %d", file.c_str(), errno);
+      if (dir_fd != -1)
+      {
+        close(dir_fd);
+      }
+      return RTNCD_FAILURE;
     }
+    close(dir_fd);
+    return RTNCD_SUCCESS;
   }
 
-  ZDIAG_SET_MSG(&zusf->diag, "Could not create '%s'", file.c_str());
-  return RTNCD_FAILURE;
+  const int fd = zut_open_for_write(file, mode, options.overwrite);
+  if (fd == -1)
+  {
+    if (errno == ELOOP)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Path '%s' is a symbolic link", file.c_str());
+    }
+    else
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Could not create '%s'", file.c_str());
+    }
+    return RTNCD_FAILURE;
+  }
+
+  fchmod(fd, mode);
+  close(fd);
+  return RTNCD_SUCCESS;
 }
 
 int zusf_move_uss_file_or_dir(ZUSF *zusf, const std::string &source, const std::string &target, bool force)

@@ -43,7 +43,7 @@ export class Constants {
     };
 
     /**
-     * Options appended to every zowex command definition on top of SshSession.SSH_CONNECTION_OPTIONS.
+     * Options appended to every zo command definition on top of SshSession.SSH_CONNECTION_OPTIONS.
      */
     public static readonly ZSSH_EXTRA_OPTIONS: ICommandOptionDefinition[] = [
         Constants.OPT_IDENTITY_AGENT,

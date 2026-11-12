@@ -9,6 +9,54 @@ Ensure go is part of PATH
 Check that your username and password are correct.<br/>
 For private keys, confirm that you can ssh into the LPAR/zVDT using it.
 
+## Certificate refresh fails with SAF 8, ESM 8, reason 92
+
+The certificate lifecycle test in `native/c/test/zkr.test.cpp`, or a certificate
+operation that refreshes DIGTCERT, can fail with:
+
+```text
+IRRSDL64 REFRESH failed: SAF rc: 8, ESM rc: 8, ESM rsn: 92
+```
+
+On a RACF system, an inactive RACF subsystem address space is a known cause of
+this failure. `zkr_refresh` calls the R_datalib DataRefresh function, which
+requires the RACF subsystem to be running. Successful key ring creation or
+certificate operations earlier in the test do not establish that refresh is
+available. See IBM's [R_datalib function descriptions](https://www.ibm.com/docs/en/zos/3.2.0?topic=parameters-general-parameter-list-r-datalib).
+
+From an operator console, check the RACF address space (substitute the site's
+started task name if it differs):
+
+```text
+D A,RACF
+```
+
+If it is inactive, have an authorized operator start it using the site's RACF
+procedure. For a subsystem named `RACF`, the command is:
+
+```text
+S RACF,SUB=MSTR
+```
+
+`SUB=MSTR` runs the task under the master subsystem. Confirm successful
+initialization in the task log, then rerun the certificate suite:
+
+```sh
+npm run z:test -- certificates
+```
+
+For recurring failures after an IPL, ask the system programmer to review the
+RACF subsystem definition in `IEFSSNxx` and the site's startup configuration.
+See IBM's [Starting RACF](https://www.ibm.com/docs/en/zos/3.2.0?topic=command-starting-racf).
+
+Reason `92` (decimal, `0x5C`) is a general internal error, so an inactive
+subsystem is not its only possible cause. If RACF is already running or the
+error persists, review SYSLOG and the RACF task log with the system programmer.
+Check refresh authority separately: when DIGTCERT is RACLISTed, DataRefresh
+requires RACF SPECIAL or class authority for DIGTCERT; permission to create a
+ring alone is insufficient. See IBM's [return and reason codes](https://www.ibm.com/docs/en/zos/3.1.0?topic=library-return-reason-codes)
+and [DataRefresh authorization](https://www.ibm.com/docs/en/zos/latest?topic=library-racf-authorization).
+
 ## FSUM9383 Configuration file `/etc/startup.mk' not found
 
 You should be able to find the `startup.mk` file in `/samples`
