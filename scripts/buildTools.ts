@@ -28,6 +28,7 @@ interface IConfig {
     hostFingerprint?: string;
     preBuildCmd?: string;
     testEnv?: Record<string, string>;
+    pythonEnv?: Record<string, string>;
 }
 
 type SftpError = Error & { code?: number };
@@ -238,6 +239,7 @@ class WatchUtils {
 
         this.watcher = chokidar.watch(["**/*"], {
             cwd: this.rootDir,
+            ignored: /(^|[\\/])\.cache([\\/]|$)/,
             ignoreInitial: true,
             persistent: true,
         });
@@ -1143,7 +1145,7 @@ function getDirs(next = "") {
 
     const readDirs = fs.readdirSync(path.resolve(__dirname, `${localDeployDir}/${next}`), { withFileTypes: true });
     for (const dir of readDirs) {
-        if (dir.isDirectory()) {
+        if (dir.isDirectory() && dir.name !== ".cache") {
             const newDir = `${dir.name}/`;
             dirs.push(`${next}${newDir}`, ...getDirs(`${next}${newDir}`));
         }
@@ -1174,6 +1176,165 @@ async function artifacts(connection: Client, packageAll: boolean) {
     fs.mkdirSync(path.resolve(__dirname, `./../${localDir}`), { recursive: true });
     for (const localFile of localFiles) {
         await retrieve(connection, [`dist/${localFile}`], localDir, true);
+    }
+}
+
+const pythonWheelDownloadSource = `import base64, hashlib, json, pathlib, sys
+files = list(pathlib.Path(sys.argv[1]).glob('*.whl'))
+if len(files) != 1:
+    raise RuntimeError('Expected exactly one built wheel')
+wheel = files[0]
+data = wheel.read_bytes()
+print(json.dumps({'name':wheel.name, 'sha256':hashlib.sha256(data).hexdigest(), 'data':base64.b64encode(data).decode()}))
+`;
+
+function quoteWheelShell(value: string): string {
+    return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+async function buildPythonWheel(connection: Client, config: IConfig): Promise<void> {
+    const root = path.resolve(__dirname, "..");
+    const pythonEnv = { ...config.pythonEnv };
+    for (const key of ["ZPY_PYTHON_ROOT", "ZPY_PYTHON_311", "ZPY_PYTHON_313", "ZPY_PYTHON_314"]) {
+        if (process.env[key] !== undefined) pythonEnv[key] = process.env[key];
+    }
+    const run = (command: string, input?: string): Promise<string> => {
+        const profile = `/tmp/zbind-profile-${crypto.randomUUID()}`;
+        const initialize = `umask 077
+sed '/exec .*[/]bin[/]bash/d' "$HOME/.profile" > ${quoteWheelShell(profile)}
+. ${quoteWheelShell(profile)} > /dev/null 2>&1
+profile_status=$?
+rm -f ${quoteWheelShell(profile)}
+test "$profile_status" -eq 0 || exit "$profile_status"
+{
+${preBuildCmd || ":"}
+} >&2
+`;
+        return new Promise((resolve, reject) => {
+            connection.exec(initialize + command, (err, stream) => {
+                if (err) return reject(err);
+                let stdout = "";
+                let stderr = "";
+                stream.on("data", (data: Buffer) => {
+                    stdout += data.toString();
+                });
+                stream.stderr.on("data", (data: Buffer) => {
+                    stderr += data.toString();
+                });
+                stream.on("error", reject);
+                stream.on("close", (code: number) => {
+                    if (code === 0) resolve(stdout);
+                    else
+                        reject(
+                            new Error(
+                                `Python wheel command failed (${code}):\n${stdout}\n${stderr}`.replace(
+                                    /https?:\/\/[^\s/]+@/g,
+                                    "https://[redacted]@",
+                                ),
+                            ),
+                        );
+                });
+                stream.end(input ?? "");
+            });
+        });
+    };
+    // Resolve deployDir using the SSH login directory, as the other build commands do.
+    const remoteRoot = (await run(`cd ${quoteWheelShell(config.deployDir)} && pwd -P`)).trim();
+    const home = (await run('printf "%s" "$HOME"')).trim();
+    const expandHome = (value: string) => value.replace(/^~(?=\/|$)/, home);
+    const pythonRoot = expandHome(pythonEnv.ZPY_PYTHON_ROOT ?? "/usr/lpp/IBM/cyp/").replace(/\/$/, "");
+    const runtimes = Object.fromEntries(
+        [11, 13, 14].map((minor) => [
+            minor,
+            expandHome(pythonEnv[`ZPY_PYTHON_3${minor}`] ?? `${pythonRoot}/v3r${minor}/pyz/bin/python`),
+        ]),
+    );
+    if (!remoteRoot.startsWith("/") || !Object.values(runtimes).every((value) => value.startsWith("/"))) {
+        throw new Error("Wheel deployment and Python paths must resolve to absolute USS paths");
+    }
+    const stage = `${remoteRoot}/.python-wheel-${crypto.randomUUID()}`;
+    const python = runtimes[11];
+    const pythonCommand = (source: string) => `${quoteWheelShell(python)} -c ${quoteWheelShell(source)}`;
+    const tracked = childProcess
+        .execFileSync("git", ["ls-files", "-z", "--", "native/c", "native/asmmac"], { cwd: root, encoding: "utf8" })
+        .split("\0")
+        .filter(Boolean);
+    const bindings = "native/python/bindings";
+    const buildFiles = [
+        "Makefile",
+        "setup.py",
+        "setup.cfg",
+        "pyproject.toml",
+        "requirements-build.txt",
+        "package_metadata.py",
+        "package_wheel.py",
+        "_zbind_loader.py",
+    ];
+    const interfaces = fs.readdirSync(path.join(root, bindings)).filter((name) => /\.(cpp|hpp|i)$/.test(name));
+    const files = [
+        ...tracked,
+        ...[...buildFiles, ...interfaces].map((name) => `${bindings}/${name}`),
+        "LICENSE",
+        "package.json",
+    ];
+    let staged = false;
+    try {
+        console.log("Staging current sources for the Python wheel...");
+        await run(`mkdir ${quoteWheelShell(stage)}`);
+        staged = true;
+        const directories = [...new Set(files.map((file) => path.posix.dirname(`${stage}/${file}`)))];
+        await run(`mkdir -p ${directories.map(quoteWheelShell).join(" ")}`);
+        const sftp = await new Promise<SFTPWrapper>((resolve, reject) =>
+            connection.sftp((err, value) => (err ? reject(err) : resolve(value))),
+        );
+        try {
+            for (const file of files) {
+                await promisify(pipeline)(
+                    fs.createReadStream(path.join(root, file)),
+                    new AsciiToEbcdicTransform(),
+                    sftp.createWriteStream(`${stage}/${file}`),
+                );
+            }
+        } finally {
+            sftp.end();
+        }
+        await run(`chtag -R -t -c IBM-1047 ${quoteWheelShell(stage)}`);
+        await run(
+            `cp -R ${quoteWheelShell(`${remoteRoot}/c/chdsect`)} ${quoteWheelShell(`${stage}/native/c/chdsect`)}`,
+        );
+        console.log("Building the wheel for IBM Python 3.11, 3.13 and 3.14...");
+        await run(
+            `${quoteWheelShell(python)} ${quoteWheelShell(`${stage}/${bindings}/package_wheel.py`)} --build-from-stdin`,
+            JSON.stringify({ runtimes, indexUrl: process.env.PIP_INDEX_URL }),
+        );
+        const result = JSON.parse(
+            await run(
+                `${pythonCommand(pythonWheelDownloadSource)} ${quoteWheelShell(`${stage}/native/python/bindings/dist`)}`,
+            ),
+        ) as {
+            name: string;
+            sha256: string;
+            data: string;
+        };
+        if (path.basename(result.name) !== result.name || !result.name.endsWith(".whl"))
+            throw new Error("Invalid wheel filename");
+        const bytes = Buffer.from(result.data, "base64");
+        if (crypto.createHash("sha256").update(bytes).digest("hex") !== result.sha256)
+            throw new Error("Wheel checksum mismatch");
+        const dist = path.join(root, "dist");
+        fs.mkdirSync(dist, { recursive: true });
+        const file = path.join(dist, result.name);
+        const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+        try {
+            fs.writeFileSync(temporary, bytes);
+            fs.renameSync(temporary, file);
+        } finally {
+            fs.rmSync(temporary, { force: true });
+        }
+        fs.writeFileSync(`${file}.sha256`, `${result.sha256}  ${result.name}\n`);
+        console.log(`Downloaded ${path.relative(root, file)}\nSHA-256: ${result.sha256}`);
+    } finally {
+        if (staged) await run(`rm -rf ${quoteWheelShell(stage)}`);
     }
 }
 
@@ -1532,10 +1693,10 @@ async function upload(connection: Client, sshProfile: IProfile) {
             const watcher = new WatchUtils(connection, sshProfile);
             if (args[1] == null) {
                 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../package.json"), "utf-8"));
-                try {
-                    const gitHash = childProcess.execSync(`git rev-parse --short HEAD`).toString().trim();
+                const gitHash = getShortHash();
+                if (gitHash !== "local") {
                     packageJson.gitHash = `+${gitHash}`;
-                } catch {}
+                }
                 pendingUploads.push(
                     uploadFile(
                         sftpcon,
@@ -1951,36 +2112,58 @@ function findStickyCommentId(prNumber: string): number | null {
     return match ? Number(match[1]) : null;
 }
 
-/**
- * Posts the precompiled Python bindings tarball (built on z/OS via
- * `npm run z:python:pack`) to a pull request as a downloadable link.
- */
+/** Uploads available Python artifacts to the dev prerelease and links them in a sticky PR comment. */
 function postPrecompiledBindings(prNumber: string) {
     if (!prNumber || !/^\d+$/.test(prNumber)) {
-        console.error("Usage: npm run z:python:post -- <PR_NUMBER>");
-        process.exit(1);
+        throw new Error("Usage: npm run z:python:post -- <PR_NUMBER>");
     }
 
-    if (!fs.existsSync(TARBALL)) {
-        console.error(`Tarball not found: ${TARBALL}\nRun "npm run z:python:pack" first to build it on z/OS.`);
-        process.exit(1);
+    const distDir = path.dirname(TARBALL);
+    const wheels = fs.existsSync(distDir)
+        ? fs.readdirSync(distDir).filter((name) => name.startsWith("zo-") && name.endsWith(".whl"))
+        : [];
+    if (wheels.length > 1) {
+        throw new Error(
+            "Multiple zo wheels found in dist/. Keep the wheel you want to post and move the others elsewhere.",
+        );
+    }
+    if (!fs.existsSync(TARBALL) && wheels.length === 0) {
+        throw new Error(
+            "No Python artifacts found in dist/. Run npm run z:python:pack or npm run z:python:wheel first.",
+        );
     }
 
     const hash = getShortHash();
-    const assetName = `zbind_bin_dist-pr${prNumber}-${hash}.tar.gz`;
-
-    // Defense-in-depth: prNumber and hash are validated above, but re-check that the
-    // resolved staging path stays directly inside dist/ before any filesystem access,
-    // so a crafted argument can never escape the intended directory.
-    const distDir = path.resolve(path.dirname(TARBALL));
-    const stagedPath = path.resolve(distDir, assetName);
-    if (path.dirname(stagedPath) !== distDir) {
-        console.error(`Refusing to stage outside the dist directory: ${stagedPath}`);
-        process.exit(1);
+    const artifacts: Array<{ source: string; name: string; label: string }> = [];
+    if (fs.existsSync(TARBALL)) {
+        artifacts.push({ source: TARBALL, name: `zbind_bin_dist-pr${prNumber}-${hash}.tar.gz`, label: "Tarball" });
     }
-    fs.copyFileSync(TARBALL, stagedPath);
-
+    if (wheels.length) {
+        const parts = wheels[0].split("-");
+        if (parts.length !== 5 && parts.length !== 6) throw new Error(`Invalid wheel filename: ${wheels[0]}`);
+        // A numeric build tag preserves a pip-installable filename while distinguishing PR builds.
+        const name = [...parts.slice(0, 2), `1pr${prNumber}g${hash}`, ...parts.slice(-3)].join("-");
+        artifacts.push({ source: path.join(distDir, wheels[0]), name, label: "Wheel" });
+    }
+    const staging = fs.mkdtempSync(path.join(distDir, ".python-post-"));
     try {
+        const staged = artifacts.map((artifact) => {
+            const destination = path.join(staging, artifact.name);
+            fs.copyFileSync(artifact.source, destination);
+            return destination;
+        });
+        const wheel = artifacts.find((artifact) => artifact.label === "Wheel");
+        if (wheel) {
+            const checksum = crypto
+                .createHash("sha256")
+                .update(fs.readFileSync(path.join(staging, wheel.name)))
+                .digest("hex");
+            const name = `${wheel.name}.sha256`;
+            const destination = path.join(staging, name);
+            fs.writeFileSync(destination, `${checksum}  ${wheel.name}\n`);
+            staged.push(destination);
+            artifacts.push({ source: destination, name, label: "Wheel SHA-256" });
+        }
         const repo = gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
 
         // Ensure the shared prerelease exists; create it only the first time.
@@ -1995,49 +2178,52 @@ function postPrecompiledBindings(prNumber: string) {
             gh(["release", "create", RELEASE_TAG, "--prerelease", "--title", RELEASE_TITLE, "--notes", RELEASE_NOTES]);
         }
 
-        console.log(`Uploading asset "${assetName}"...`);
-        gh(["release", "upload", RELEASE_TAG, stagedPath, "--clobber"]);
-
-        // Resolve the asset's download URL from the release metadata.
+        console.log(`Uploading ${artifacts.length} Python artifact(s)...`);
+        gh(["release", "upload", RELEASE_TAG, ...staged, "--clobber"]);
         const assets = JSON.parse(gh(["release", "view", RELEASE_TAG, "--json", "assets"])).assets as Array<{
             name: string;
             url: string;
         }>;
-        const url =
-            assets.find((a) => a.name === assetName)?.url ??
-            `https://github.com/${repo}/releases/download/${RELEASE_TAG}/${assetName}`;
-
+        const downloads = artifacts.map((artifact) => ({
+            ...artifact,
+            url:
+                assets.find((asset) => asset.name === artifact.name)?.url ??
+                `https://github.com/${repo}/releases/download/${RELEASE_TAG}/${artifact.name}`,
+        }));
+        const wheelLinks: string[] = [];
+        const otherLinks: string[] = [];
+        for (const artifact of downloads) {
+            const links = artifact.label.startsWith("Wheel") ? wheelLinks : otherLinks;
+            links.push(`- **${artifact.label}:** [\`${artifact.name}\`](${artifact.url})`);
+        }
         const body = [
             `### ${COMMENT_HEADER}`,
             "",
             `Built from \`${hash}\` on z/OS.`,
             "",
-            `📦 **[Download \`${assetName}\`](${url})**`,
+            ...wheelLinks,
+            ...(otherLinks.length ? ["", "---", "", "Others:", "", ...otherLinks] : []),
             "",
-            `<sub>Hosted as an asset on the \`${RELEASE_TAG}\` prerelease (dev artifact, not for distribution).</sub>`,
+            `<sub>Hosted as assets on the \`${RELEASE_TAG}\` prerelease (dev artifacts, not for distribution).</sub>`,
         ].join("\n");
 
-        // Treat the comment as sticky: update our existing one if present, else create it.
         const existingCommentId = findStickyCommentId(prNumber);
         if (existingCommentId != null) {
             console.log(`Updating existing comment ${existingCommentId} on PR #${prNumber}...`);
-            gh([
-                "api",
-                "--method",
-                "PATCH",
-                `repos/${repo}/issues/comments/${existingCommentId}`,
-                "-f",
-                `body=${body}`,
-            ]);
+            const input = path.join(staging, "comment.json");
+            fs.writeFileSync(input, JSON.stringify({ body }));
+            gh(["api", "--method", "PATCH", `repos/${repo}/issues/comments/${existingCommentId}`, "--input", input]);
         } else {
             console.log(`Posting comment to PR #${prNumber}...`);
-            gh(["pr", "comment", prNumber, "--body", body]);
+            const input = path.join(staging, "comment.md");
+            fs.writeFileSync(input, body);
+            gh(["pr", "comment", prNumber, "--body-file", input]);
         }
 
-        console.log(`\n✅ ${existingCommentId != null ? "Updated" : "Posted"} precompiled bindings on PR #${prNumber}`);
-        console.log(`   Asset: ${url}`);
+        console.log(`\n✅ ${existingCommentId != null ? "Updated" : "Posted"} Python bindings on PR #${prNumber}`);
+        for (const artifact of downloads) console.log(`   ${artifact.label}: ${artifact.url}`);
     } finally {
-        fs.rmSync(stagedPath, { force: true });
+        fs.rmSync(staging, { recursive: true, force: true });
     }
 }
 
@@ -2095,6 +2281,9 @@ async function main() {
                 break;
             case "python:swig:install":
                 await installSwigRelease(sshClient);
+                break;
+            case "python:wheel":
+                await buildPythonWheel(sshClient, config);
                 break;
             case "python:pack":
                 await packPrecompiled(sshClient);

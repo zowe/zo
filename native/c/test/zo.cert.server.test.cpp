@@ -9,8 +9,8 @@
  *
  */
 
-// JSON-RPC layer tests for the certificate/key ring methods (test plan item 4,
-// doc/certificates-test-plan.md). The service layer is covered by zkr.test.cpp;
+// JSON-RPC layer tests for certificate/key ring methods; see doc/certificates-testing.md.
+// The service layer is covered by zkr.test.cpp;
 // these assert what only the RPC path can break: request schema validation,
 // camelCase->kebab-case parameter mapping, response schema validation (the
 // server 500s a success response that violates its schema), and the error

@@ -31,6 +31,7 @@
 #include "zutils.hpp"
 #include "../zds.hpp"
 #include "../zkr.hpp"
+#include "../zkrio.hpp"
 #include "../zkrtype.h"
 #include "../zut.hpp"
 
@@ -89,7 +90,7 @@ std::string zkr_env(const char *name, const char *znp_name)
 }
 
 // Self-provision a throwaway PKCS#12 fixture via RACDCERT (see
-// doc/certificates-test-plan.md, item 2): GENCERT a scratch certificate,
+// doc/certificates-testing.md): GENCERT a scratch certificate,
 // EXPORT it as PKCS12DER to a temporary dataset, DELETE the ESM record (so a
 // later import sees a brand-new certificate), then binary-copy the dataset to
 // a USS temp file. Returns the USS path, or "" with `note` set when any step
@@ -513,6 +514,53 @@ void zkr_tests()
     });
 
     // ---------------------------------------------------------------------
+    // Data set name validation. zkrio rejects malformed names before they
+    // reach BPXWDYN text or fopen, so no data set is opened. No authority needed.
+    // ---------------------------------------------------------------------
+    describe(
+        "zkrio data set name validation (no authority required)",
+        [&]() -> void
+    {
+      const std::vector<std::string> bad_names = {
+          "", "A.B') NEW", "A..B", "A.B.", "1A.B", "TOOLONGQ1.B", "A.B(M", "A.B()", "A.B(M)X", "A.B(TOOLONGMEM)"};
+
+      it("zkrio_read_dsn rejects malformed names",
+         [bad_names]() -> void
+      {
+        for (const auto &dsn : bad_names)
+        {
+          std::string data;
+          std::string err;
+          ExpectWithContext(zkrio_read_dsn(dsn, data, err), dsn).Not().ToBe(0);
+          ExpectWithContext(err, dsn).ToContain("Invalid data set name");
+        }
+      });
+
+      it("zkrio_write_dsn rejects malformed names",
+         [bad_names]() -> void
+      {
+        for (const auto &dsn : bad_names)
+        {
+          std::string err;
+          ExpectWithContext(zkrio_write_dsn(dsn, "data", true, err), dsn).Not().ToBe(0);
+          ExpectWithContext(err, dsn).ToContain("Invalid data set name");
+        }
+      });
+
+      it("zkrio_read_dsn accepts well-formed names",
+         []() -> void
+      {
+        for (const std::string dsn : {"ZKRUT.NOEXIST", "zkrut.noexist", "ZKRUT.NOEXIST(MEM#1)"})
+        {
+          std::string data;
+          std::string err;
+          ExpectWithContext(zkrio_read_dsn(dsn, data, err), dsn).Not().ToBe(0);
+          ExpectWithContext(err.find("Invalid data set name"), dsn).ToBe(std::string::npos);
+        }
+      });
+    });
+
+    // ---------------------------------------------------------------------
     // Key ring lifecycle. Requires authority to create key rings; skipped
     // (not failed) otherwise.
     // ---------------------------------------------------------------------
@@ -747,10 +795,6 @@ void zkr_tests()
       },
           cert_opts, run_cert);
 
-      // Uncovered paths from doc/certificates-test-plan.md item 3:
-      // p12 export (gsk_export_key), re-import already-exists warning,
-      // ring-scoped disconnect (4/4/12 auto-refresh), connect from the
-      // virtual ring ("--from-database"), count, standalone refresh.
       itif(
           "round-trips a p12 export, warns on re-import, disconnects one ring, "
           "connects from the database, counts, and refreshes",
@@ -838,7 +882,7 @@ void zkr_tests()
         // Re-connect to ring1 sourcing the bytes from the virtual ring
         // -- the service path behind `cert connect --from-database`.
         // This settles empirically that DataGetFirst on "*" can feed
-        // DataPut (test plan item 3.4).
+        // DataPut.
         ZKRConnectOptions conn;
         conn.owner = owner;
         conn.ring = ring1;

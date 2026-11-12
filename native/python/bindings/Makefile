@@ -27,6 +27,14 @@ _SWIG_LIB = \
 	fi;
 
 SWIG=$(_SWIG_ENV) $(_SWIG_LIB) swig
+PYTHON=python
+WHEEL_ARGS=
+
+# Install requirements-build.txt in a build venv before invoking this target.
+wheel:
+	$(MAKE) -c ../../c build-out build-out/zdsm.o build-out/zutm.o build-out/zam.o build-out/zam24.o build-out/zutm31.o build-out/zutcall24.o build-out/zjbm.o
+	$(MAKE) swig-wrappers
+	$(_SWIG_ENV) $(PYTHON) package_wheel.py $(WHEEL_ARGS)
 
 # Generate SWIG wrappers
 swig-wrappers:
@@ -34,6 +42,7 @@ swig-wrappers:
 	$(SWIG) -python -c++ zusf_py.i
 	$(SWIG) -python -c++ zjb_py.i
 	$(SWIG) -python -c++ zds_py.i
+	$(SWIG) -python -c++ zkr_py.i
 
 # Build Python extensions
 build: swig-wrappers
@@ -41,41 +50,31 @@ build: swig-wrappers
 	$(_SWIG_ENV) python setup.py build_ext
 
 # Build specific modules only
-# build-zusf: swig-zusf
 build-zusf:
 	@echo '\nBuilding zusf_py module only'
 	$(SWIG) -python -c++ zusf_py.i
 	$(_SWIG_ENV) ZBIND_MODULES=zusf python setup.py build_ext
 
-# build-zds: swig-zds
 build-zds:
 	@echo '\nBuilding zds_py module only'
 	$(SWIG) -python -c++ zds_py.i
 	$(_SWIG_ENV) ZBIND_MODULES=zds python setup.py build_ext
 
-# build-zjb: swig-zjb
 build-zjb:
 	@echo '\nBuilding zjb_py module only'
 	$(SWIG) -python -c++ zjb_py.i
 	$(_SWIG_ENV) ZBIND_MODULES=zjb python setup.py build_ext
+
+build-zkr:
+	@echo '\nBuilding zkr_py module only'
+	$(SWIG) -python -c++ zkr_py.i
+	$(_SWIG_ENV) ZBIND_MODULES=zkr python setup.py build_ext
 
 # Run SWIG extenders in the C directory
 swig-extenders:
 	@echo '\nBuilding SWIG extenders'
 	$(MAKE) -c ../../c swig-extenders
 
-# # Selective SWIG extenders for specific modules
-# swig-zusf:
-# 	@echo '\nBuilding SWIG extenders for zusf_py module'
-# 	$(MAKE) -c ../../c swig-zusf
-
-# swig-zds:
-# 	@echo '\nBuilding SWIG extenders for zds_py module'
-# 	$(MAKE) -c ../../c swig-zds
-
-# swig-zjb:
-# 	@echo '\nBuilding SWIG extenders for zjb_py module'
-# 	$(MAKE) -c ../../c swig-zjb
 
 help:
 	@echo "Available targets:"
@@ -86,10 +85,9 @@ help:
 	@echo "  build-zusf    - Build zusf_py module only"
 	@echo "  build-zds     - Build zds_py module only"
 	@echo "  build-zjb     - Build zjb_py module only"
-	@echo "  swig-zusf     - Build SWIG extenders for zusf_py module"
-	@echo "  swig-zds      - Build SWIG extenders for zds_py module"
-	@echo "  swig-zjb      - Build SWIG extenders for zjb_py module"
+	@echo "  build-zkr     - Build zkr_py module only"
 	@echo "  clean         - Clean generated files"
+	@echo "  wheel         - Build a z/OS wheel for explicitly selected Python runtimes"
 	@echo "  help          - Show this help message"
 
 # Clean generated files
@@ -103,4 +101,4 @@ clean:
 	rm -rf build/
 	rm -rf ../../c/build-out/swig
 
-.PHONY: all help swig-wrappers swig-extenders build clean build-zusf build-zds build-zjb swig-zusf swig-zds swig-zjb
+.PHONY: all help swig-wrappers swig-extenders build clean build-zusf build-zds build-zjb build-zkr wheel
