@@ -33,6 +33,9 @@
 
 typedef zlog_level_t LogLevel;
 
+// Receives formatted records when an embedding host (e.g. a JVM) owns log output.
+typedef void (*ZLogHostSink)(int level, const char *message);
+
 class ZLogger : public Singleton<ZLogger>
 {
   friend class Singleton<ZLogger>;
@@ -48,6 +51,7 @@ private:
   std::string m_log_file_path;
   std::atomic<int> m_level;
   std::atomic<bool> m_server_mode{false};
+  std::atomic<ZLogHostSink> m_host_sink{nullptr};
   bool m_initialized = false;
   bool m_pending_initialization = true;
   bool m_rotation_stall_warned = false;
@@ -378,6 +382,15 @@ private:
 
   __attribute__((noinline)) void write_message(LogLevel level, const char *message)
   {
+    const ZLogHostSink host_sink = m_host_sink.load(std::memory_order_acquire);
+    if (host_sink)
+    {
+      if (should_log(level))
+      {
+        host_sink(level, message);
+      }
+      return;
+    }
     const std::lock_guard<std::mutex> lock(m_log_mutex);
     if (!should_log(level))
     {
@@ -427,6 +440,22 @@ public:
   {
     const std::lock_guard<std::mutex> lock(m_log_mutex);
     configure(true, verbose, truncate);
+  }
+
+  /**
+   * Route all records to a host-owned sink instead of the per-user log files.
+   *
+   * Used when the libraries are embedded in a multi-tenant process, where the
+   * process HOME/uid and per-thread effective identity do not match. The sink is
+   * invoked on the logging thread without the logger mutex held.
+   */
+  void set_host_sink(ZLogHostSink sink, LogLevel level)
+  {
+    const std::lock_guard<std::mutex> lock(m_log_mutex);
+    close_log_file();
+    m_pending_initialization = false;
+    m_level.store(level, std::memory_order_relaxed);
+    m_host_sink.store(sink, std::memory_order_release);
   }
 
   bool is_server_mode() const
