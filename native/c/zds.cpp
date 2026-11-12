@@ -660,7 +660,7 @@ bool zds_is_valid_member_name(const std::string &name)
  * Helper function to get data set attributes (RECFM, LRECL) from DSCB.
  * Returns false if the catalog lookup fails or finds no data set.
  */
-static bool zds_get_dscb_attributes(const std::string &dsn, DscbAttributes &attrs)
+static bool zds_get_dscb_attributes(const std::string &dsn, DscbAttributes &attrs, bool *migrated = nullptr)
 {
   const std::string base_dsn = dsn.find('(') != std::string::npos ? dsn.substr(0, dsn.find('(')) : dsn;
 
@@ -680,6 +680,10 @@ static bool zds_get_dscb_attributes(const std::string &dsn, DscbAttributes &attr
   attrs.is_asa = attrs.recfm.find('A') != std::string::npos;
   attrs.read_password = datasets[0].read_password;
   attrs.write_password = datasets[0].write_password;
+  if (migrated != nullptr)
+  {
+    *migrated = datasets[0].migrated;
+  }
 
   return true;
 }
@@ -1832,13 +1836,43 @@ int zds_validate_etag(ZDS *zds, const std::string &dsn, bool has_encoding)
   return RTNCD_SUCCESS;
 }
 
-// Reuse the catalog lookup for existence and password validation without OPEN.
+// Recall migrated data sets and check their attributes before OPEN.
 static int validate_write_dataset(const std::string &dsn, DscbAttributes &attrs, ZDIAG &diag)
 {
-  if (!zds_get_dscb_attributes(dsn, attrs))
+  bool migrated = false;
+  if (!zds_get_dscb_attributes(dsn, attrs, &migrated))
   {
     ZDIAG_SET_MSG(&diag, "Could not access '%s'", dsn.c_str());
     return RTNCD_FAILURE;
+  }
+  if (migrated)
+  {
+    const std::string base_dsn = zds_get_base_dsn(dsn);
+    if (!validate_data_set_name(base_dsn))
+    {
+      ZDIAG_SET_MSG(&diag, "Invalid data set name for recall: '%s'", base_dsn.c_str());
+      return RTNCD_FAILURE;
+    }
+
+    // Allocation triggers recall without opening the data set for data access.
+    std::vector<std::string> dds;
+    std::string ddname;
+    int rc = zds_alloc_rtdd(diag, "alloc da('" + base_dsn + "') shr", dds, ddname);
+    if (rc != RTNCD_SUCCESS)
+    {
+      return rc;
+    }
+    const bool refreshed = zds_get_dscb_attributes(dsn, attrs, &migrated);
+    rc = zut_free_dynalloc_dds(diag, dds);
+    if (rc != RTNCD_SUCCESS)
+    {
+      return rc;
+    }
+    if (!refreshed || migrated)
+    {
+      ZDIAG_SET_MSG(&diag, "Could not read attributes after recalling '%s'", dsn.c_str());
+      return RTNCD_FAILURE;
+    }
   }
   return validate_no_password(attrs, dsn, true, diag);
 }

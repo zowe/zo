@@ -10,6 +10,8 @@
  */
 
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -589,6 +591,99 @@ void zds_tests()
           Expect(std::string(zds.encoding_opts.codepage)).ToBe(std::string(pair.target));
         }
       });
+    });
+
+    describe("migrated data set writes", [&]() -> void
+    {
+      const char *migration_env = std::getenv("ZNP_TEST_MIGRATION");
+      const std::string migration = migration_env == nullptr ? "" : migration_env;
+      TEST_OPTIONS migration_timeout = {false, 3000};
+
+      auto migrate = [&](const std::string &dsn) -> void
+      {
+        Expect(dsn.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@$.-")).ToBe(std::string::npos);
+        // Escape the TSO quotes inside the shell's single-quoted argument.
+        const std::string quoted_dsn = "'\\''" + dsn + "'\\''";
+        const std::string command = migration == "HSM"
+                                        ? "HMIGRATE " + quoted_dsn + " NOWAIT"
+                                        : "DARCHIVE DSN(" + quoted_dsn + ") SCRATCH RECATALOG";
+        std::string response;
+        int rc = execute_command_with_output(zo_command + " tso issue '" + command + "'", response);
+        ExpectWithContext(rc, response).ToBe(RTNCD_SUCCESS);
+        TestLog("Waiting for migration of " + dsn + ": " + response);
+
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::seconds(migration == "CADISK" ? 2760 : 120);
+        do
+        {
+          ZDS catalog{};
+          std::vector<ZDSEntry> entries;
+          rc = zds_list_data_sets(&catalog, dsn, entries, true);
+          ExpectWithContext(rc, catalog.diag.e_msg).ToBe(RTNCD_SUCCESS);
+          Expect(entries.size()).ToBe(static_cast<size_t>(1));
+          if (entries[0].migrated)
+          {
+            Expect(entries[0].volser).ToBe(migration == "HSM" ? "MIGRAT" : "ARCIVE");
+            TestLog("Migration confirmed for " + dsn);
+            return;
+          }
+          std::this_thread::sleep_for(std::chrono::seconds(5));
+        } while (std::chrono::steady_clock::now() < deadline);
+
+        throw std::runtime_error("Migration did not complete for " + dsn + "; last response: " + response);
+      };
+
+      for (const bool streamed : {false, true})
+      {
+        itif(
+            std::string("should recall and write a migrated sequential data set (") + (streamed ? "streamed)" : "buffered)"),
+            [&]() -> void
+        {
+          ExpectWithContext(migration == "HSM" || migration == "CADISK",
+                            "Set ZNP_TEST_MIGRATION to HSM or CADISK")
+              .ToBe(true);
+          const std::string dsn = get_random_ds(3);
+          ZDS setup{};
+          DS_ATTRIBUTES attrs{};
+          attrs.dsorg = "PS";
+          attrs.recfm = "V,B";
+          attrs.lrecl = 84;
+          attrs.blksize = 27998;
+          attrs.primary = 1;
+          attrs.secondary = 1;
+          create_dsn_with_attrs(&setup, dsn, attrs, "migration test data set");
+          created_dsns.push_back(dsn);
+          ExpectWithContext(zds_write(ZDSWriteOpts{.zds = &setup, .dsname = dsn}, "original content\n"),
+                            setup.diag.e_msg)
+              .ToBe(RTNCD_SUCCESS);
+
+          const std::string expected = "replacement content\nsecond record\n";
+          const std::string input_path = get_random_uss("/tmp");
+          TestFileGuard input(input_path.c_str());
+          Expect(static_cast<bool>(input)).ToBe(true);
+          const std::string encoded = zbase64::encode(expected);
+          Expect(fputs(encoded.c_str(), input) >= 0).ToBe(true);
+          Expect(fclose(input)).ToBe(0);
+
+          migrate(dsn);
+          // Do not OPEN or restore the data set before the write under test.
+          ZDS writer{};
+          ZDSWriteOpts opts{.zds = &writer, .dsname = dsn};
+          size_t content_len = 0;
+          const int rc = streamed ? zds_write_streamed(opts, input_path, &content_len) : zds_write(opts, expected);
+          ExpectWithContext(rc, writer.diag.e_msg).ToBe(RTNCD_SUCCESS);
+          if (streamed)
+            Expect(content_len).ToBe(expected.size());
+
+          ZDS reader{};
+          std::string actual;
+          ExpectWithContext(zds_read(ZDSReadOpts{.zds = &reader, .dsname = dsn}, actual),
+                            reader.diag.e_msg)
+              .ToBe(RTNCD_SUCCESS);
+          Expect(actual).ToBe(expected);
+        },
+            migration_timeout, !migration.empty());
+      }
     });
 
     // Regression tests for writing DBCS content to PDS members with a
