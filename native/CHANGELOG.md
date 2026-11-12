@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `c`: Updated the `zjb_read_job_dynamic_allocation` function to validate that data set names do not exceed the maximum length. [TODO](TODO)
+- `c`: Updated the `zjb_read_job_dynamic_allocation` function to validate that data set names do not exceed the maximum length. [#1231](https://github.com/zowe/zo/pull/1231)
 - `c`: Updated the `zo uss create-file` command and its `createFile` RPC method to reject symbolic-link writes; certificate exports also reject symbolic-link destinations and atomically replace output using unique private temporary files. [#1226](https://github.com/zowe/zo/pull/1226)
 - `c`: Added additional validation for the output file of the `zo system cert export` command. [1225](https://github.com/zowe/zo/pull/1225)
 - Build tooling now verifies the z/OS SSH host key against `~/.ssh/known_hosts` or an optional `hostFingerprint` in `config.yaml`, and fails if it can't be verified. [#1224](https://github.com/zowe/zo/pull/1224)
