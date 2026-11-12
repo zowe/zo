@@ -1,5 +1,0 @@
-aiohttp
-flask
-py-eureka-client
-pyyaml
-zowe-apiml-onboarding-enabler-python

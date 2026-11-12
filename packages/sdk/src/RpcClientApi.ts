@@ -25,6 +25,16 @@ import type {
 } from "./doc/rpc";
 import type { ProgressCallback } from "./doc/types";
 
+export type RpcParams<ReqT extends CommandRequest> = Omit<ReqT, "command">;
+
+export type RpcArgs<ReqT extends CommandRequest> =
+    Record<string, never> extends RpcParams<ReqT> ? [request?: RpcParams<ReqT>] : [request: RpcParams<ReqT>];
+
+export type RpcArgsWithProgress<ReqT extends CommandRequest> =
+    Record<string, never> extends RpcParams<ReqT>
+        ? [request?: RpcParams<ReqT>, progressCallback?: ProgressCallback]
+        : [request: RpcParams<ReqT>, progressCallback?: ProgressCallback];
+
 export abstract class RpcClientApi implements IRpcClient {
     public abstract request<ReqT extends CommandRequest, RespT extends CommandResponse>(
         request: ReqT,
@@ -81,6 +91,7 @@ export abstract class RpcClientApi implements IRpcClient {
         createDataset: this.rpc<ds.CreateDatasetRequest, ds.CreateDatasetResponse>("createDataset"),
         createMember: this.rpc<ds.CreateMemberRequest, ds.CreateMemberResponse>("createMember"),
         deleteDataset: this.rpc<ds.DeleteDatasetRequest, ds.DeleteDatasetResponse>("deleteDataset"),
+        deleteVsam: this.rpc<ds.DeleteVsamRequest, ds.DeleteVsamResponse>("deleteVsam"),
         listDatasets: this.rpc<ds.ListDatasetsRequest, ds.ListDatasetsResponse>("listDatasets"),
         listDsMembers: this.rpc<ds.ListDsMembersRequest, ds.ListDsMembersResponse>("listDsMembers"),
         readDataset: this.rpc<ds.ReadDatasetRequest, ds.ReadDatasetResponse>("readDataset"),
@@ -138,11 +149,11 @@ export abstract class RpcClientApi implements IRpcClient {
     };
 
     private rpc<ReqT extends CommandRequest, RespT extends CommandResponse>(command: ReqT["command"]) {
-        return (request: Omit<ReqT, "command">): Promise<RespT> => this.request({ command, ...request });
+        return (...[request]: RpcArgs<ReqT>): Promise<RespT> => this.request({ command, ...request } as ReqT);
     }
 
     private rpcWithProgress<ReqT extends CommandRequest, RespT extends CommandResponse>(command: ReqT["command"]) {
-        return (request: Omit<ReqT, "command">, progressCallback?: ProgressCallback): Promise<RespT> =>
-            this.request({ command, ...request }, progressCallback);
+        return (...[request, progressCallback]: RpcArgsWithProgress<ReqT>): Promise<RespT> =>
+            this.request({ command, ...request } as ReqT, progressCallback);
     }
 }

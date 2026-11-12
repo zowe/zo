@@ -19,9 +19,25 @@
 ZNP_PACK_ON
 typedef struct
 {
+  int32_t time;
+  unsigned char date[4];
+} ZJB_JOB_TIME;
+
+typedef struct
+{
+  ZJB_JOB_TIME submitted;
+  char system[8];
+  char member[8];
+  ZJB_JOB_TIME started;
+  ZJB_JOB_TIME ended;
+} ZJB_JOB_EXEC;
+
+typedef struct
+{
   STATJQTR statjqtr;
   char phase_text[64 + 1];
   char subsystem[4 + 1];
+  ZJB_JOB_EXEC execution;
 } ZJB_JOB_INFO;
 
 ZNP_PACK_OFF

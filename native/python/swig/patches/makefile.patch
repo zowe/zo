@@ -1,0 +1,32 @@
+diff --git a/Makefile.in b/Makefile.in
+index 45a9c28af..48f7bde28 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -532,10 +532,10 @@ Makefile: $(srcdir)/Makefile.in config.status
+ # changed.
+ am--refresh: $(srcdir)/configure
+ 
+-$(srcdir)/configure: $(srcdir)/configure.ac
+-	@echo "Build system is out of date.  If the following commands fail, please reconfigure by hand (rerun: ./autogen.sh && ./configure)"
+-	cd $(srcdir) && ./autogen.sh
+-	$(SHELL) ./config.status --recheck
++# $(srcdir)/configure: $(srcdir)/configure.ac
++# 	@echo "Build system is out of date.  If the following commands fail, please reconfigure by hand (rerun: ./autogen.sh && ./configure)"
++# 	cd $(srcdir) && ./autogen.sh
++# 	$(SHELL) ./config.status --recheck
+ 
+ ############################################################################
+ # Tools
+diff --git a/Source/Makefile.am b/Source/Makefile.am
+index b9bc13bfd..f0f6fcc18 100644
+--- a/Source/Makefile.am
++++ b/Source/Makefile.am
+@@ -102,7 +102,7 @@ bin_PROGRAMS = eswig
+ # Use GNU make's grouped targets to avoid repeated bison execution for
+ # each target.
+ CParse/parser.c CParse/parser.h &: CParse/parser.y
+-	$(BISON) $(AM_YFLAGS) $(YFLAGS) --output=CParse/parser.c $(srcdir)/CParse/parser.y
++	-$(BISON) $(AM_YFLAGS) $(YFLAGS) --output=CParse/parser.c $(srcdir)/CParse/parser.y
+ 
+ # The executable is copied to the root directory for installation and running the test-suite.
+ # This occurs on each invocation of make and is a step towards providing support for multiple

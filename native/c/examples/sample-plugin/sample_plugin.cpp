@@ -47,7 +47,7 @@ void BasicCommandRegistry::register_commands(CommandProviderImpl::CommandRegistr
 
 // Declares which zowex plug-in ABI this .so was compiled against. Required: zowex rejects any
 // plug-in that does not export it, or that reports a version it was not built for.
-ZOWEX_PLUGIN_DECLARE_ABI()
+ZO_PLUGIN_DECLARE_ABI()
 
 void register_plugin(plugin::PluginManager &pm)
 {

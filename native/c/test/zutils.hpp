@@ -14,12 +14,11 @@
 #include <string>
 #include <vector>
 #include <thread>
-#include "../zut.hpp"
 #include <sys/stat.h>
 #include "../zds.hpp"
 
-const std::string zowex_command = "./../build-out/zowex";
-const std::string zoweax_command = "./../build-out/zoweax";
+const std::string zo_command = "./../build-out/zo";
+const std::string zoa_command = "./../build-out/zoa";
 
 int execute_command_with_input(const std::string &command, const std::string &input, bool suppress_output = true);
 int execute_command_with_output(const std::string &command, std::string &output);
@@ -28,7 +27,7 @@ std::string get_random_string(const int length = 7, const bool allNumbers = true
 std::string get_random_uss(const std::string &base_dir);
 std::string get_random_ds(const int qualifier_count = 4, const std::string &hlq = "");
 std::string get_user();
-std::string get_basename(const std::string& fspath);
+std::string get_basename(const std::string &fspath);
 std::string parse_etag_from_output(const std::string &output);
 std::vector<std::string> parse_rfc_response(const std::string input, const char *delim = ",");
 // Wait for a job to be visible in JES (returns true if found, false if timeout)
@@ -81,6 +80,19 @@ public:
   void reset(const char *_dirname);
 
   operator std::string() const;
+};
+
+class TestVsamGuard
+{
+  std::string m_dsn;
+
+public:
+  explicit TestVsamGuard(const std::string &organization = "NONINDEXED", bool retained = false);
+  ~TestVsamGuard();
+  TestVsamGuard(const TestVsamGuard &) = delete;
+  TestVsamGuard &operator=(const TestVsamGuard &) = delete;
+
+  const std::string &name() const;
 };
 
 // Data set creation helpers - convenience wrappers around zds_* functions

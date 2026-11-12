@@ -36,14 +36,14 @@
 // zowex rejects such a plug-in at load time rather than letting it corrupt memory.
 //
 // Version 1 was the implicit, unversioned contract before this constant existed. A plug-in that
-// does not export zowex_plugin_abi_version() reports as version 0 and is rejected.
-constexpr unsigned int ZOWEX_PLUGIN_ABI_VERSION = 2u;
+// does not export zo_plugin_abi_version() reports as version 0 and is rejected.
+constexpr unsigned int ZO_PLUGIN_ABI_VERSION = 3u;
 
 // Plug-ins must expand this once, in the same translation unit as register_plugin().
-#define ZOWEX_PLUGIN_DECLARE_ABI()                   \
-  extern "C" unsigned int zowex_plugin_abi_version() \
-  {                                                  \
-    return ZOWEX_PLUGIN_ABI_VERSION;                 \
+#define ZO_PLUGIN_DECLARE_ABI()                   \
+  extern "C" unsigned int zo_plugin_abi_version() \
+  {                                               \
+    return ZO_PLUGIN_ABI_VERSION;                 \
   }
 
 template <typename Interface>
@@ -932,12 +932,12 @@ public:
 
   bool is_redirecting_error() const
   {
-    return m_output_stream != nullptr;
+    return m_error_stream != nullptr;
   }
 
   bool is_redirecting_input() const
   {
-    return m_output_stream != nullptr;
+    return m_input_stream != nullptr;
   }
 
   bool is_redirecting_output() const
@@ -965,16 +965,21 @@ public:
     m_content_len = content_len;
   }
 
+  // Signal that a long-running request (e.g. a streamed file upload/download)
+  // is still making progress. No-op by default; overridden where there's a
+  // liveness mechanism to feed (see MiddlewareContext::update_heartbeat).
+  virtual void update_heartbeat() {}
+
 protected:
   ArgumentMap m_args;
 
 private:
   ArgumentMap m_output;
-  std::istream *m_input_stream;
-  std::ostream *m_output_stream;
-  std::ostream *m_error_stream;
+  std::istream *m_input_stream = nullptr;
+  std::ostream *m_output_stream = nullptr;
+  std::ostream *m_error_stream = nullptr;
   ast::Node m_object;
-  size_t m_content_len;
+  size_t m_content_len = 0;
 };
 
 template <>

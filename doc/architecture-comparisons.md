@@ -28,14 +28,14 @@ graph TB
             ZOWEA["Gateway<br/>(-)<br/>-"]
         end
         subgraph "SSH Server Process"
-            ZOWED["zowex server<br/>(C++ I/O Server)<br/>JSON-RPC Middleware"]
+            ZOWED["zo server<br/>(C++ I/O Server)<br/>JSON-RPC Middleware"]
             ZOWEP["python-bi<br/>(Python Service)<br/>REST/Flask Middleware"]
         end
 
         subgraph "Native Backend"
-            ZOWEX2["zowex<br/>(Executable Binary)<br/>Metal C + HLASM"]
+            ZOWEX2["zo<br/>(Executable Binary)<br/>Metal C + HLASM"]
             ZOWEP2["python-bi<br/>(Python Bindings)<br/>Backend"]
-            ZOWEX["zowex<br/>(C++ Modules)<br/>Metal C + HLASM"]
+            ZOWEX["zo<br/>(C++ Modules)<br/>Metal C + HLASM"]
         end
 
         subgraph "z/OS System Services"
@@ -123,8 +123,8 @@ sequenceDiagram
     participant Client as Client Application
     participant SDK as ZSshClient SDK
     participant SSH as SSH Connection
-    participant IOServer as zowex server (C++ Server)
-    participant Backend as zowex (C++ Binary)
+    participant IOServer as zo server (C++ Server)
+    participant Backend as zo (C++ Binary)
     participant ZOS as z/OS Resources
 
     Client->>SDK: Request Operation<br/>(e.g., listDatasets)
@@ -288,7 +288,7 @@ graph TB
 ```mermaid
 graph TB
     subgraph "Zowe Remote SSH"
-        ZNP_RESOURCE["Resource Usage<br/>• Single SSH daemon process<br/>• Embedded zowex server<br/>• Efficient connection reuse"]
+        ZNP_RESOURCE["Resource Usage<br/>• Single SSH daemon process<br/>• Embedded zo server<br/>• Efficient connection reuse"]
         ZNP_SCALE["Scaling Behavior<br/>• Multiplexed requests<br/>• Worker pool management<br/>• Predictable resource usage"]
         ZNP_RESOURCE --> ZNP_SCALE
     end

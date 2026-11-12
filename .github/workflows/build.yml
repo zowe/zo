@@ -18,9 +18,9 @@ jobs:
         os: [ubuntu, windows, macos]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
 
@@ -40,7 +40,7 @@ jobs:
 
       - name: Watch z/OS build
         if: ${{ matrix.os == 'ubuntu' && env.RUN_ID }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const artifactName = "zowe-server-bin";
@@ -89,23 +89,54 @@ jobs:
       - run: npm run package
         if: ${{ matrix.os == 'ubuntu' }}
 
-      - uses: actions/upload-artifact@v4
+      - name: Build Zowe Explorer VSIX
+        id: build-vsix
+        if: ${{ matrix.os == 'ubuntu' && contains(github.event.pull_request.labels.*.name, 'build-vsix') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          TARGET_REPO: "zowe/zowe-explorer-vscode"
+        run: |
+          # Check if there is any cross-reference coming from target repo
+          API_URL="repos/${REPO}/issues/${PR_NUMBER}/timeline"
+          LINKED_PR=$(gh api $API_URL --paginate -q '
+            .[] | select(.event == "cross-referenced" and .source.type == "issue"
+              and .source.issue.pull_request != null and .source.issue.state == "open")
+            | select(.source.issue.repository.full_name == "'"$TARGET_REPO"'")
+            | .source.issue.number
+          ')
+          git clone --depth 1 https://github.com/zowe/zowe-explorer-vscode.git
+          cd zowe-explorer-vscode
+          [[ -n "$LINKED_PR" ]] && git fetch origin pull/${LINKED_PR}/head && git checkout FETCH_HEAD
+          npm install -g pnpm@11 && pnpm install
+          pnpm --filter zowex-for-zowe-explorer link:zowex ../packages/sdk
+          pnpm --filter vscode-extension-for-zowe package
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: cli-artifact-upload
         if: ${{ matrix.os == 'ubuntu' }}
         with:
           name: zowex-for-zowe-cli
           path: dist/zowex-for-zowe-cli-*.tgz
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: sdk-artifact-upload
         if: ${{ matrix.os == 'ubuntu' }}
         with:
           name: zowex-sdk
           path: dist/zowe-zowex-for-zowe-sdk-*.tgz
 
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: vsce-artifact-upload
+        if: ${{ steps.build-vsix.outcome == 'success' }}
+        with:
+          name: zowe-explorer-vsix
+          path: zowe-explorer-vscode/dist/vscode-extension-for-zowe-*.vsix
+
       - name: Comment on PR
         if: ${{ github.event_name == 'pull_request' && matrix.os == 'ubuntu' && github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v2
         with:
           header: Client artifacts
           number: ${{ github.event.pull_request.number }}
@@ -113,3 +144,4 @@ jobs:
             Client artifacts:
              - CLI Plug-in: ${{ steps.cli-artifact-upload.outputs.artifact-url }}
              - SDK: ${{ steps.sdk-artifact-upload.outputs.artifact-url }}
+             ${{ steps.build-vsix.outcome == 'success' && format('- VSCE: {0}', steps.vsce-artifact-upload.outputs.artifact-url) || '' }}

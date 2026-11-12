@@ -171,7 +171,7 @@ int handle_uss_list(InvocationContext &context)
   ZUSF zusf{};
   std::string response;
   std::vector<ZusfListEntry> entries;
-  rc = zusf_list_uss_file_path(&zusf, uss_file, response, list_options, use_csv_format, use_csv_format ? &entries : nullptr);
+  rc = zusf_list_uss_file_path(&zusf, uss_file, response, list_options, use_csv_format, &entries);
   if (0 != rc)
   {
     context.error_stream() << "Error: could not list USS files: '" << uss_file << "' rc: '" << rc << "'" << std::endl;
@@ -183,39 +183,36 @@ int handle_uss_list(InvocationContext &context)
 
   context.output_stream() << response;
 
-  if (use_csv_format)
+  const auto result = obj();
+  const auto entries_array = arr();
+
+  for (const auto &list_entry : entries)
   {
-    const auto result = obj();
-    const auto entries_array = arr();
+    const auto entry = obj();
 
-    for (const auto& list_entry : entries)
+    if (list_options.long_format)
     {
-      const auto entry = obj();
-
-      if (list_options.long_format)
-      {
-        entry->set("mode", str(list_entry.mode));
-        entry->set("links", i64(list_entry.links));
-        entry->set("user", str(list_entry.user));
-        entry->set("group", str(list_entry.group));
-        entry->set("size", i64(list_entry.size));
-        entry->set("filetag", str(list_entry.filetag));
-        entry->set("mtime", str(list_entry.mtime));
-        entry->set("name", str(list_entry.name));
-      }
-      else
-      {
-        // Simple format: just the name
-        entry->set("name", str(list_entry.name));
-      }
-
-      entries_array->push(entry);
+      entry->set("mode", str(list_entry.mode));
+      entry->set("links", i64(list_entry.links));
+      entry->set("user", str(list_entry.user));
+      entry->set("group", str(list_entry.group));
+      entry->set("size", i64(list_entry.size));
+      entry->set("filetag", str(list_entry.filetag));
+      entry->set("mtime", str(list_entry.mtime));
+      entry->set("name", str(list_entry.name));
+    }
+    else
+    {
+      // Simple format: just the name
+      entry->set("name", str(list_entry.name));
     }
 
-    result->set("items", entries_array);
-    result->set("returnedRows", i64(entries.size()));
-    context.set_object(result);
+    entries_array->push(entry);
   }
+
+  result->set("items", entries_array);
+  result->set("returnedRows", i64(entries.size()));
+  context.set_object(result);
 
   return rc;
 }
@@ -256,6 +253,10 @@ int handle_uss_view(InvocationContext &context)
     zusf.set_size_callback = [&context](uint64_t size)
     {
       context.set_content_len(size);
+    };
+    zusf.update_heartbeat_callback = [&context]()
+    {
+      context.update_heartbeat();
     };
 
     size_t content_len = 0;
@@ -343,7 +344,12 @@ int handle_uss_write(InvocationContext &context)
     std::string etag_value = context.get<std::string>("etag", "");
     if (!etag_value.empty())
     {
-      strcpy(zusf.etag, etag_value.c_str());
+      if (etag_value.size() >= sizeof(zusf.etag))
+      {
+        context.error_stream() << "Error: etag exceeds " << sizeof(zusf.etag) - 1 << " character length limit" << std::endl;
+        return RTNCD_FAILURE;
+      }
+      memcpy(zusf.etag, etag_value.c_str(), etag_value.size() + 1);
     }
   }
 
@@ -354,6 +360,11 @@ int handle_uss_write(InvocationContext &context)
 
   if (has_pipe_path && !pipe_path.empty())
   {
+    zusf.update_heartbeat_callback = [&context]()
+    {
+      context.update_heartbeat();
+    };
+
     rc = zusf_write_to_uss_file_streamed(&zusf, file, pipe_path, &content_len);
     result->set("contentLen", i64(content_len));
   }
@@ -599,6 +610,7 @@ void register_commands(parser::Command &root_command)
 
   // View subcommand
   auto uss_view_cmd = command_ptr(new Command("view", "view a USS file"));
+  uss_view_cmd->mark_stdout_as_payload();
   uss_view_cmd->add_positional_arg(FILE_PATH);
   uss_view_cmd->add_keyword_arg(ENCODING);
   uss_view_cmd->add_keyword_arg(LOCAL_ENCODING);
@@ -611,7 +623,7 @@ void register_commands(parser::Command &root_command)
   // Write subcommand
   auto uss_write_cmd = command_ptr(new Command("write", "write to a USS file"));
   uss_write_cmd->add_positional_arg(FILE_PATH);
-  uss_write_cmd->add_keyword_arg(ENCODING);
+  uss_write_cmd->add_keyword_arg(ENCODING_INPUT);
   uss_write_cmd->add_keyword_arg(LOCAL_ENCODING);
   uss_write_cmd->add_keyword_arg(ETAG);
   uss_write_cmd->add_keyword_arg(ETAG_ONLY);
@@ -652,6 +664,7 @@ void register_commands(parser::Command &root_command)
 
   // Issue subcommand
   auto uss_issue_cmd = std::make_shared<Command>("issue", "issue a UNIX command");
+  uss_issue_cmd->mark_stdout_as_payload();
   uss_issue_cmd->add_positional_arg("command", "command to issue", ArgType_Single, true);
   uss_issue_cmd->set_handler(handle_uss_issue_cmd);
   uss_group->add_command(uss_issue_cmd);

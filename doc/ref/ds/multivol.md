@@ -20,10 +20,10 @@ Use an `IEFBR14` step in JCL to allocate the data set with multiple volumes as i
 
 ## Verify
 
-When a multivolume data set is listed with `zowex`, the volser column shows a `+` suffix (e.g., `VOL001+`).
+When a multivolume data set is listed with `zo`, the volser column shows a `+` suffix (e.g., `VOL001+`).
 
 ```bash
-zowex ds list IBMUSER.TEST.MULTIVOL --attributes
+zo ds list IBMUSER.TEST.MULTIVOL --attributes
 ```
 
 When a multivolume data set is listed by the client, the ZRS server returns data set attributes as a JSON object. A multivolume data set contains the following properties:
@@ -39,5 +39,5 @@ When a multivolume data set is listed by the client, the ZRS server returns data
 No special steps are needed to delete multivolume data sets.
 
 ```bash
-zowex ds delete IBMUSER.TEST.MULTIVOL
+zo ds delete IBMUSER.TEST.MULTIVOL
 ```

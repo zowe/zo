@@ -18,6 +18,7 @@ import type { ReadDatasetRequest } from "./doc/rpc/ds";
 import type { ReadFileRequest } from "./doc/rpc/uss";
 import { ProgressTransform } from "./ProgressTransform";
 import type { Client, ClientChannel } from "./ssh-rs";
+import { ZSshUtils } from "./ZSshUtils";
 
 type StreamData = {
     streamFn: () => Stream;
@@ -73,7 +74,10 @@ export class RpcStreamManager {
         this.mPendingStreamMap.delete(params.id);
 
         const sshStream = await new Promise<ClientChannel>((resolve, reject) => {
-            this.mSshClient.exec(`cat > ${params.pipePath}`, (err, stream) => (err ? reject(err) : resolve(stream)));
+            // Need to use sh built-in version of cat that converts to EBCDIC
+            this.mSshClient.exec(`exec /bin/sh -c "cat > ${ZSshUtils.quotePath(params.pipePath)}"`, (err, stream) =>
+                err ? reject(err) : resolve(stream),
+            );
         });
         const progressTransform = new ProgressTransform(callbackInfo, () => readStream.emit("keepAlive"));
 
@@ -95,7 +99,10 @@ export class RpcStreamManager {
         }
 
         const sshStream = await new Promise<ClientChannel>((resolve, reject) => {
-            this.mSshClient.exec(`cat ${params.pipePath}`, (err, stream) => (err ? reject(err) : resolve(stream)));
+            // Need to use sh built-in version of cat that converts to EBCDIC
+            this.mSshClient.exec(`exec /bin/sh -c "cat ${ZSshUtils.quotePath(params.pipePath)}"`, (err, stream) =>
+                err ? reject(err) : resolve(stream),
+            );
         });
         const progressTransform = new ProgressTransform(callbackInfo, () => writeStream.emit("keepAlive"));
 

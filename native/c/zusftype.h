@@ -40,7 +40,7 @@ typedef struct
   char file_name[1024]; // filename
 
   ZEncode encoding_opts;
-  char etag[16];
+  char etag[34]; // Two 64-bit hex values, separator, and null terminator
 
   ZDIAG diag;
 
@@ -48,6 +48,10 @@ typedef struct
   char _pad[3];
 
   std::function<void(uint64_t)> set_size_callback;
+
+  // Invoked per chunk during streamed read/write to signal that the request
+  // is still making progress (e.g. to feed a caller's request-timeout watchdog)
+  std::function<void()> update_heartbeat_callback;
 } ZUSF;
 
 ZNP_PACK_OFF

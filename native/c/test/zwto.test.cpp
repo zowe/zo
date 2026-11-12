@@ -42,48 +42,44 @@ static const int PREFIX_LEN = 10;
 
 void zwto_tests()
 {
-  describe("zwto_debug message bounding",
-           []() -> void
-           {
-             it("prefixes the message and preserves short text",
-                []() -> void
-                {
-                  char msg[MAX_WTO_TEXT] = {0};
-                  int len = run_debug("hello", msg);
+  describe("zwto_debug message bounding", []() -> void
+  {
+    it("prefixes the message and preserves short text", []() -> void
+    {
+      char msg[MAX_WTO_TEXT] = {0};
+      int len = run_debug("hello", msg);
 
-                  expect(len).ToBe(PREFIX_LEN + 5); // prefix + "hello"
-                  expect(std::string(msg, PREFIX_LEN)).ToBe("ZWEX0001I ");
-                  expect(std::string(msg + PREFIX_LEN)).ToBe("hello");
-                });
+      expect(len).ToBe(PREFIX_LEN + 5); // prefix + "hello"
+      expect(std::string(msg, PREFIX_LEN)).ToBe("ZWEX0001I ");
+      expect(std::string(msg + PREFIX_LEN)).ToBe("hello");
+    });
 
-             it("clamps oversized text to the buffer and keeps it NUL-terminated",
-                []() -> void
-                {
-                  // Larger than MAX_WTO_TEXT but well within the macro's
-                  // internal scratch buffer (see zwto.h) to isolate the
-                  // buf.msg clamp being tested here.
-                  std::string big(200, 'A');
-                  char msg[MAX_WTO_TEXT] = {0};
-                  int len = run_debug(big.c_str(), msg);
+    it("clamps oversized text to the buffer and keeps it NUL-terminated", []() -> void
+    {
+      // Larger than MAX_WTO_TEXT but well within the macro's
+      // internal scratch buffer (see zwto.h) to isolate the
+      // buf.msg clamp being tested here.
+      std::string big(200, 'A');
+      char msg[MAX_WTO_TEXT] = {0};
+      int len = run_debug(big.c_str(), msg);
 
-                  // Clamped to the full buffer minus the trailing NUL.
-                  expect(len).ToBe(MAX_WTO_TEXT - 1);
-                  expect((int)msg[MAX_WTO_TEXT - 1]).ToBe(0);            // terminated in-bounds
-                  expect((int)msg[MAX_WTO_TEXT - 2]).ToBe((int)'A');     // last usable slot is payload
-                  expect(std::string(msg, PREFIX_LEN)).ToBe("ZWEX0001I "); // prefix survives
-                });
+      // Clamped to the full buffer minus the trailing NUL.
+      expect(len).ToBe(MAX_WTO_TEXT - 1);
+      expect((int)msg[MAX_WTO_TEXT - 1]).ToBe(0);              // terminated in-bounds
+      expect((int)msg[MAX_WTO_TEXT - 2]).ToBe((int)'A');       // last usable slot is payload
+      expect(std::string(msg, PREFIX_LEN)).ToBe("ZWEX0001I "); // prefix survives
+    });
 
-             it("fills exactly to the buffer edge without clamping",
-                []() -> void
-                {
-                  // prefix(10) + payload == MAX_WTO_TEXT - 1 chars, + NUL == MAX_WTO_TEXT bytes.
-                  std::string edge(MAX_WTO_TEXT - 1 - PREFIX_LEN, 'B');
-                  char msg[MAX_WTO_TEXT] = {0};
-                  int len = run_debug(edge.c_str(), msg);
+    it("fills exactly to the buffer edge without clamping", []() -> void
+    {
+      // prefix(10) + payload == MAX_WTO_TEXT - 1 chars, + NUL == MAX_WTO_TEXT bytes.
+      std::string edge(MAX_WTO_TEXT - 1 - PREFIX_LEN, 'B');
+      char msg[MAX_WTO_TEXT] = {0};
+      int len = run_debug(edge.c_str(), msg);
 
-                  expect(len).ToBe(MAX_WTO_TEXT - 1);
-                  expect((int)msg[MAX_WTO_TEXT - 1]).ToBe(0);
-                  expect(std::string(msg + PREFIX_LEN)).ToBe(edge);
-                });
-           });
+      expect(len).ToBe(MAX_WTO_TEXT - 1);
+      expect((int)msg[MAX_WTO_TEXT - 1]).ToBe(0);
+      expect(std::string(msg + PREFIX_LEN)).ToBe(edge);
+    });
+  });
 }

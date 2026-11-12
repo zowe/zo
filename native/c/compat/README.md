@@ -1,8 +1,8 @@
 # Runtime compatibility
 
-`zowex` is built on one LPAR and the resulting `server.pax.Z` ships to every end-user system. It links
+`zo` is built on one LPAR and the resulting `server.pax.Z` ships to every end-user system. It links
 dynamically against the C++ runtime (libc++) that IBM ships **inside Language Environment**, in the DLL
-`CRTEQCXE`. If the build references a symbol the target system's LE does not export, `zowex` fails at
+`CRTEQCXE`. If the build references a symbol the target system's LE does not export, `zo` fails at
 **load** time, before `main()`:
 
 ```

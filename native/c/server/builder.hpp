@@ -14,6 +14,7 @@
 
 #include "../extend/plugin.hpp"
 #include "validator.hpp"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -130,14 +131,10 @@ public:
   CommandBuilder &validate()
   {
     // Allow unknown fields in requests for forward compatibility but not in responses
-    request_validator_ = [](const zjson::Value &params) -> validator::ValidationResult
-    {
-      return validator::validate_schema(params, validator::SchemaRegistry<RequestT>::fields, validator::SchemaRegistry<RequestT>::field_count, true);
-    };
-    response_validator_ = [](const zjson::Value &params) -> validator::ValidationResult
-    {
-      return validator::validate_schema(params, validator::SchemaRegistry<ResponseT>::fields, validator::SchemaRegistry<ResponseT>::field_count, false);
-    };
+    request_schema_ = validator::SchemaView{validator::SchemaRegistry<RequestT>::fields,
+                                            validator::SchemaRegistry<RequestT>::field_count};
+    response_schema_ = validator::SchemaView{validator::SchemaRegistry<ResponseT>::fields,
+                                             validator::SchemaRegistry<ResponseT>::field_count};
     return *this;
   }
 
@@ -153,16 +150,16 @@ public:
     return transforms_;
   }
 
-  // Get the request validator (may be null)
-  validator::ValidatorFn get_request_validator() const
+  // Get the request schema, if configured
+  const std::optional<validator::SchemaView> &get_request_schema() const
   {
-    return request_validator_;
+    return request_schema_;
   }
 
-  // Get the response validator (may be null)
-  validator::ValidatorFn get_response_validator() const
+  // Get the response schema, if configured
+  const std::optional<validator::SchemaView> &get_response_schema() const
   {
-    return response_validator_;
+    return response_schema_;
   }
 
   // Apply input transforms to the context before command execution
@@ -174,8 +171,8 @@ public:
 private:
   CommandHandler handler_;
   std::vector<ArgTransform> transforms_;
-  validator::ValidatorFn request_validator_;
-  validator::ValidatorFn response_validator_;
+  std::optional<validator::SchemaView> request_schema_;
+  std::optional<validator::SchemaView> response_schema_;
 };
 
 #endif

@@ -83,6 +83,11 @@ void register_commands(parser::Command &root_command)
   auto console_group = command_ptr(new Command("console", "z/OS console operations"));
   console_group->add_alias("cn");
   console_group->set_privileged(true);
+  // zoweax runs APF-authorized and these commands stay privileged, so the
+  // authorization-drop hook is skipped for them. Serializing a --json envelope
+  // would call the HWTJ services from an authorized job step, which needs a
+  // security review before being enabled here.
+  console_group->disable_json_output();
   {
     auto issue_cmd = command_ptr(new Command("issue", "issue a console command"));
     issue_cmd->add_keyword_arg("console-name",
@@ -98,6 +103,7 @@ void register_commands(parser::Command &root_command)
                                "timeout in seconds", ArgType_Single, false);
     issue_cmd->add_positional_arg("command", "command to run, e.g. 'D IPLINFO'",
                                   ArgType_Single, true);
+    issue_cmd->disable_json_output();
     issue_cmd->set_handler(handle_console_issue);
 
     console_group->add_command(issue_cmd);

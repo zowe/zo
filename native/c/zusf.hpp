@@ -71,10 +71,16 @@ struct ZusfListEntry
   std::string mtime;
 };
 
+// The Python bindings compile this header EBCDIC and their SWIG wrappers ASCII. libc++ uses a
+// distinct inline namespace per char mode (std::__1 vs std::__1_a), so a mangled name is
+// unresolvable across that boundary -- everything the bindings call needs C linkage.
+#ifdef SWIG
+extern "C"
+{
+#endif
 int zusf_copy_file_or_dir(ZUSF *zusf, const std::string &source_fs, const std::string &dest_fs, const CopyOptions &options);
 int zusf_create_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode, const CreateOptions &options);
 int zusf_move_uss_file_or_dir(ZUSF *zusf, const std::string &source, const std::string &target, bool force = true);
-std::string zusf_format_file_entry(ZUSF *zusf, const struct stat &file_stats, const std::string &file_path, const std::string &display_name, ListOptions options, bool use_csv_format, std::vector<ZusfListEntry> *entries = nullptr);
 int zusf_list_uss_file_path(ZUSF *zusf, const std::string &file, std::string &response, ListOptions options = ListOptions{}, bool use_csv_format = false, std::vector<ZusfListEntry> *entries = nullptr);
 int zusf_read_from_uss_file(ZUSF *zusf, const std::string &file, std::string &response);
 int zusf_read_from_uss_file_streamed(ZUSF *zusf, const std::string &file, const std::string &pipe, size_t *content_len);
@@ -84,6 +90,10 @@ int zusf_chmod_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode,
 int zusf_delete_uss_item(ZUSF *zusf, const std::string &file, bool recursive);
 int zusf_chown_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::string &owner, bool recursive);
 int zusf_chtag_uss_file_or_dir(ZUSF *zusf, const std::string &file, const std::string &tag, bool recursive);
+#ifdef SWIG
+}
+#endif
+
 short zusf_get_id_from_user_or_group(const std::string &user_or_group, bool is_user);
 int zusf_get_file_ccsid(ZUSF *zusf, const std::string &file);
 std::string zusf_get_ccsid_display_name(int ccsid);
@@ -91,5 +101,6 @@ int zusf_get_ccsid_from_display_name(const std::string &display_name);
 std::string zusf_get_owner_from_uid(uid_t uid);
 std::string zusf_get_group_from_gid(gid_t gid);
 std::string zusf_format_ls_time(time_t mtime, bool use_csv_format = false);
+std::string zusf_format_file_entry(ZUSF *zusf, const struct stat &file_stats, const std::string &file_path, const std::string &display_name, ListOptions options, bool use_csv_format, std::vector<ZusfListEntry> *entries = nullptr);
 
 #endif

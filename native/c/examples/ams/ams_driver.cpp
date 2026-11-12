@@ -84,7 +84,7 @@ int main()
   std::cout << "zds_close_output_bpam success" << std::endl;
   std::cout << "  Data set: ZOWETEST.IO.O.FB80(data)" << std::endl;
   // Run command to view data set
-  std::string command = "../../build-out/zowex ds view 'ZOWETEST.IO.O.FB80(data)'";
+  std::string command = "../../build-out/zo ds view 'ZOWETEST.IO.O.FB80(data)'";
   std::cout << "  Run: " << command << std::endl;
   rc = system(command.c_str());
   if (0 != rc)

@@ -19,4 +19,5 @@ export * from "./SshErrors";
 export * from "./UtilsApi";
 export * from "./utils";
 export * from "./ZSshClient";
+export * from "./ZSshConstants";
 export * from "./ZSshUtils";

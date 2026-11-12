@@ -11,6 +11,7 @@
 
 #include "job.hpp"
 #include "common_args.hpp"
+#include "result_table.hpp"
 #include "../zds.hpp"
 #include "../zjb.hpp"
 #include "../zusf.hpp"
@@ -20,9 +21,24 @@
 using namespace ast;
 using namespace parser;
 using namespace commands::common;
+using namespace commands::format;
 
 namespace job
 {
+
+static void add_job_execution_data(const ZJob &job, const ast::Node &result)
+{
+  if (!job.exec_system.empty())
+    result->set("execSystem", str(job.exec_system));
+  if (!job.exec_member.empty())
+    result->set("execMember", str(job.exec_member));
+  if (!job.exec_submitted.empty())
+    result->set("execSubmitted", str(job.exec_submitted));
+  if (!job.exec_started.empty())
+    result->set("execStarted", str(job.exec_started));
+  if (!job.exec_ended.empty())
+    result->set("execEnded", str(job.exec_ended));
+}
 
 /**
  * @brief Parse a string to determine if it's a regex pattern
@@ -57,6 +73,7 @@ int handle_job_list(InvocationContext &context)
   std::string status_name = context.get<std::string>("status", "*");
   long long max_entries = context.get<long long>("max-entries", 0);
   bool warn = context.get<bool>("warn", true);
+  bool exec_data = context.get<bool>("exec-data", false);
 
   if (max_entries > 0)
   {
@@ -68,27 +85,25 @@ int handle_job_list(InvocationContext &context)
 
   if (RTNCD_SUCCESS == rc || RTNCD_WARNING == rc)
   {
-    bool emit_csv = context.get<bool>("response-format-csv", false);
-    const auto entries_array = arr();
+    // Pad the leading columns only when exec data follows, so the wider rows stay aligned
+    const int id_width = exec_data ? 8 : 0;
+    ResultTable table(context);
+    table.add_column("jobid", id_width)
+        .add_column("jobname", id_width)
+        .add_column("owner", id_width)
+        .add_column("status", 7)
+        .add_column("retcode", exec_data ? 12 : 0);
+    if (exec_data)
+    {
+      table.add_column("execsystem", id_width)
+          .add_column("execmember", id_width)
+          .add_column("execsubmitted", 24)
+          .add_column("execstarted", 24)
+          .add_column("execended");
+    }
 
     for (const auto &job : jobs)
     {
-      if (emit_csv)
-      {
-        std::vector<std::string> fields;
-        fields.reserve(5);
-        fields.push_back(job.jobid);
-        fields.push_back(job.jobname);
-        fields.push_back(job.owner);
-        fields.push_back(job.status);
-        fields.push_back(job.retcode);
-        context.output_stream() << zut_format_as_csv(fields) << std::endl;
-      }
-      else
-      {
-        context.output_stream() << job.jobid << " " << job.jobname << " " << job.owner << " " << std::left << std::setw(7) << job.status << " " << job.retcode << std::endl;
-      }
-
       const auto entry = obj();
       entry->set("id", str(job.jobid));
       std::string trimmed_name = job.jobname;
@@ -109,12 +124,26 @@ int handle_job_list(InvocationContext &context)
         entry->set("correlator", str(trimmed_name));
       entry->set("phase", i64(job.phase));
       entry->set("phaseName", str(job.full_status));
-      entries_array->push(entry);
+      add_job_execution_data(job, entry);
+
+      auto &row = table.row();
+      row.add(job.jobid)
+          .add(job.jobname)
+          .add(job.owner)
+          .add(job.status)
+          .add(job.retcode);
+      if (exec_data)
+      {
+        row.add(job.exec_system)
+            .add(job.exec_member)
+            .add(job.exec_submitted)
+            .add(job.exec_started)
+            .add(job.exec_ended);
+      }
+      row.emit(entry);
     }
 
-    const auto result = obj();
-    result->set("items", entries_array);
-    context.set_object(result);
+    table.finish();
   }
   if (RTNCD_WARNING == rc)
   {
@@ -150,27 +179,15 @@ int handle_job_list_files(InvocationContext &context)
   rc = zjb_list_dds(&zjb, jobid, job_dds);
   if (RTNCD_SUCCESS == rc || RTNCD_WARNING == rc)
   {
-    bool emit_csv = context.get<bool>("response-format-csv", false);
-    std::vector<std::string> fields;
-    fields.reserve(5);
-    const auto entries_array = arr();
+    ResultTable table(context);
+    table.add_column("ddname", 9)
+        .add_column("dsname")
+        .add_column("id", 4)
+        .add_column("stepname")
+        .add_column("procstep");
 
     for (const auto &dd : job_dds)
     {
-      fields.push_back(dd.ddn);
-      fields.push_back(dd.dsn);
-      fields.push_back(std::to_string(dd.key));
-      fields.push_back(dd.stepname);
-      fields.push_back(dd.procstep);
-      if (emit_csv)
-      {
-        context.output_stream() << zut_format_as_csv(fields) << std::endl;
-      }
-      else
-      {
-        context.output_stream() << std::left << std::setw(9) << dd.ddn << " " << dd.dsn << " " << std::setw(4) << dd.key << " " << dd.stepname << " " << dd.procstep << std::endl;
-      }
-
       const auto entry = obj();
       std::string trimmed_name = dd.ddn;
       entry->set("ddname", str(zut_rtrim(trimmed_name)));
@@ -181,12 +198,17 @@ int handle_job_list_files(InvocationContext &context)
       entry->set("stepname", str(zut_rtrim(trimmed_name)));
       trimmed_name = dd.procstep;
       entry->set("procstep", str(zut_rtrim(trimmed_name)));
-      entries_array->push(entry);
+
+      table.row()
+          .add(dd.ddn)
+          .add(dd.dsn)
+          .add(dd.key)
+          .add(dd.stepname)
+          .add(dd.procstep)
+          .emit(entry);
     }
 
-    const auto result = obj();
-    result->set("items", entries_array);
-    context.set_object(result);
+    table.finish();
   }
 
   if (RTNCD_WARNING == rc)
@@ -214,8 +236,6 @@ int handle_job_view_status(InvocationContext &context)
   ZJob job{};
   std::string jobid = context.get<std::string>("jobid", "");
 
-  bool emit_csv = context.get<bool>("response-format-csv", false);
-
   rc = zjb_view(&zjb, jobid, job);
 
   if (0 != rc)
@@ -225,25 +245,28 @@ int handle_job_view_status(InvocationContext &context)
     return RTNCD_FAILURE;
   }
 
-  if (emit_csv)
-  {
-    std::vector<std::string> fields;
-    fields.reserve(7);
-    fields.push_back(job.jobid);
-    fields.push_back(job.jobname);
-    fields.push_back(job.owner);
-    fields.push_back(job.status);
-    fields.push_back(job.retcode);
-    fields.push_back(job.correlator);
-    fields.push_back(job.full_status);
-    context.output_stream() << zut_format_as_csv(fields) << std::endl;
-  }
-  else
-  {
-    std::string trimmed_correlator = job.correlator;
-    zut_rtrim(trimmed_correlator);
-    context.output_stream() << job.jobid << " " << job.jobname << " " << job.owner << " " << std::left << std::setw(7) << job.status << " " << std::left << std::setw(10) << job.retcode << " " << std::left << std::setw(33) << trimmed_correlator << " " << job.full_status << std::endl;
-  }
+  // A single row rather than a list: the structured result is the job object
+  // built below, so no ast::Node is handed to emit() here.
+  std::string trimmed_correlator = job.correlator;
+  zut_rtrim(trimmed_correlator);
+
+  ResultTable table(context);
+  table.add_column("jobid")
+      .add_column("jobname")
+      .add_column("owner")
+      .add_column("status", 7)
+      .add_column("retcode", 10)
+      .add_column("correlator", 33)
+      .add_column("phaseName");
+  table.row()
+      .add(job.jobid)
+      .add(job.jobname)
+      .add(job.owner)
+      .add(job.status)
+      .add(job.retcode)
+      .add(trimmed_correlator)
+      .add(job.full_status)
+      .emit();
 
   const auto result = obj();
   result->set("id", str(jobid));
@@ -265,6 +288,7 @@ int handle_job_view_status(InvocationContext &context)
     result->set("correlator", str(trimmed_name));
   result->set("phase", i64(job.phase));
   result->set("phaseName", str(job.full_status));
+  add_job_execution_data(job, result);
   context.set_object(result);
 
   return 0;
@@ -796,9 +820,11 @@ void register_commands(parser::Command &root_command)
   job_list_cmd->add_keyword_arg("owner", make_aliases("--owner", "-o"), "filter by owner", ArgType_Single, false);
   job_list_cmd->add_keyword_arg("prefix", make_aliases("--prefix", "-p"), "filter by prefix", ArgType_Single, false);
   job_list_cmd->add_keyword_arg("status", make_aliases("--status", "-s"), "filter by status", ArgType_Single, false);
+  job_list_cmd->add_keyword_arg("exec-data", make_aliases("--exec-data", "--ed"), "include job execution data", ArgType_Flag, false, ArgValue(false));
   job_list_cmd->add_keyword_arg(MAX_ENTRIES);
   job_list_cmd->add_keyword_arg(WARN);
   job_list_cmd->add_keyword_arg(RESPONSE_FORMAT_CSV);
+  job_list_cmd->add_keyword_arg(RESPONSE_FORMAT_HEADER);
   job_list_cmd->set_handler(handle_job_list);
   job_group->add_command(job_list_cmd);
 
@@ -809,6 +835,7 @@ void register_commands(parser::Command &root_command)
   job_list_files_cmd->add_keyword_arg(MAX_ENTRIES);
   job_list_files_cmd->add_keyword_arg(WARN);
   job_list_files_cmd->add_keyword_arg(RESPONSE_FORMAT_CSV);
+  job_list_files_cmd->add_keyword_arg(RESPONSE_FORMAT_HEADER);
   job_list_files_cmd->set_handler(handle_job_list_files);
   job_group->add_command(job_list_files_cmd);
 
@@ -817,11 +844,13 @@ void register_commands(parser::Command &root_command)
   job_view_status_cmd->add_alias("vs");
   job_view_status_cmd->add_positional_arg(JOB_ID);
   job_view_status_cmd->add_keyword_arg(RESPONSE_FORMAT_CSV);
+  job_view_status_cmd->add_keyword_arg(RESPONSE_FORMAT_HEADER);
   job_view_status_cmd->set_handler(handle_job_view_status);
   job_group->add_command(job_view_status_cmd);
 
   // View-file subcommand
   auto job_view_file_cmd = command_ptr(new Command("view-file", "view job file output"));
+  job_view_file_cmd->mark_stdout_as_payload();
   job_view_file_cmd->add_alias("vf");
   job_view_file_cmd->add_positional_arg("dsn", "job dsn via 'job list-files'", ArgType_Single, true);
   job_view_file_cmd->add_keyword_arg(ENCODING);
@@ -832,6 +861,7 @@ void register_commands(parser::Command &root_command)
 
   // View-file-by-id subcommand
   auto job_view_file_by_id_cmd = command_ptr(new Command("view-file-by-id", "view job file output by id"));
+  job_view_file_by_id_cmd->mark_stdout_as_payload();
   job_view_file_by_id_cmd->add_alias("vfbi");
   job_view_file_by_id_cmd->add_positional_arg(JOB_ID);
   job_view_file_by_id_cmd->add_positional_arg("key", "valid job dsn key via 'job list-files'", ArgType_Single, true);
@@ -843,6 +873,7 @@ void register_commands(parser::Command &root_command)
 
   // View-jcl subcommand
   auto job_view_jcl_cmd = command_ptr(new Command("view-jcl", "view job jcl from input jobid"));
+  job_view_jcl_cmd->mark_stdout_as_payload();
   job_view_jcl_cmd->add_alias("vj");
   job_view_jcl_cmd->add_positional_arg(JOB_ID);
   job_view_jcl_cmd->set_handler(handle_job_view_jcl);
@@ -864,7 +895,7 @@ void register_commands(parser::Command &root_command)
   job_submit_jcl_cmd->add_keyword_arg("wait", make_aliases("--wait"), "wait for job status", ArgType_Single, false);
   job_submit_jcl_cmd->add_keyword_arg("only-jobid", make_aliases("--only-jobid", "--oj"), "show only job id on success", ArgType_Flag, false, ArgValue(false));
   job_submit_jcl_cmd->add_keyword_arg("only-correlator", make_aliases("--only-correlator", "--oc"), "show only job correlator on success", ArgType_Flag, false, ArgValue(false));
-  job_submit_jcl_cmd->add_keyword_arg(ENCODING);
+  job_submit_jcl_cmd->add_keyword_arg(ENCODING_INPUT);
   job_submit_jcl_cmd->add_keyword_arg(LOCAL_ENCODING);
   job_submit_jcl_cmd->set_handler(handle_job_submit_jcl);
   job_group->add_command(job_submit_jcl_cmd);
@@ -894,8 +925,8 @@ void register_commands(parser::Command &root_command)
   job_watch_cmd->add_keyword_arg("max-wait-seconds", make_aliases("--max-wait-seconds", "--mws"), "maximum number of seconds to wait for the pattern to match (max 300 seconds)", ArgType_Single, false, ArgValue(15ll));
   job_watch_cmd->add_keyword_arg("ignore-case", make_aliases("--ignore-case", "--ic"), "match string in any case", ArgType_Flag, false, ArgValue(false));
   job_watch_cmd->set_handler(handle_job_watch);
-  job_watch_cmd->add_example("Watch job spool files for a given string pattern", "zowex job watch IBMUSER.IEFBR14@.JOB01684.D0000002.JESMSGLG --pattern \"$HASP395 IEFBR14@ ENDED\"");
-  job_watch_cmd->add_example("Watch job spool files for a given regex pattern", "zowex job watch IBMUSER.IEFBR14@.JOB01684D0000002.JESMSGLG --pattern \"/^.*ENDED.*$/g\"");
+  job_watch_cmd->add_example("Watch job spool files for a given string pattern", "zo job watch IBMUSER.IEFBR14@.JOB01684.D0000002.JESMSGLG --pattern \"$HASP395 IEFBR14@ ENDED\"");
+  job_watch_cmd->add_example("Watch job spool files for a given regex pattern", "zo job watch IBMUSER.IEFBR14@.JOB01684D0000002.JESMSGLG --pattern \"/^.*ENDED.*$/g\"");
   job_group->add_command(job_watch_cmd);
 
   // Cancel subcommand

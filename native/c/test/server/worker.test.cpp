@@ -12,7 +12,7 @@
 #include "worker.test.hpp"
 #include "../ztest.hpp"
 #include "../../server/worker.hpp"
-#include "../../server/logger.hpp"
+#include "../../zlogger.hpp"
 
 #include <string>
 #include <stdexcept>
@@ -65,9 +65,11 @@ public:
    * @brief The mock request processing logic.
    *
    * @param data The request payload.
+   * @param heartbeat_callback Unused by this mock; accepted for signature compatibility.
    */
-  void process_request(const std::string &data)
+  void process_request(const std::string &data, std::function<void()> heartbeat_callback = nullptr)
   {
+    (void)heartbeat_callback;
     {
       std::lock_guard<std::mutex> lock(mtx);
       last_processed_request = data;
@@ -113,6 +115,15 @@ public:
     timeout_error_count++;
     TestLog("RpcServer: Timeout error sent to client for request");
     (void)request_data; // Suppress unused parameter warning
+  }
+
+  /**
+   * @brief Mock implementation of set_heartbeat_callback.
+   * No-op; heartbeat behavior for streaming operations isn't exercised by this test.
+   */
+  static void set_heartbeat_callback(std::function<void()> callback)
+  {
+    (void)callback;
   }
 
   /**
@@ -171,27 +182,29 @@ void server_worker_tests()
 
   // Reset the mock RpcServer before each test
   beforeEach([&]()
-             {
+  {
     TestLog("Resetting RpcServer mock state...");
-    server.reset(); });
+    server.reset();
+  });
 
   // Ensure the pool is shut down after each test to clean up threads
   afterEach([&]()
-            {
+  {
     TestLog("Shutting down worker pool...");
     if (pool)
     {
       pool->shutdown();
       pool = nullptr;
-    } });
+    }
+  });
 
   describe("Worker", [&]()
-           {
-
+  {
     std::shared_ptr<Worker> worker;
 
     // Clean up individual worker after each 'it' block
-    afterEach([&]() {
+    afterEach([&]()
+    {
       if (worker)
       {
         worker->stop();
@@ -199,7 +212,8 @@ void server_worker_tests()
       }
     });
 
-    it("should start and transition to Idle state", [&]() {
+    it("should start and transition to Idle state", [&]()
+    {
       worker = std::make_shared<Worker>(0);
       // Initial state is Starting (set in constructor)
       Expect(worker->get_state() == WorkerState::Starting).ToBe(true);
@@ -207,11 +221,15 @@ void server_worker_tests()
       worker->start();
 
       // After start(), the loop runs and waits, setting state to Idle
-      bool became_idle = wait_for([&]() { return worker->get_state() == WorkerState::Idle; }, 500ms);
+      bool became_idle = wait_for([&]()
+      {
+        return worker->get_state() == WorkerState::Idle;
+      }, 500ms);
       Expect(became_idle).ToBe(true);
     });
 
-    it("should process a request and return to Idle", [&]() {
+    it("should process a request and return to Idle", [&]()
+    {
       worker = std::make_shared<Worker>(0);
       worker->start();
       Expect(worker->get_state() == WorkerState::Idle).ToBe(true);
@@ -220,13 +238,15 @@ void server_worker_tests()
       worker->add_request(RequestMetadata("test_request_1"));
 
       // Wait for the worker to pick up the request and go to Running
-      bool became_running = wait_for([&]() {
+      bool became_running = wait_for([&]()
+      {
         return worker->get_state() == WorkerState::Running;
       }, 500ms);
       Expect(became_running).ToBe(true);
 
       // Wait for it to finish processing and go back to Idle
-      bool became_idle = wait_for([&]() {
+      bool became_idle = wait_for([&]()
+      {
         return worker->get_state() == WorkerState::Idle;
       }, 500ms);
       Expect(became_idle).ToBe(true);
@@ -235,7 +255,8 @@ void server_worker_tests()
       Expect(server.processed_count.load()).ToBe(1);
     });
 
-    it("should transition to Faulted state on exception", [&]() {
+    it("should transition to Faulted state on exception", [&]()
+    {
       worker = std::make_shared<Worker>(0);
       worker->start();
       Expect(worker->get_state() == WorkerState::Idle).ToBe(true);
@@ -245,7 +266,8 @@ void server_worker_tests()
       worker->add_request(RequestMetadata("fault"));
 
       // Wait for the worker's catch block to set the state
-      bool faulted = wait_for([&]() {
+      bool faulted = wait_for([&]()
+      {
         return worker->get_state() == WorkerState::Faulted;
       }, 500ms);
 
@@ -253,7 +275,8 @@ void server_worker_tests()
       Expect(server.processed_count.load()).ToBe(1);
     });
 
-    it("should stop cleanly and transition to Exited state", [&]() {
+    it("should stop cleanly and transition to Exited state", [&]()
+    {
       worker = std::make_shared<Worker>(0);
       worker->start();
       Expect(worker->get_state() == WorkerState::Idle).ToBe(true);
@@ -262,30 +285,36 @@ void server_worker_tests()
 
       // Note: stop() joins the thread, so this is synchronous
       Expect(worker->get_state() == WorkerState::Exited).ToBe(true);
-    }); });
+    });
+  });
 
   describe("WorkerPool integration", [&]()
-           {
-             it("should initialize and all workers become ready", [&]()
-                {
+  {
+    it("should initialize and all workers become ready", [&]()
+    {
       long long num_workers = 4LL;
       pool = std::make_shared<WorkerPool>(num_workers, 1000ms);
 
       // Wait for all workers to start and mark themselves as ready
-      bool all_ready = wait_for([&]() {
+      bool all_ready = wait_for([&]()
+      {
         return pool->get_available_workers_count() == num_workers;
       }, 2000ms); // Give them time to start up
 
       Expect(all_ready).ToBe(true);
-      Expect(pool->get_available_workers_count()).ToBe(num_workers); });
+      Expect(pool->get_available_workers_count()).ToBe(num_workers);
+    });
 
-             it("should distribute multiple requests to workers", [&]()
-                {
+    it("should distribute multiple requests to workers", [&]()
+    {
       long long num_workers = 2LL;
       pool = std::make_shared<WorkerPool>(num_workers, 1000ms);
 
       // Wait for workers to be ready
-      bool all_ready = wait_for([&]() { return pool->get_available_workers_count() == num_workers; }, 1000ms);
+      bool all_ready = wait_for([&]()
+      {
+        return pool->get_available_workers_count() == num_workers;
+      }, 1000ms);
       Expect(all_ready).ToBe(true);
 
       server.reset();
@@ -294,18 +323,25 @@ void server_worker_tests()
       pool->distribute_request("req3");
 
       // Wait for all three requests to be processed
-      bool all_processed = wait_for([&]() { return server.processed_count.load() == 3; }, 1000ms);
+      bool all_processed = wait_for([&]()
+      {
+        return server.processed_count.load() == 3;
+      }, 1000ms);
 
       Expect(all_processed).ToBe(true);
-      Expect(server.processed_count.load()).ToBe(3); });
+      Expect(server.processed_count.load()).ToBe(3);
+    });
 
-             it("should replace a faulted worker and redistribute its requests", [&]()
-                {
+    it("should replace a faulted worker and redistribute its requests", [&]()
+    {
       long long num_workers = 1LL;
       // Use a long timeout so it doesn't interfere with the fault test
       pool = std::make_shared<WorkerPool>(num_workers, 5000ms);
 
-      bool ready = wait_for([&]() { return pool->get_available_workers_count() == num_workers; }, 1000ms);
+      bool ready = wait_for([&]()
+      {
+        return pool->get_available_workers_count() == num_workers;
+      }, 1000ms);
       Expect(ready).ToBe(true);
 
       server.reset();
@@ -335,9 +371,10 @@ void server_worker_tests()
 
       TestLog("Waiting for fault/recovery/redistribution/poison pill cycle...");
       // We expect 5 total requests to be processed
-      bool finished_processing = wait_for([&]() {
+      bool finished_processing = wait_for([&]()
+      {
         return server.processed_count.load() == 5; // fault, p1, p2, fault(r1), fault(r2)
-      }, 5000ms); // Needs time for monitor loops + replacement backoffs
+      }, 5000ms);                                  // Needs time for monitor loops + replacement backoffs
 
       Expect(finished_processing).ToBe(true);
       Expect(server.processed_count.load()).ToBe(5);
@@ -346,21 +383,26 @@ void server_worker_tests()
       TestLog("Sending clean request after poison pill...");
       pool->distribute_request("clean");
 
-      bool clean_processed = wait_for([&]() {
+      bool clean_processed = wait_for([&]()
+      {
         return server.processed_count.load() == 6;
       }, 2000ms); // Replacement backoff might add delay
 
       Expect(clean_processed).ToBe(true);
-      Expect(server.processed_count.load()).ToBe(6); });
+      Expect(server.processed_count.load()).ToBe(6);
+    });
 
-             it("should replace a timed-out worker, send timeout error to client, and NOT recover in-flight request", [&]()
-                {
+    it("should replace a timed-out worker, send timeout error to client, and NOT recover in-flight request", [&]()
+    {
       int num_workers = 1;
       // Use a very short timeout for the test
       auto short_timeout = 250ms;
       pool = std::make_shared<WorkerPool>(num_workers, short_timeout);
 
-      bool ready = wait_for([&]() { return pool->get_available_workers_count() == num_workers; }, 1000ms);
+      bool ready = wait_for([&]()
+      {
+        return pool->get_available_workers_count() == num_workers;
+      }, 1000ms);
       Expect(ready).ToBe(true);
 
       server.reset();
@@ -380,14 +422,15 @@ void server_worker_tests()
       // 8. No additional requests are redistributed (pending queue was empty after step 1).
 
       TestLog("Waiting for timeout/replacement cycle and timeout error...");
-      
+
       // First, verify that pending1 was processed and timeout error was sent
-      bool timeout_sent = wait_for([&]() {
+      bool timeout_sent = wait_for([&]()
+      {
         return server.processed_count.load() >= 1 && server.timeout_error_count.load() >= 1;
       }, 3000ms); // Needs time for timeout + monitor + backoff
 
       Expect(timeout_sent).ToBe(true);
-      Expect(server.processed_count.load()).ToBe(1); // Only "pending1" processed normally
+      Expect(server.processed_count.load()).ToBe(1);     // Only "pending1" processed normally
       Expect(server.timeout_error_count.load()).ToBe(1); // Timeout error sent for "hang" request
 
       TestLog("Timeout error successfully sent to client - preventing client hang!");
@@ -399,7 +442,8 @@ void server_worker_tests()
       // Wait a bit. The processed count should increase to 2 as the
       // *original detached* thread finally finishes its `process_request` call.
       // This confirms the original thread was left to run.
-      bool hang_finished = wait_for([&]() {
+      bool hang_finished = wait_for([&]()
+      {
         return server.processed_count.load() == 2;
       }, 500ms);
 
@@ -409,16 +453,19 @@ void server_worker_tests()
       // The pool should now have a healthy, ready worker.
       TestLog("Sending clean request after timeout recovery...");
       pool->distribute_request("clean");
-      bool clean_processed = wait_for([&]() {
+      bool clean_processed = wait_for([&]()
+      {
         return server.processed_count.load() == 3;
       }, 1000ms);
 
       Expect(clean_processed).ToBe(true);
       Expect(server.processed_count.load()).ToBe(3);
       Expect(pool->get_available_workers_count()).ToBe(1);
-      
+
       // Final validation: exactly one timeout error was sent
-      Expect(server.timeout_error_count.load()).ToBe(1); }); });
+      Expect(server.timeout_error_count.load()).ToBe(1);
+    });
+  });
 }
 // Include the implementation so the stubs above satisfy the real compilation unit.
 #include "../server/worker.cpp"

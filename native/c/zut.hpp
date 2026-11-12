@@ -18,6 +18,7 @@
 #include <vector>
 #include <optional>
 #include <string>
+#include <sys/types.h>
 #include "ztype.h"
 #include "zutm.h"
 
@@ -367,13 +368,6 @@ std::string &zut_ltrim(std::string &s, const char *t = " ");
 std::string &zut_trim(std::string &s, const char *t = " ");
 
 /**
- * @brief Function to dynamically allocate output debug DD
- *
- * @return int rc Return code (0 for success, non-zero for error)
- */
-int zut_alloc_debug();
-
-/**
  * @brief Get current PSW key
  *
  * @return unsigned char The current PSW key
@@ -464,15 +458,32 @@ int zut_list_subsystems(ZDIAG &diag, std::vector<std::string> &subsystems, std::
 std::string zut_read_input(std::istream &input_stream);
 
 /**
- * @brief Write data to a file that is created (or truncated) with owner-only
- *   read/write permissions (0600), regardless of the process umask.
+ * @brief Open a file for writing without ever following a symbolic link as the
+ *   last path component.
+ *
+ * A single open() with O_CREAT | O_NOFOLLOW binds the existence check, creation,
+ * and truncation to the same object, so neither a dangling nor a live symbolic
+ * link can redirect the write. Without `truncate` the file is created with O_EXCL
+ * and any existing path fails.
+ *
+ * @param path Path of the file to open
+ * @param mode Permission bits for a newly created file (subject to the umask)
+ * @param truncate Open and truncate an existing regular file instead of failing with EEXIST
+ * @return File descriptor, or -1 with errno set; ELOOP when `path` is a symbolic link
+ */
+int zut_open_for_write(const std::string &path, mode_t mode, bool truncate);
+
+/**
+ * @brief Atomically replace a file with owner-only read/write permissions (0600),
+ *   regardless of the process umask.
  *
  * Intended for output that may hold secrets, such as an exported private key
- * (e.g. a PKCS#12 bundle). The file is opened O_CREAT | O_TRUNC and then
- * chmod'd to 0600 so a pre-existing file with looser permissions is tightened
- * as well, since O_CREAT's mode argument only applies to newly created files.
+ * (e.g. a PKCS#12 bundle). Existing symbolic-link destinations are rejected.
+ * Data is written to an exclusively created temporary file in the same directory,
+ * validated, and closed before renaming it over the destination. Failed writes
+ * leave the previous output intact; hard-linked files are not modified in place.
  *
- * @param path Path of the file to create/truncate and write
+ * @param path Path of the file to create or replace
  * @param data The bytes to write
  * @param error Reference to a string that receives a short error description on failure
  * @return Return code (0 for success, non-zero for error)

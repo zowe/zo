@@ -1,4 +1,4 @@
-# Makefile for building Python bindings for zowex
+# Makefile for building Python bindings for zo
 
 # Default target
 all: swig-extenders build
@@ -6,6 +6,8 @@ all: swig-extenders build
 # Environment variables for z/OS compatibility
 _SWIG_ENV= \
 	export _BPXK_AUTOCVT=ON; \
+	export CC=ibm-clang64; \
+	export CXX=ibm-clang++64; \
 	export _CEE_RUNOPTS="FILETAG(AUTOCVT,AUTOTAG) POSIX(ON)" ; \
 	export _CC_CCMODE=1; \
 	export _CXX_CCMODE=1; \

@@ -97,10 +97,10 @@ An ESDS stores records in the order they are inserted; there is no primary key o
 
 ## Verify
 
-When listed with `zowex`, each component reports distinct dsorg and volser values:
+When listed with `zo`, each component reports distinct dsorg and volser values:
 
 ```bash
-zowex ds list "IBMUSER.DATA.*" --attributes
+zo ds list "IBMUSER.DATA.*" --attributes
 ```
 
 | Entry | dsorg | volser |

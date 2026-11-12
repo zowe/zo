@@ -99,7 +99,7 @@ class TestDatasetFunctions:
         self.created_datasets.append(dsn)
         
         # Verify creation by listing datasets
-        datasets = ds.list_data_sets(dsn)
+        datasets = ds.list_data_sets(dsn, True)
         # assert isinstance(datasets, (list, ds.ZDSEntryVector))
         assert len(datasets) > 0
         
@@ -117,7 +117,7 @@ class TestDatasetFunctions:
         self.created_datasets.append(dsn)
         
         # Verify creation by listing datasets
-        datasets = ds.list_data_sets(dsn)
+        datasets = ds.list_data_sets(dsn, True)
         # assert isinstance(datasets, (list, ds.ZDSEntryVector))
         assert len(datasets) > 0
         
@@ -157,7 +157,7 @@ class TestDatasetFunctions:
         self.created_datasets.append(dsn)
         
         # List datasets
-        datasets = ds.list_data_sets(dsn)
+        datasets = ds.list_data_sets(dsn, True)
         
         # Verify response
         # assert isinstance(datasets, (list, ds.ZDSEntryVector))
@@ -248,7 +248,7 @@ class TestDatasetFunctions:
         test_data = "Test data without codepage"
         
         # Create dataset
-        attributes = ds.DS_ATTRIBUTES()
+        attributes = self._create_ps_attributes(dsn)
         ds.create_data_set(dsn, attributes)
         self.created_datasets.append(dsn)
         
@@ -318,8 +318,57 @@ class TestDatasetFunctions:
         assert len(etag) > 0
         
         # Verify data was written correctly
-        content = ds.read_data_set(dsn, "binary") 
+        content = ds.read_data_set(dsn, "binary")
         assert content.startswith(test_data)
+
+    # KNOWN LIMITATION TESTS
+    # These pin the two gaps called out under "Known limitation" in
+    # native/python/bindings/README.md. They are strict xfails: today they fail and the suite stays
+    # green, but the moment the underlying conversion is fixed pytest reports XPASS as a failure,
+    # which is the signal to drop the marker here and the note in the README together.
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Explicit codepage double-converts data set content (zds converts, then the binding "
+               "converts again), so the round-trip hands back an empty string. See "
+               "native/python/bindings/README.md.",
+    )
+    def test_read_write_dataset_with_explicit_codepage(self):
+        """Explicit (non-default, non-binary) codepage should round-trip."""
+        dsn = f"{self.test_dsn_base}.CODEPG"
+        test_data = "Explicit codepage round-trip"
+
+        # Create dataset
+        attributes = self._create_ps_attributes(dsn)
+        ds.create_data_set(dsn, attributes)
+        self.created_datasets.append(dsn)
+
+        # Write and read back using an explicit codepage
+        ds.write_data_set(dsn, test_data, "IBM-1047", "")
+        content = ds.read_data_set(dsn, "IBM-1047")
+        assert content == test_data + "\n"
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Etags are converted on the way out but not on the way in, so an etag handed back to "
+               "write_data_set never matches. See native/python/bindings/README.md.",
+    )
+    def test_write_dataset_etag_round_trip(self):
+        """An etag returned by write_data_set should be accepted by the next write."""
+        dsn = f"{self.test_dsn_base}.ETAG"
+
+        # Create dataset
+        attributes = self._create_ps_attributes(dsn)
+        ds.create_data_set(dsn, attributes)
+        self.created_datasets.append(dsn)
+
+        # First write returns the etag for the content we just stored
+        etag = ds.write_data_set(dsn, "first revision", "", "")
+        assert len(etag) > 0
+
+        # Handing that same etag back should pass the conditional-write check
+        new_etag = ds.write_data_set(dsn, "second revision", "", etag)
+        assert isinstance(new_etag, str)
+        assert len(new_etag) > 0
 
     # DELETE DATASET TESTS
     def test_delete_dataset_success(self):

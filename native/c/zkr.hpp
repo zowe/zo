@@ -131,7 +131,7 @@ struct ZKRExportOptions
   std::string ring;     // key ring name
   std::string label;    // certificate label
   std::string format;   // "pem" (certificate) or "p12" (certificate + private key)
-  std::string password; // PKCS#12 passphrase (used only when format == "p12")
+  std::string password; // Strong, unique 8-128-character ASCII passphrase (p12 only)
 };
 
 // Options for importing a certificate into a key ring from a PKCS#12 file.
@@ -142,6 +142,7 @@ struct ZKRImportOptions
   std::string label;         // certificate label to assign
   std::string usage;         // PERSONAL | CERTAUTH
   std::string p12_path;      // path to the source PKCS#12 file
+  std::string p12_data;      // pre-loaded PKCS#12 bytes; when non-empty, used instead of p12_path
   std::string password;      // PKCS#12 passphrase
   bool skip_refresh = false; // do not auto-refresh DIGTCERT when the ESM signals it is required
 };
@@ -206,7 +207,8 @@ std::vector<ZKRCertInfo> zkr_filter_certs(const std::vector<ZKRCertInfo> &certs,
 
 /**
  * @brief Export a certificate from a key ring.
- *        format "pem" returns PEM text; format "p12" returns raw PKCS#12 bytes.
+ *        format "pem" returns PEM text; format "p12" returns PBES2/AES-256-CBC PKCS#12 bytes.
+ *        PKCS#12 export requires System SSL APAR OA64899 support and active ICSF.
  * @param data receives the exported certificate bytes
  * @return 0 on success; non-zero otherwise (details in zkr->diag)
  */
@@ -214,7 +216,11 @@ int zkr_export_cert(ZKR *zkr, const ZKRExportOptions &opts, std::string &data);
 
 /**
  * @brief Import a certificate (and private key, when present) from a PKCS#12
- *        file into a key ring (R_datalib IMPORT).
+ *        file into a key ring (R_datalib IMPORT). The PKCS#12 bytes are read
+ *        from opts.p12_path, unless opts.p12_data is non-empty, in which case
+ *        those bytes are used directly and no file is touched -- this keeps
+ *        zkr free of data-set knowledge while letting a caller (e.g. the
+ *        `--dsn` data-set source) supply bytes it read itself.
  * @return 0 on success; non-zero otherwise (details in zkr->diag)
  */
 int zkr_import_cert(ZKR *zkr, const ZKRImportOptions &opts);

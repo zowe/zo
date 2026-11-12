@@ -13,6 +13,9 @@ import type { IHandlerParameters } from "@zowe/imperative";
 import type { jobs, ZSshClient } from "@zowe/zowex-for-zowe-sdk";
 import { SshBaseHandler } from "../../SshBaseHandler";
 
+const DEFAULT_FIELDS = ["id", "name", "owner", "status", "retcode"];
+const EXEC_DATA_FIELDS = ["execSystem", "execMember", "execSubmitted", "execStarted", "execEnded"];
+
 export default class ListJobsHandler extends SshBaseHandler {
     public async processWithClient(params: IHandlerParameters, client: ZSshClient): Promise<jobs.ListJobsResponse> {
         const response = await client.jobs.listJobs({
@@ -24,7 +27,7 @@ export default class ListJobsHandler extends SshBaseHandler {
         params.response.format.output({
             output: response.items,
             format: "table",
-            fields: ["id", "name", "owner", "status", "retcode"],
+            fields: params.arguments.execData ? [...DEFAULT_FIELDS, ...EXEC_DATA_FIELDS] : DEFAULT_FIELDS,
         });
         return response;
     }

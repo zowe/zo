@@ -16,6 +16,7 @@
 #include <mutex>
 #include <deque>
 #include <set>
+#include <functional>
 #include "../extend/plugin.hpp"
 #include "../singleton.hpp"
 
@@ -93,8 +94,11 @@ public:
    * This method is thread-safe and handles all JSON parsing, command execution,
    * and response serialization
    * @param request_data The raw JSON-RPC request string
+   * @param heartbeat_callback Callback a streaming command handler can invoke per chunk
+   *        (e.g. during a large file upload/download) to signal that the request is
+   *        still making progress. Set on the MiddlewareContext built for this request.
    */
-  void process_request(const std::string &request_data);
+  void process_request(const std::string &request_data, std::function<void()> heartbeat_callback = nullptr);
 
   /**
    * Utility function to serialize JSON with error handling

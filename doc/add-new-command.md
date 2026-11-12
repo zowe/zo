@@ -6,16 +6,16 @@ This guide walks you through creating a new command for the Zowe Remote SSH stac
 
 ## Table of Contents
 
-1. [Adding a Command to the Native CLI (zowex)](#1-adding-a-command-to-the-native-cli-zowex)
+1. [Adding a Command to the Native CLI (zo)](#1-adding-a-command-to-the-native-cli-zo)
 2. [Testing Your CLI Command](#2-testing-your-cli-command)
-3. [Adding the Command to the Server (zowex server)](#3-adding-the-command-to-the-server-zowex-server)
+3. [Adding the Command to the Server (zo server)](#3-adding-the-command-to-the-server-zo-server)
 4. [Testing Your Server Command](#4-testing-your-server-command)
 
 ---
 
-## 1. Adding a Command to the Native CLI (zowex)
+## 1. Adding a Command to the Native CLI (zo)
 
-The `zowex` CLI is the lowest level of the stack, providing direct access to mainframe capabilities. Commands are defined in the `native/c/commands/` directory.
+The `zo` CLI is the lowest level of the stack, providing direct access to mainframe capabilities. Commands are defined in the `native/c/commands/` directory.
 
 ### Step 1.1: Create Command Files
 
@@ -94,8 +94,8 @@ void register_commands(parser::Command &root_command)
   ping_cmd->set_handler(handle_ping);
 
   // Add examples
-  ping_cmd->add_example("Simple ping", "zowex ping");
-  ping_cmd->add_example("Ping with message", "zowex ping --message \"Hello, world!\"");
+  ping_cmd->add_example("Simple ping", "zo ping");
+  ping_cmd->add_example("Ping with message", "zo ping --message \"Hello, world!\"");
 
   // Register with the root command
   root_command.add_command(ping_cmd);
@@ -106,7 +106,7 @@ void register_commands(parser::Command &root_command)
 
 ### Step 1.2: Register Your Command
 
-Edit `native/c/zowex.cpp` to include and register your new command:
+Edit `native/c/zo.cpp` to include and register your new command:
 
 ```cpp
 // Add include at the top with other command includes
@@ -142,7 +142,7 @@ COMMAND_OBJS = commands/ds.o commands/job.o commands/uss.o \
 
 ## 2. Testing Your CLI Command
 
-### Step 2.1: Build zowex
+### Step 2.1: Build zo
 
 Upload your new source code:
 
@@ -150,7 +150,7 @@ Upload your new source code:
 npm run z:upload
 ```
 
-Build the zowex C++ binary:
+Build the zo C++ binary:
 
 ```bash
 npm run z:build
@@ -164,23 +164,35 @@ Once compiled, you can test the command directly on z/OS:
 
 ```bash
 # Test simple ping
-./zowex ping
+./zo ping
 
 # Expected output:
 # PONG: hello at Mon Oct  6 14:23:45 2025
 
 # Test with custom message
-./zowex ping --message "Hello, world!"
+./zo ping --message "Hello, world!"
 
 # Expected output:
 # PONG: Hello, world! at Mon Oct  6 14:23:45 2025
+
+# The object passed to context.set_object() is also what --json prints
+./zo ping --message "Hello, world!" --json
+
+# Expected output:
+# {"data":{"data":"PONG: Hello, world!","timestamp":"Mon Oct  6 14:23:45 2025"},"exitCode":0,"stderr":"","success":true}
 ```
+
+> [!NOTE]
+> `--json` is injected into every command by the parser, so there is nothing to register for
+> it. See [json-output.md](./json-output.md) for the envelope contract, and call
+> `mark_stdout_as_payload()` on the command if its payload is its stdout rather than a set of
+> fields.
 
 ---
 
-## 3. Adding the Command to the Server (zowex server)
+## 3. Adding the Command to the Server (zo server)
 
-The server (`zowex server`) is an embedded subcommand that provides remote access to zowex commands via JSON-RPC over SSH. To expose your command through the server, you need to:
+The server (`zo server`) is an embedded subcommand that provides remote access to `zo` commands via JSON-RPC over SSH. To expose your command through the server, you need to:
 
 1. Plan your request and response structure
 2. Register the command with the C++ dispatcher using `CommandBuilder`
@@ -190,7 +202,7 @@ The server (`zowex server`) is an embedded subcommand that provides remote acces
 
 Before implementing the middleware integration, design the request and response structure for your command. This defines how clients will interact with your command over JSON-RPC. Later in [Step 4.1](#step-41-define-sdk-types), we'll formalize these as TypeScript types.
 
-For our `zowex ping` command, we'll create a JSON-RPC method called `ping` with:
+For our `zo ping` command, we'll create a JSON-RPC method called `ping` with:
 
 **Request structure:**
 
@@ -217,7 +229,7 @@ Key considerations when planning your API:
 - **Response shape**: Include all relevant data from the CLI's return object
 - **Consistency**: Follow patterns from existing commands (e.g., `listDatasets`, `submitJob`)
 
-The `CommandBuilder` will help us map these RPC parameters to the CLI command arguments that `zowex ping` expects.
+The `CommandBuilder` will help us map these RPC parameters to the CLI command arguments that `zo ping` expects.
 
 ### Step 3.2: Define RPC Types and Generate Schemas
 
@@ -273,7 +285,7 @@ void register_sample_commands(CommandDispatcher &dispatcher)
   dispatcher.register_command("ping",
                               CommandBuilder(sample::handle_ping)
                                   .validate<PingRequest, PingResponse>()
-                                  .set_default("message", "hello from zowex server"));
+                                  .set_default("message", "hello from zo server"));
 }
 
 // In the main registration function, call register_sample_commands:
@@ -317,7 +329,7 @@ Build the native binaries (including the server):
 npm run z:build
 ```
 
-**Note:** This command is equivalent to running `cd native/c && make` on z/OS. The server is now built as part of the `zowex` binary.
+**Note:** This command is equivalent to running `cd native/c && make` on z/OS. The server is now built as part of the `zo` binary.
 
 ### Step 4.2: Add SDK Method
 
@@ -427,7 +439,7 @@ Expected output:
 Connected to server
 
 Test 1: Default Message
-  Data: PONG: hello from zowex server
+  Data: PONG: hello from zo server
   Timestamp: Mon Oct  6 14:23:45 2025
 
 Test 2: Custom Message
@@ -448,8 +460,8 @@ Disconnected from server
 
 You've successfully added a new command to the Zowe Remote SSH stack! Here's what you did:
 
-1. **Created a low-level C++ command** in `native/c/commands/` that can be invoked directly via `zowex`
-2. **Tested it locally** on z/OS using the zowex CLI
+1. **Created a low-level C++ command** in `native/c/commands/` that can be invoked directly via `zo`
+2. **Tested it locally** on z/OS using the zo CLI
 3. **Defined RPC types** in `packages/sdk/src/doc/rpc/` as TypeScript interfaces
 4. **Generated C++ schemas** using `npm run build:types`
 5. **Registered it with the server** using the `CommandBuilder` API in `native/c/server/rpc_commands.cpp`
@@ -459,7 +471,8 @@ You've successfully added a new command to the Zowe Remote SSH stack! Here's wha
 ## Key Patterns
 
 - **Separation of concerns**: Library logic is separate from command handling
-- **Return objects**: Always set a return object using `context.set_object()` for programmatic access
+- **Return objects**: Always set a return object using `context.set_object()` for programmatic access. It feeds both the JSON-RPC `result` and the CLI's `--json` payload, so a command that sets one is machine-readable from either entry point. See [json-output.md](./json-output.md).
+- **Tabular output**: A command that prints a row per result should build it with `commands::format::ResultTable` (`native/c/commands/result_table.hpp`) rather than writing its own `std::setw` chain. Declare each column with a name via `add_column("name", width)`, then feed each row through `table.row()`; the table renders the padded listing or the `--response-format-csv` record from that one declaration, and collects the `ast::Node` you hand `emit()` into the structured result. The column name is shown as a heading, in either text form, when the command also registers `RESPONSE_FORMAT_HEADER` (`--response-format-header`/`--rfh`) and the caller passes it. `handle_job_list` in `native/c/commands/job.cpp` is the shortest example.
 - **Error handling**: Use proper return codes (`RTNCD_SUCCESS`, `RTNCD_FAILURE`) and error messages
 - **CommandBuilder**: Use the fluent API to map RPC parameters to command arguments
 - **Type safety**: Define TypeScript types to ensure consistency between middleware and SDK
@@ -468,7 +481,7 @@ You've successfully added a new command to the Zowe Remote SSH stack! Here's wha
 
 For a complete working example that includes all layers (C++ native, SDK, CLI, and VS Code extension), check out the [`examples/add-new-command`](../examples/add-new-command) directory. This includes:
 
-- **C++ command** (`native/c/`) - Example command implementation for zowex
+- **C++ command** (`native/c/`) - Example command implementation for `zo`
 - **C++ server** (`native/c/server/`) - Command registration with the dispatcher
 - **SDK** (`packages/sdk/`) - TypeScript types and client methods
 - **CLI** (`packages/cli/`) - CLI command definition and handler

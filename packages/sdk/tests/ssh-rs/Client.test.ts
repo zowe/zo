@@ -45,6 +45,7 @@ describe("Client", () => {
             disconnect: vi.fn().mockResolvedValue(undefined),
             authenticateWithKeyPair: vi.fn(),
             authenticateWithPassword: vi.fn(),
+            authenticateWithAgent: vi.fn(),
         };
         vi.spyOn(SSHClient, "connect").mockResolvedValue(mockUnauthClient);
 
@@ -213,7 +214,101 @@ describe("Client", () => {
         client.connect({});
 
         const err = await errorPromise;
-        expect(err.message).toContain("No authentication method available: provide privateKey or password");
+        expect(err.message).toContain("No authentication method available: provide agent, privateKey, or password");
+    });
+
+    it("should connect using a unix-socket agent successfully", async () => {
+        // resolveAgentSpec branches on process.platform, so pin it to a POSIX value here —
+        // otherwise this test would fail whenever it actually runs on Windows.
+        const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+        const client = new Client();
+        mockUnauthClient.authenticateWithAgent.mockResolvedValue(mockAuthClient);
+
+        const readyPromise = new Promise<void>((resolve) => {
+            client.on("ready", resolve);
+        });
+
+        client.connect({
+            username: "user",
+            agent: "/tmp/ssh-agent.sock",
+        });
+
+        await readyPromise;
+        expect(mockUnauthClient.authenticateWithAgent).toHaveBeenCalledWith("user", {
+            kind: "unix-socket",
+            path: "/tmp/ssh-agent.sock",
+        });
+        platformSpy.mockRestore();
+    });
+
+    it("should connect using pageant agent successfully", async () => {
+        const client = new Client();
+        mockUnauthClient.authenticateWithAgent.mockResolvedValue(mockAuthClient);
+
+        const readyPromise = new Promise<void>((resolve) => {
+            client.on("ready", resolve);
+        });
+
+        client.connect({ agent: "pageant" });
+
+        await readyPromise;
+        expect(mockUnauthClient.authenticateWithAgent).toHaveBeenCalledWith("root", { kind: "pageant" });
+    });
+
+    it("should resolve a non-pageant agent string as a named pipe on Windows", async () => {
+        const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+        const client = new Client();
+        mockUnauthClient.authenticateWithAgent.mockResolvedValue(mockAuthClient);
+
+        const readyPromise = new Promise<void>((resolve) => {
+            client.on("ready", resolve);
+        });
+
+        client.connect({ agent: "\\\\.\\pipe\\openssh-ssh-agent" });
+
+        await readyPromise;
+        expect(mockUnauthClient.authenticateWithAgent).toHaveBeenCalledWith("root", {
+            kind: "named-pipe",
+            path: "\\\\.\\pipe\\openssh-ssh-agent",
+        });
+        platformSpy.mockRestore();
+    });
+
+    it("should prefer agent authentication over privateKey and password when configured", async () => {
+        const client = new Client();
+        mockUnauthClient.authenticateWithAgent.mockResolvedValue(mockAuthClient);
+
+        const readyPromise = new Promise<void>((resolve) => {
+            client.on("ready", resolve);
+        });
+
+        client.connect({
+            agent: "/tmp/ssh-agent.sock",
+            privateKey: "should-be-ignored",
+            password: "should-be-ignored",
+        });
+
+        await readyPromise;
+        expect(mockUnauthClient.authenticateWithAgent).toHaveBeenCalled();
+        expect(mockUnauthClient.authenticateWithKeyPair).not.toHaveBeenCalled();
+        expect(mockUnauthClient.authenticateWithPassword).not.toHaveBeenCalled();
+    });
+
+    it("should handle agent authentication failure and clean up", async () => {
+        const client = new Client();
+        mockUnauthClient.authenticateWithAgent.mockResolvedValue({
+            remainingMethods: ["password"],
+        }); // AuthFailure format
+
+        const errorPromise = new Promise<any>((resolve) => {
+            client.on("error", resolve);
+        });
+
+        client.connect({ agent: "/tmp/ssh-agent.sock" });
+
+        const err = await errorPromise;
+        expect(err.message).toContain("Agent authentication failed. Remaining methods: password");
+        expect(mockUnauthClient.disconnect).toHaveBeenCalled();
     });
 
     it("should handle exec commands correctly when connected", async () => {

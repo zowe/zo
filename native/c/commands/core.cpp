@@ -34,7 +34,7 @@ plugin::PluginManager *g_plugin_manager = nullptr;
 
 std::string &program_name_ref()
 {
-  static std::string program_name("zowex");
+  static std::string program_name("zo");
   return program_name;
 }
 } // namespace
@@ -52,6 +52,14 @@ void set_program_name(const std::string &name)
 const std::string &get_version()
 {
   return g_version;
+}
+
+void disable_json_output()
+{
+  if (g_arg_parser)
+  {
+    g_arg_parser->disable_json_output();
+  }
 }
 
 void set_plugin_manager(plugin::PluginManager *manager)
@@ -109,7 +117,7 @@ int interactive_mode(const plugin::InvocationContext &context)
 
 int handle_version(plugin::InvocationContext &context)
 {
-  context.output_stream() << "Zowe Remote SSH CLI (" << program_name_ref() << ")" << std::endl;
+  context.output_stream() << "Zowe Z Open CLI (" << program_name_ref() << ")" << std::endl;
   context.output_stream() << "Version: " << g_version << std::endl;
   context.output_stream() << "Build Date: " << BUILD_DATE << " " << BUILD_TIME << std::endl;
   context.output_stream() << "Copyright Contributors to the Zowe Project." << std::endl;
@@ -226,9 +234,9 @@ int execute_command(int argc, char *argv[])
 
 Command &setup_root_command(char *argv[], bool include_plugin_commands)
 {
-  g_arg_parser = std::make_shared<ArgumentParser>(argv[0], "Zowe Remote SSH CLI");
+  g_arg_parser = std::make_shared<ArgumentParser>(argv[0], "Zowe Z Open CLI");
   g_arg_parser->add_pre_command_hook([](const Command &command, bool is_help_request)
-                                     {
+  {
     if (!is_help_request && command.is_privileged())
     {
       return true;
@@ -249,6 +257,11 @@ Command &setup_root_command(char *argv[], bool include_plugin_commands)
                                make_aliases("--version", "-v"),
                                "display version information", ArgType_Flag, false,
                                ArgValue(false));
+  // The root handler prints help or enters the REPL, which owns stdout for its
+  // lifetime and frames each result with [rc] plus an EOT byte. Neither is a
+  // result worth wrapping -- but --json still has to parse here so that
+  // `zo --json ds list` reaches the subcommand.
+  root_command.disable_json_capture();
   root_command.set_handler(handle_command);
 
   // Core commands

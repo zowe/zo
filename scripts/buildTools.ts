@@ -10,23 +10,67 @@
  */
 
 import * as childProcess from "node:child_process";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PassThrough, pipeline, Readable, Transform, type TransformCallback } from "node:stream";
 import { promisify } from "node:util";
 import { DeferredPromise, DeferredPromiseStatus, type IProfile, ProfileInfo } from "@zowe/imperative";
+import { SshKnownHosts } from "@zowe/zos-uss-for-zowe-sdk";
 import * as chokidar from "chokidar";
 import * as yaml from "js-yaml";
-import { Client, type ClientCallback, type SFTPWrapper } from "ssh2";
+import { Client, type ClientCallback, type ConnectConfig, type PseudoTtyOptions, type SFTPWrapper } from "ssh2";
 
 interface IConfig {
     sshProfile: string | IProfile;
     deployDir: string;
+    /** Optional pinned SSH host key fingerprint (`SHA256:<base64>` as shown by `ssh-keygen -lf`, or 64-char hex). Overrides known_hosts. */
+    hostFingerprint?: string;
     preBuildCmd?: string;
     testEnv?: Record<string, string>;
 }
 
 type SftpError = Error & { code?: number };
+
+// Constants for precompiled Python bindings
+const STICKY_MARKER = "Precompiled Python bindings";
+const COMMENT_HEADER = "🐍 Precompiled Python bindings";
+const RELEASE_TAG = "py-bindings-dev";
+const RELEASE_TITLE = "Python Bindings (Dev Artifacts)";
+const RELEASE_NOTES =
+    "Persistent host for precompiled Python bindings built from pull requests. Not for distribution — assets here are dev artifacts linked from PR comments.";
+const TARBALL = path.resolve(__dirname, "../dist/zbind_bin_dist.tar.gz");
+
+// Precompiled SWIG binary for z/OS, published to the zowex releases used as a
+// persistent host for dev artifacts (see RELEASE_TAG above).
+const SWIG_RELEASE_URL = "https://github.com/zowe/zowex/releases/download/py-bindings-dev/swig-4.4.1.pax.Z";
+const SWIG_RELEASE_SHA256 = "024ae42af6c1210e6c67b0dd2dc18372a97430eb3e36f6461de9343005d0f96e";
+
+/** Runs `gh` with the given args, returning trimmed stdout. */
+function gh(args: string[]): string {
+    try {
+        return childProcess.execFileSync("gh", args, { encoding: "utf-8" }).trim();
+    } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+            console.error(
+                'Required executable "gh" was not found on PATH. Install the GitHub CLI: https://cli.github.com/',
+            );
+            process.exit(1);
+        }
+        throw err;
+    }
+}
+
+/** Returns the short git commit hash, or "local" if it cannot be determined. */
+function getShortHash(): string {
+    try {
+        const hash = childProcess.execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf-8" }).trim();
+        // Only accept a real short hash; anything else falls back to a safe literal.
+        return /^[0-9a-f]{4,40}$/i.test(hash) ? hash : "local";
+    } catch {
+        return "local";
+    }
+}
 
 /**
  * Converts a file path to use POSIX separators (forward slashes).
@@ -57,6 +101,7 @@ let deployDirs: {
     javaDir: string;
     javaBindingsDir: string;
     javaSecurDir: string;
+    pythonSwigDir: string;
 };
 
 // python3 -c "import sys; sys.stdout.buffer.write(bytes(range(256)))" \
@@ -499,7 +544,7 @@ class WatchUtils {
                 // The "exit" and "close" events do not fire reliably for shell sessions on z/OS.
                 //
                 // In the FAILED TESTS section, suite paths are unindented:
-                //   ✗ FAIL zowex > data-set > compress
+                //   ✗ FAIL zo > data-set > compress
                 // Individual tests are indented with 2 spaces:
                 //     ✗ FAIL should compress a data set (392.248ms)
                 const suiteFailPattern = /^[✗-] FAIL\s+(.+)/;
@@ -1056,14 +1101,7 @@ function getServerFiles(dir = "") {
                 }
 
                 if (stats.isDirectory()) {
-                    const files = fs.readdirSync(path.resolve(__dirname, `${localDeployDir}/${arg}`), {
-                        withFileTypes: true,
-                    });
-                    for (const entry of files) {
-                        if (!entry.isDirectory()) {
-                            fileList.push(`${arg}/${entry.name}`);
-                        }
-                    }
+                    fileList.push(...getFilesRecursive(arg.replace(/\/$/, "")));
                 } else {
                     fileList.push(arg);
                 }
@@ -1089,6 +1127,20 @@ function getServerFiles(dir = "") {
     return filesList;
 }
 
+function getFilesRecursive(dir: string): string[] {
+    const fileList: string[] = [];
+    const entries = fs.readdirSync(path.resolve(__dirname, `${localDeployDir}/${dir}`), { withFileTypes: true });
+    for (const entry of entries) {
+        const entryPath = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) {
+            fileList.push(...getFilesRecursive(entryPath));
+        } else {
+            fileList.push(entryPath);
+        }
+    }
+    return fileList;
+}
+
 function getDirs(next = "") {
     const dirs: string[] = [];
 
@@ -1103,7 +1155,7 @@ function getDirs(next = "") {
 }
 
 async function artifacts(connection: Client, packageAll: boolean) {
-    const artifactPaths = ["c/build-out/zowex", packageAll && "c/build-out/zoweax"].filter(Boolean);
+    const artifactPaths = ["c/build-out/zo", packageAll && "c/build-out/zoa"].filter(Boolean);
     const artifactNames = artifactPaths.map((file) => path.basename(file)).sort(localeCompare);
     const localDir = packageAll ? "dist" : "packages/sdk/bin";
     const localFiles = ["server.pax.Z"];
@@ -1128,10 +1180,236 @@ async function artifacts(connection: Client, packageAll: boolean) {
     }
 }
 
+/**
+ * Runs the precompiled Python bindings packaging script on z/OS and downloads
+ * the resulting binary tarball to the local `dist/` directory. The tarball is
+ * retrieved without ASCII conversion (binary-safe) to preserve the archive.
+ */
+async function packPrecompiled(connection: Client) {
+    await runCommandInShell(connection, `cd ${deployDirs.pythonDir} && python package_precompiled.py`, {
+        streamOutput: true,
+        stepName: "Packaging precompiled Python bindings",
+    });
+    fs.mkdirSync(path.resolve(__dirname, "./../dist"), { recursive: true });
+    await retrieve(connection, ["python/bindings/zbind_bin_dist.tar.gz"], "dist", true);
+    console.log("Precompiled bindings downloaded to dist/zbind_bin_dist.tar.gz");
+}
+
+function getLatestTag(repoName: string, prefix?: string) {
+    // --sort=-version:refname sorts tags by their numeric version (descending)
+    const out = childProcess.execSync(
+        `git ls-remote --tags --refs --sort=-version:refname https://github.com/${repoName}.git`,
+    );
+    const tags = [];
+    for (const line of out.toString().trim().split(/\r?\n/)) {
+        const lastSlashIdx = line.lastIndexOf("/");
+        tags.push(line.slice(lastSlashIdx + 1));
+    }
+    const isPrerelease = (tag: string) => tag.includes("-beta") || tag.includes("-RC");
+    const matchesPrefix = (tag: string) => prefix == null || tag.startsWith(prefix);
+    const foundTag = tags.find((tag) => !isPrerelease(tag) && matchesPrefix(tag));
+    if (foundTag == null) {
+        throw Error(`No stable tag found for ${repoName}`);
+    }
+    return foundTag;
+}
+
+/**
+ * Downloads a tarball to `destPath` if it isn't already cached. Throws if the
+ * request fails outright (network error) or resolves with a non-2xx status
+ * (e.g. the tarball was removed from the host), so callers fail fast instead
+ * of proceeding to extract a missing or invalid archive.
+ */
+async function downloadTarball(url: string, destPath: string) {
+    if (fs.existsSync(destPath)) {
+        return;
+    }
+    const label = path.basename(destPath).split(/\W/)[0];
+    console.log(`Downloading ${label} tarball...`);
+    let response: Response;
+    try {
+        response = await fetch(url);
+    } catch (err) {
+        const reason = err instanceof Error && err.cause ? err.cause : err;
+        throw new Error(`Failed to download ${label} tarball from ${url}: ${reason}`);
+    }
+    if (!response.ok) {
+        throw new Error(`Failed to download ${label} tarball from ${url}: ${response.status} ${response.statusText}`);
+    }
+    await new Promise<void>((resolve, reject) => {
+        pipeline(
+            Readable.fromWeb(response.body as import("node:stream/web").ReadableStream),
+            fs.createWriteStream(destPath),
+            (err) => {
+                if (err) {
+                    reject(new Error(`Failed to download ${label} tarball from ${url}: ${err}`));
+                } else {
+                    resolve();
+                }
+            },
+        );
+    });
+}
+
+/**
+ * Fails unless `filePath` hashes to `expectedSha256`. A mismatching file is deleted so the next run
+ * re-downloads instead of reusing a bad cache entry, and the error is raised before the file is ever
+ * uploaded or executed on z/OS.
+ */
+async function verifySha256(filePath: string, expectedSha256: string) {
+    const expected = expectedSha256.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(expected)) {
+        throw new Error(
+            `No valid SHA-256 is pinned for ${path.basename(filePath)} (got "${expectedSha256}"). ` +
+                "Compute it with `curl -sL <url> | shasum -a 256` and update the constant in scripts/buildTools.ts.",
+        );
+    }
+    const hash = crypto.createHash("sha256");
+    for await (const chunk of fs.createReadStream(filePath)) {
+        hash.update(chunk as Buffer);
+    }
+    const actual = hash.digest("hex");
+    if (actual !== expected) {
+        fs.rmSync(filePath, { force: true });
+        throw new Error(
+            `Checksum mismatch for ${path.basename(filePath)}: expected ${expected}, got ${actual}. ` +
+                "Refusing to upload it to z/OS; the local copy has been removed.",
+        );
+    }
+    console.log(`Verified ${path.basename(filePath)} (sha256 ${actual}).`);
+}
+
+async function buildSwig(connection: Client) {
+    const cacheDir = path.resolve(__dirname, "./../.cache");
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const swigVersion = getLatestTag("swig/swig", "v4.").slice(1);
+    const swigTgz = path.join(cacheDir, `swig-${swigVersion}.tar.gz`);
+    const pcreVersion = getLatestTag("PCRE2Project/pcre2").split("-").pop();
+    const pcreTgz = path.join(cacheDir, `pcre2-${pcreVersion}.tar.gz`);
+
+    await Promise.all([
+        downloadTarball(`http://prdownloads.sourceforge.net/swig/swig-${swigVersion}.tar.gz`, swigTgz),
+        downloadTarball(
+            `https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${pcreVersion}/pcre2-${pcreVersion}.tar.gz`,
+            pcreTgz,
+        ),
+    ]);
+    process.exit(1);
+
+    console.log("Uploading source tarballs...");
+    await new Promise<void>((resolve, reject) => {
+        connection.sftp(async (err, sftpcon) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            try {
+                await Promise.all([
+                    uploadFile(sftpcon, swigTgz, `${deployDirs.pythonSwigDir}/swig-${swigVersion}.tar.gz`, false),
+                    uploadFile(sftpcon, pcreTgz, `${deployDirs.pythonSwigDir}/pcre2-${pcreVersion}.tar.gz`, false),
+                ]);
+                resolve();
+            } catch (uploadErr) {
+                reject(uploadErr);
+            } finally {
+                sftpcon.end();
+            }
+        });
+    });
+
+    await runCommandInShell(
+        connection,
+        `cd ${deployDirs.pythonSwigDir} && LDFLAGS='' . build.sh "${swigVersion}" "${pcreVersion}"`,
+        {
+            streamOutput: true,
+            stepName: "Building SWIG for z/OS",
+        },
+    );
+    const filename = `swig-${swigVersion}.pax.Z`;
+    await retrieve(connection, [`python/swig/${filename}`], "dist", true);
+    console.log(`SWIG package downloaded to dist/${filename}`);
+}
+
+/**
+ * Checks whether `swig` is available on the remote system using the same PATH
+ * the build uses (preBuildCmd is prepended by runCommandInShell). Sets a
+ * non-zero exit code when swig is absent so callers can branch on it, e.g.
+ * `if npm run -s z:has:swig; then ...`.
+ */
+async function hasSwig(connection: Client) {
+    const out = await runCommandInShell(connection, "command -v swig\n", {
+        stepName: "Checking for swig on remote",
+        suppressError: true,
+    });
+    const found = out.trim().length > 0 && !out.includes("not found");
+    if (found) {
+        console.log(`swig found: ${out.trim()}`);
+    } else {
+        console.log("swig not found on remote system");
+    }
+    // Override any exit code set by the suppressed command so the result is explicit.
+    process.exitCode = found ? 0 : 1;
+}
+
+/**
+ * Downloads the precompiled SWIG binary published to SWIG_RELEASE_URL, uploads
+ * it to the remote python/swig directory, and extracts it there. The extracted
+ * `swig` binary and `Lib/` land directly under that directory (see
+ * native/python/swig/README.md), which preBuildCmd puts on PATH and points
+ * SWIG_LIB at, so `z:python:build` can find it without building SWIG from
+ * source. Used when swig is unavailable on z/OS.
+ */
+async function installSwigRelease(connection: Client) {
+    const cacheDir = path.resolve(__dirname, "./../.cache");
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const filename = path.basename(SWIG_RELEASE_URL);
+    const localPax = path.join(cacheDir, filename);
+    await downloadTarball(SWIG_RELEASE_URL, localPax);
+    // Checked after downloadTarball rather than inside it so a previously cached (and possibly
+    // tampered-with) copy is validated too - downloadTarball is a no-op when the file already exists.
+    await verifySha256(localPax, SWIG_RELEASE_SHA256);
+
+    await runCommandInShell(connection, `mkdir -p ${deployDirs.pythonSwigDir}\n`, {
+        stepName: "Creating remote SWIG directory",
+    });
+
+    // Upload the archive without EBCDIC conversion to preserve its binary contents.
+    await new Promise<void>((resolve, reject) => {
+        connection.sftp(async (err, sftpcon) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            try {
+                await uploadFile(sftpcon, localPax, `${deployDirs.pythonSwigDir}/${filename}`, false);
+                resolve();
+            } catch (uploadErr) {
+                reject(uploadErr);
+            } finally {
+                sftpcon.end();
+            }
+        });
+    });
+
+    await runCommandInShell(
+        connection,
+        [
+            `cd ${deployDirs.pythonSwigDir}`,
+            "rm -rf Lib swig",
+            `pax -rz -f ${filename}`,
+            "chtag -b swig",
+            "chmod 755 swig",
+        ].join("\n"),
+        { stepName: "Extracting SWIG release", streamOutput: true },
+    );
+    console.log(`Installed SWIG from ${SWIG_RELEASE_URL} to ${deployDirs.pythonSwigDir}`);
+}
+
 interface RunCommandOpts {
     streamOutput?: boolean;
     stepName?: string;
     suppressError?: boolean;
+    ttyOptions?: PseudoTtyOptions;
 }
 
 async function runCommandInShell(connection: Client, command: string, opts?: RunCommandOpts) {
@@ -1194,7 +1472,7 @@ async function runCommandInShell(connection: Client, command: string, opts?: Run
             });
             stream.end(`${command}\nexit $?\n`);
         };
-        connection.shell(false, cb);
+        connection.shell(opts?.ttyOptions ?? false, cb);
     });
 }
 
@@ -1240,7 +1518,7 @@ async function upload(connection: Client, sshProfile: IProfile) {
                 throw err;
             }
 
-            const filteredDirs = args[1] ? dirs.filter((dir) => args.some((arg) => `${arg}/`.startsWith(dir))) : dirs;
+            const filteredDirs = args[1] ? dirs.filter((dir) => files.some((file) => file.startsWith(dir))) : dirs;
             for (const dir of ["", ...filteredDirs]) {
                 await new Promise<void>((resolve, reject) => {
                     sftpcon.mkdir(`${deployDirs.root}/${dir}`, (err) => {
@@ -1299,7 +1577,8 @@ async function build(connection: Client) {
 async function make(connection: Client, inDir?: string) {
     const pwd = inDir ?? deployDirs.cDir;
     const targets = args.filter((arg, idx) => idx > 0 && !arg.startsWith("--")).join(" ");
-    const response = await runCommandInShell(connection, `cd ${pwd} && make ${targets} ${BUILD_TYPE_FLAG()}\n`, {
+    // z/OS make requires build-type options before targets.
+    const response = await runCommandInShell(connection, `cd ${pwd} && make ${BUILD_TYPE_FLAG()} ${targets}\n`, {
         stepName: `Running make ${targets || "all"}`,
     });
     console.log(response);
@@ -1326,6 +1605,16 @@ async function test(connection: Client) {
     });
     console.log("\nTesting complete!");
     await retrieve(connection, [`c/test/test-results.xml`], "native", false, true);
+}
+
+async function testPython(connection: Client) {
+    await runCommandInShell(connection, `cd ${deployDirs.pythonTestDir} && make ${BUILD_TYPE_FLAG()}\n`, {
+        streamOutput: true,
+        stepName: "Running Python binding tests",
+        suppressError: true,
+    });
+    console.log("\nTesting complete!");
+    await retrieve(connection, ["python/bindings/test/pybi_results.xml"], "native", false, false);
 }
 
 /**
@@ -1434,7 +1723,7 @@ async function clean(connection: Client) {
 
 async function rmdir(connection: Client, sshProfile: IProfile) {
     console.log(
-        await runCommandInShell(connection, `rm -rf "$(realpath ${deployDirs.root})"\n`, {
+        await runCommandInShell(connection, `rm -rf "$(cd ${deployDirs.root} && pwd -P)"\n`, {
             stepName: "Removing deploy directory",
         }),
     );
@@ -1545,16 +1834,40 @@ async function testConnection(client: Client): Promise<void> {
     });
 }
 
-async function buildSshClient(sshProfile: IProfile): Promise<Client> {
+/** Converts `SHA256:<base64>` (OpenSSH style) or hex into lowercase hex; returns null if malformed. */
+function normalizeFingerprint(fingerprint?: string): string | null {
+    const value = fingerprint?.trim() ?? "";
+    if (/^[0-9a-f]{64}$/i.test(value)) {
+        return value.toLowerCase();
+    }
+    const match = /^SHA256:([A-Za-z0-9+/]{43}=?)$/.exec(value);
+    return match ? Buffer.from(match[1], "base64").toString("hex") : null;
+}
+
+async function buildSshClient(sshProfile: IProfile, hostFingerprint?: string): Promise<Client> {
+    const pinned = normalizeFingerprint(hostFingerprint);
+    if (hostFingerprint?.trim() && pinned == null) {
+        throw new Error('Invalid "hostFingerprint" in config.yaml. Expected "SHA256:<base64>" or 64 hex characters.');
+    }
+    const port = Number(sshProfile.port) || 22;
+    // Prefer the key algorithms already trusted in known_hosts so the presented key can be matched
+    const knownAlgorithms = pinned == null ? SshKnownHosts.getHostKeyAlgorithms(sshProfile.host, port) : [];
+    const knownPattern = new RegExp(
+        `^(?:${knownAlgorithms
+            .flatMap((alg) => (alg === "ssh-rsa" ? ["rsa-sha2-512", "rsa-sha2-256", "ssh-rsa"] : [alg]))
+            .map((alg) => alg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("|")})$`,
+    );
     const client = new Client();
     return new Promise((resolve, reject) => {
+        let hostKeyError: Error | undefined;
         client.on("close", () => {
             console.log("Client connection is closed");
         });
         client.on("error", (err) => {
             console.error("Client connection errored");
             process.exitCode = 1;
-            reject(err);
+            reject(hostKeyError ?? err);
         });
         client.on("ready", () => resolve(client));
         client.connect({
@@ -1562,11 +1875,181 @@ async function buildSshClient(sshProfile: IProfile): Promise<Client> {
             username: sshProfile.user,
             privateKey: sshProfile.privateKey ? fs.readFileSync(sshProfile.privateKey) : undefined,
             keepaliveInterval: 30e3,
+            ...(knownAlgorithms.length > 0
+                ? {
+                      // ssh2 accepts a RegExp here (and skips unsupported names) but its typings don't.
+                      algorithms: {
+                          ...sshProfile.algorithms,
+                          serverHostKey: { remove: knownPattern, prepend: knownPattern },
+                      } as unknown as ConnectConfig["algorithms"],
+                  }
+                : {}),
+            // Runs before any credentials are sent; failing closed aborts the handshake
+            hostVerifier: (key: Buffer) => {
+                const presentedBuf = crypto.createHash("sha256").update(key).digest();
+                const display = `SHA256:${presentedBuf.toString("base64").replace(/=+$/, "")}`;
+                const fail = (message: string) => {
+                    hostKeyError = new Error(message);
+                    return false;
+                };
+                let known: ReturnType<typeof SshKnownHosts.verify>;
+                try {
+                    known = SshKnownHosts.verify(sshProfile.host, key, port);
+                } catch (err) {
+                    return fail(`Could not read known_hosts: ${(err as Error).message}`);
+                }
+                if (known.status === "revoked") {
+                    return fail(`The key presented by ${sshProfile.host} (${display}) is revoked in known_hosts.`);
+                }
+                if (pinned != null) {
+                    const pinnedBuf = Buffer.from(pinned, "hex");
+                    return presentedBuf.length === pinnedBuf.length && crypto.timingSafeEqual(presentedBuf, pinnedBuf)
+                        ? true
+                        : fail(
+                              `Host key mismatch for ${sshProfile.host}: server presented ${display}, which does not match ` +
+                                  'the pinned "hostFingerprint". Refusing to connect.',
+                          );
+                }
+                if (known.status === "trusted") {
+                    return true;
+                }
+                if (known.status === "changed") {
+                    return fail(
+                        `The host key for ${sshProfile.host} has changed. The server presented ${display}` +
+                            `${known.knownFingerprint ? `, but known_hosts has ${known.knownFingerprint}` : ""}. ` +
+                            "Refusing to connect.",
+                    );
+                }
+                return fail(
+                    `${sshProfile.host} is not in known_hosts and no "hostFingerprint" is pinned. The server presented ${display}. ` +
+                        "Confirm it matches the host's own key (run `ssh-keygen -lf <host key file>` on the host), " +
+                        'then connect once with `ssh` to add it to known_hosts, or set "hostFingerprint" in config.yaml.',
+                );
+            },
         });
     });
 }
 
+/**
+ * Finds the REST comment id of the most recent comment on the PR that was
+ * authored by the current user and contains the sticky marker. Returns null if
+ * no such comment exists (so a fresh one should be created).
+ */
+function findStickyCommentId(prNumber: string): number | null {
+    const comments = JSON.parse(gh(["pr", "view", prNumber, "--json", "comments"])).comments as Array<{
+        body: string;
+        url: string;
+        viewerDidAuthor: boolean;
+        createdAt: string;
+    }>;
+    const mine = comments
+        .filter((c) => c.viewerDidAuthor && c.body.includes(STICKY_MARKER))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const latest = mine.at(-1);
+    if (!latest) {
+        return null;
+    }
+    // gh exposes a GraphQL node id; the numeric REST id needed for PATCH lives in the URL.
+    const match = latest.url.match(/#issuecomment-(\d+)/);
+    return match ? Number(match[1]) : null;
+}
+
+/**
+ * Posts the precompiled Python bindings tarball (built on z/OS via
+ * `npm run z:python:pack`) to a pull request as a downloadable link.
+ */
+function postPrecompiledBindings(prNumber: string) {
+    if (!prNumber || !/^\d+$/.test(prNumber)) {
+        console.error("Usage: npm run z:python:post -- <PR_NUMBER>");
+        process.exit(1);
+    }
+
+    if (!fs.existsSync(TARBALL)) {
+        console.error(`Tarball not found: ${TARBALL}\nRun "npm run z:python:pack" first to build it on z/OS.`);
+        process.exit(1);
+    }
+
+    const hash = getShortHash();
+    const assetName = `zbind_bin_dist-pr${prNumber}-${hash}.tar.gz`;
+
+    // Defense-in-depth: prNumber and hash are validated above, but re-check that the
+    // resolved staging path stays directly inside dist/ before any filesystem access,
+    // so a crafted argument can never escape the intended directory.
+    const distDir = path.resolve(path.dirname(TARBALL));
+    const stagedPath = path.resolve(distDir, assetName);
+    if (path.dirname(stagedPath) !== distDir) {
+        console.error(`Refusing to stage outside the dist directory: ${stagedPath}`);
+        process.exit(1);
+    }
+    fs.copyFileSync(TARBALL, stagedPath);
+
+    try {
+        const repo = gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]);
+
+        // Ensure the shared prerelease exists; create it only the first time.
+        let releaseExists = true;
+        try {
+            childProcess.execFileSync("gh", ["release", "view", RELEASE_TAG], { stdio: "ignore" });
+        } catch {
+            releaseExists = false;
+        }
+        if (!releaseExists) {
+            console.log(`Creating prerelease "${RELEASE_TAG}"...`);
+            gh(["release", "create", RELEASE_TAG, "--prerelease", "--title", RELEASE_TITLE, "--notes", RELEASE_NOTES]);
+        }
+
+        console.log(`Uploading asset "${assetName}"...`);
+        gh(["release", "upload", RELEASE_TAG, stagedPath, "--clobber"]);
+
+        // Resolve the asset's download URL from the release metadata.
+        const assets = JSON.parse(gh(["release", "view", RELEASE_TAG, "--json", "assets"])).assets as Array<{
+            name: string;
+            url: string;
+        }>;
+        const url =
+            assets.find((a) => a.name === assetName)?.url ??
+            `https://github.com/${repo}/releases/download/${RELEASE_TAG}/${assetName}`;
+
+        const body = [
+            `### ${COMMENT_HEADER}`,
+            "",
+            `Built from \`${hash}\` on z/OS.`,
+            "",
+            `📦 **[Download \`${assetName}\`](${url})**`,
+            "",
+            `<sub>Hosted as an asset on the \`${RELEASE_TAG}\` prerelease (dev artifact, not for distribution).</sub>`,
+        ].join("\n");
+
+        // Treat the comment as sticky: update our existing one if present, else create it.
+        const existingCommentId = findStickyCommentId(prNumber);
+        if (existingCommentId != null) {
+            console.log(`Updating existing comment ${existingCommentId} on PR #${prNumber}...`);
+            gh([
+                "api",
+                "--method",
+                "PATCH",
+                `repos/${repo}/issues/comments/${existingCommentId}`,
+                "-f",
+                `body=${body}`,
+            ]);
+        } else {
+            console.log(`Posting comment to PR #${prNumber}...`);
+            gh(["pr", "comment", prNumber, "--body", body]);
+        }
+
+        console.log(`\n✅ ${existingCommentId != null ? "Updated" : "Posted"} precompiled bindings on PR #${prNumber}`);
+        console.log(`   Asset: ${url}`);
+    } finally {
+        fs.rmSync(stagedPath, { force: true });
+    }
+}
+
 async function main() {
+    switch (args[0]) {
+        case "python:post":
+            postPrecompiledBindings(args[1]);
+            return;
+    }
     const config = await loadConfig();
     preBuildCmd = config.preBuildCmd;
     configTestEnv = config.testEnv ?? {};
@@ -1580,8 +2063,9 @@ async function main() {
         javaDir: `${config.deployDir}/java/app`,
         javaBindingsDir: `${config.deployDir}/java/bindings`,
         javaSecurDir: `${config.deployDir}/java/secur`,
+        pythonSwigDir: `${config.deployDir}/python/swig`,
     };
-    const sshClient = await buildSshClient(config.sshProfile as IProfile);
+    const sshClient = await buildSshClient(config.sshProfile as IProfile, config.hostFingerprint);
     await testConnection(sshClient);
     try {
         switch (args[0]) {
@@ -1594,7 +2078,7 @@ async function main() {
             case "build:chdsect":
                 await chdsect(sshClient);
                 break;
-            case "build:python":
+            case "python:build":
                 await make(sshClient, deployDirs.pythonDir);
                 break;
             case "build:java_secur":
@@ -1630,6 +2114,18 @@ async function main() {
             case "make":
                 await make(sshClient);
                 break;
+            case "build:swig":
+                await buildSwig(sshClient);
+                break;
+            case "has:swig":
+                await hasSwig(sshClient);
+                break;
+            case "python:swig:install":
+                await installSwigRelease(sshClient);
+                break;
+            case "python:pack":
+                await packPrecompiled(sshClient);
+                break;
             case "package":
                 await artifacts(sshClient, true);
                 break;
@@ -1640,8 +2136,8 @@ async function main() {
             case "test":
                 await test(sshClient);
                 break;
-            case "test:python":
-                await make(sshClient, deployDirs.pythonTestDir);
+            case "python:test":
+                await testPython(sshClient);
                 break;
             case "upload":
                 await upload(sshClient, config.sshProfile as IProfile);

@@ -12,6 +12,7 @@
 #include "certificates.hpp"
 #include "../zkr.hpp"
 #include "../zbase64.h"
+#include "../zds.hpp"
 #include "../ztype.h"
 #include "../zut.hpp"
 #include <cctype>
@@ -87,6 +88,14 @@ std::string to_lower(const std::string &in)
   return out;
 }
 
+std::string to_upper(const std::string &in)
+{
+  std::string out(in);
+  for (size_t i = 0; i < out.size(); ++i)
+    out[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[i])));
+  return out;
+}
+
 // A one-shot ring/cert action that only reports success or a SAF diagnostic.
 // A non-fatal SAF warning (rc 4) is surfaced on stdout and in the response.
 int run_simple(InvocationContext &context, int rc, ZKR &zkr, const std::string &message)
@@ -106,6 +115,114 @@ int run_simple(InvocationContext &context, int rc, ZKR &zkr, const std::string &
     result->set("warning", str(zkr.diag.warning));
   add_saf_returns(result, zkr);
   context.set_object(result);
+  return RTNCD_SUCCESS;
+}
+
+// Read a PKCS#12 blob out of a sequential data set or PDS/E member. Binary mode so
+// LE concatenates record data with no RDWs and no code-page conversion --
+// byte-identical to `cp -B "//'DSN'"`. Fixed-format sources are accepted:IBM's GSK
+// (Global Security Kit) ignores the record padding that follows the PKCS#12 DER structure.
+int read_cert_dsn(const std::string &dsn, std::string &data, std::string &err)
+{
+  ZDS zds{};
+  // zds_dataset_exists() OPENs the data set, which would hang on a password prompt.
+  if (zds_validate_no_password(&zds, dsn, false) != RTNCD_SUCCESS)
+  {
+    err = zds.diag.e_msg;
+    return RTNCD_FAILURE;
+  }
+  if (!zds_dataset_exists(dsn))
+  {
+    err = "Could not access data set: " + dsn;
+    return RTNCD_FAILURE;
+  }
+
+  zut_prepare_encoding("binary", &zds.encoding_opts);
+  const int rc = zds_read(ZDSReadOpts{.zds = &zds, .dsname = dsn}, data);
+  if (rc != RTNCD_SUCCESS)
+  {
+    err = zds.diag.e_msg;
+    return RTNCD_FAILURE;
+  }
+  if (data.empty())
+  {
+    err = "PKCS#12 data set is empty: " + dsn;
+    return RTNCD_FAILURE;
+  }
+  return RTNCD_SUCCESS;
+}
+
+// Write exported certificate bytes to a data set, creating it when absent.
+// is_binary=true  (p12): raw bytes, chunked into V-format records (zds_write_binary).
+// is_binary=false (pem): the EBCDIC PEM text is written as records via zds_write in
+//                        text mode -- one line per record.
+int write_cert_dsn(const std::string &dsn, const std::string &data, bool is_binary, std::string &err)
+{
+  std::string created_dsn; // set only when this call allocated the data set, so a failed write can roll it back
+  ZDS check{};
+  // zds_dataset_exists() OPENs the data set, which would hang on a password prompt.
+  if (zds_validate_no_password(&check, dsn, true) != RTNCD_SUCCESS)
+  {
+    err = check.diag.e_msg;
+    return RTNCD_FAILURE;
+  }
+  if (!zds_dataset_exists(dsn))
+  {
+    const auto open_paren = dsn.find('(');
+    const auto close_paren = dsn.find(')');
+    const bool has_member = open_paren != std::string::npos && close_paren != std::string::npos && close_paren > open_paren;
+    const std::string base_dsn = has_member ? dsn.substr(0, open_paren) : dsn;
+
+    if (has_member)
+    {
+      const std::string member = dsn.substr(open_paren + 1, close_paren - open_paren - 1);
+      if (!zds_is_valid_member_name(member))
+      {
+        err = "Invalid member name: " + member;
+        return RTNCD_FAILURE;
+      }
+    }
+
+    // RACDCERT EXPORT parity: PS/VB/LRECL(84)/BLKSIZE(27998). Used for PEM too: the
+    // 64-column Base64 lines fit, and VB keeps the text byte-exact (FB would blank-pad).
+    DS_ATTRIBUTES a{}; // zero-init: zds_create_dsn preserves 0, only negative means "unset"
+    a.dsorg = has_member ? "PO" : "PS";
+    a.recfm = "V,B"; // mandatory -- FB pads records with blanks, which would change the byte count
+    a.lrecl = 84;
+    a.blksize = 27998;
+    a.alcunit = "TRK";
+    a.primary = 5;
+    a.secondary = 5;
+    if (has_member)
+    {
+      a.dirblk = 5;
+      a.dsntype = ZDS_DSNTYPE_LIBRARY;
+    }
+
+    std::string response;
+    if (zds_create_dsn(nullptr, base_dsn, a, response) != RTNCD_SUCCESS)
+    {
+      err = "Could not create data set '" + base_dsn + "': " + response;
+      return RTNCD_FAILURE;
+    }
+    created_dsn = base_dsn;
+  }
+
+  ZDS zds{}; // eDataTypeText + empty codepage -> zds_use_codepage() is false -> no iconv for PEM
+  const int rc = is_binary
+                     ? zds_write_binary(ZDSWriteOpts{.zds = &zds, .dsname = dsn}, data)
+                     : zds_write(ZDSWriteOpts{.zds = &zds, .dsname = dsn}, data);
+  if (rc != RTNCD_SUCCESS)
+  {
+    err = zds.diag.e_msg;
+    if (!created_dsn.empty())
+    {
+      ZDS cleanup{};
+      if (zds_delete_dsn(&cleanup, created_dsn) != RTNCD_SUCCESS)
+        err += "; could not remove partially written data set '" + created_dsn + "'";
+    }
+    return RTNCD_FAILURE;
+  }
   return RTNCD_SUCCESS;
 }
 
@@ -204,10 +321,16 @@ int handle_cert_export(InvocationContext &context)
   opts.label = context.get<std::string>("label", "");
   opts.password = context.get<std::string>("password", "");
   const std::string file = context.get<std::string>("file", "");
+  const std::string dsn = to_upper(context.get<std::string>("dsn", ""));
 
   if (opts.label.empty())
   {
     context.error_stream() << "Error: --label is required" << std::endl;
+    return RTNCD_FAILURE;
+  }
+  if (!file.empty() && !dsn.empty())
+  {
+    context.error_stream() << "Error: specify --file or --dsn, not both" << std::endl;
     return RTNCD_FAILURE;
   }
 
@@ -217,6 +340,11 @@ int handle_cert_export(InvocationContext &context)
   if (is_p12 && opts.password.empty())
   {
     context.error_stream() << "Error: --password is required with --format p12" << std::endl;
+    return RTNCD_FAILURE;
+  }
+  if (is_p12 && file.empty() && dsn.empty())
+  {
+    context.error_stream() << "Error: PKCS#12 output is binary; specify --file or --dsn" << std::endl;
     return RTNCD_FAILURE;
   }
 
@@ -251,13 +379,22 @@ int handle_cert_export(InvocationContext &context)
     result->set("file", str(file));
     result->set("bytesWritten", i64(static_cast<long long>(data.size())));
   }
-  else if (is_p12)
+  else if (!dsn.empty())
   {
-    context.error_stream() << "Error: PKCS#12 output is binary; specify --file" << std::endl;
-    return RTNCD_FAILURE;
+    std::string err;
+    if (write_cert_dsn(dsn, data, is_p12, err) != RTNCD_SUCCESS)
+    {
+      context.error_stream() << "Error: could not write output data set: " << dsn << " (" << err << ")" << std::endl;
+      return RTNCD_FAILURE;
+    }
+    context.output_stream() << "Certificate written to data set " << dsn
+                            << " (" << data.size() << " bytes)" << std::endl;
+    result->set("dsn", str(dsn));
+    result->set("bytesWritten", i64(static_cast<long long>(data.size())));
   }
   else
   {
+    // Neither --file nor --dsn: only reachable for PEM (p12 was rejected above).
     context.output_stream() << data; // PEM text already terminates with a newline
   }
 
@@ -287,6 +424,7 @@ int handle_cert_import(InvocationContext &context)
   opts.label = context.get<std::string>("label", "");
   opts.usage = context.get<std::string>("usage", "");
   opts.p12_path = context.get<std::string>("file", "");
+  const std::string dsn = to_upper(context.get<std::string>("dsn", ""));
   opts.password = context.get<std::string>("password", "");
   opts.skip_refresh = context.get<bool>("skip-refresh", false);
 
@@ -300,9 +438,14 @@ int handle_cert_import(InvocationContext &context)
     context.error_stream() << "Error: --usage is required (PERSONAL or CERTAUTH)" << std::endl;
     return RTNCD_FAILURE;
   }
-  if (opts.p12_path.empty())
+  if (!opts.p12_path.empty() && !dsn.empty())
   {
-    context.error_stream() << "Error: --file is required (path to PKCS#12 file)" << std::endl;
+    context.error_stream() << "Error: specify --file or --dsn, not both" << std::endl;
+    return RTNCD_FAILURE;
+  }
+  if (opts.p12_path.empty() && dsn.empty())
+  {
+    context.error_stream() << "Error: --file or --dsn is required (source PKCS#12)" << std::endl;
     return RTNCD_FAILURE;
   }
   if (opts.password.empty())
@@ -312,6 +455,16 @@ int handle_cert_import(InvocationContext &context)
   }
   if (reject_virtual_ring(context, opts.ring, "cert import"))
     return RTNCD_FAILURE;
+
+  if (!dsn.empty())
+  {
+    std::string err;
+    if (read_cert_dsn(dsn, opts.p12_data, err) != RTNCD_SUCCESS)
+    {
+      context.error_stream() << "Error: could not read source data set: " << dsn << " (" << err << ")" << std::endl;
+      return RTNCD_FAILURE;
+    }
+  }
 
   ZKR zkr{};
   const int rc = zkr_import_cert(&zkr, opts);
@@ -693,7 +846,7 @@ void register_commands(parser::Command &parent)
   ring_create_cmd->add_positional_arg("owner", "key ring owner (userid)", ArgType_Single, true);
   ring_create_cmd->add_positional_arg("keyring", "key ring name (case-sensitive)", ArgType_Single, true);
   ring_create_cmd->set_handler(handle_create_ring);
-  ring_create_cmd->add_example("Create a key ring", "zowex system keyring create USER01 RING02");
+  ring_create_cmd->add_example("Create a key ring", "zo system keyring create USER01 RING02");
   keyring_cmd->add_command(ring_create_cmd);
 
   // keyring delete <owner> <keyring>
@@ -702,7 +855,7 @@ void register_commands(parser::Command &parent)
   ring_delete_cmd->add_positional_arg("owner", "key ring owner (userid)", ArgType_Single, true);
   ring_delete_cmd->add_positional_arg("keyring", "key ring name (case-sensitive)", ArgType_Single, true);
   ring_delete_cmd->set_handler(handle_delete_ring);
-  ring_delete_cmd->add_example("Delete a key ring", "zowex system keyring delete USER01 RING02");
+  ring_delete_cmd->add_example("Delete a key ring", "zo system keyring delete USER01 RING02");
   keyring_cmd->add_command(ring_delete_cmd);
 
   // keyring list <owner> <keyring>
@@ -716,8 +869,8 @@ void register_commands(parser::Command &parent)
   ring_list_cmd->add_keyword_arg("owner-only", make_aliases("--owner-only"), "print only certificate owners", ArgType_Flag, false, ArgValue(false));
   ring_list_cmd->add_keyword_arg("max-entries", make_aliases("--max-entries", "--me"), "maximum certificates (matching certificates, when filtering) to return; default 10, use 0 for all", ArgType_Single, false);
   ring_list_cmd->set_handler(handle_cert_list);
-  ring_list_cmd->add_example("List certificates in a ring", "zowex system keyring list USER01 RING02");
-  ring_list_cmd->add_example("List all certificates the user owns", "zowex system keyring list USER01 '*' --max-entries 0");
+  ring_list_cmd->add_example("List certificates in a ring", "zo system keyring list USER01 RING02");
+  ring_list_cmd->add_example("List all certificates the user owns", "zo system keyring list USER01 '*' --max-entries 0");
   keyring_cmd->add_command(ring_list_cmd);
 
   // keyring list-rings <owner> [keyring]
@@ -726,7 +879,7 @@ void register_commands(parser::Command &parent)
   list_rings_cmd->add_positional_arg("owner", "key ring owner (userid)", ArgType_Single, true);
   list_rings_cmd->add_positional_arg("keyring", "optional key ring name to narrow the result (omit or '*' for all rings)", ArgType_Single, false);
   list_rings_cmd->set_handler(handle_list_rings);
-  list_rings_cmd->add_example("List all of a user's key rings", "zowex system keyring list-rings USER01");
+  list_rings_cmd->add_example("List all of a user's key rings", "zo system keyring list-rings USER01");
   keyring_cmd->add_command(list_rings_cmd);
 
   // keyring count <owner> <keyring>
@@ -734,7 +887,7 @@ void register_commands(parser::Command &parent)
   count_cmd->add_positional_arg("owner", "key ring owner (userid)", ArgType_Single, true);
   count_cmd->add_positional_arg("keyring", "key ring name, or '*' for the owner's virtual key ring", ArgType_Single, true);
   count_cmd->set_handler(handle_ring_count);
-  count_cmd->add_example("Count certificates in a ring", "zowex system keyring count USER01 RING02");
+  count_cmd->add_example("Count certificates in a ring", "zo system keyring count USER01 RING02");
   keyring_cmd->add_command(count_cmd);
 
   //
@@ -744,29 +897,38 @@ void register_commands(parser::Command &parent)
   certops_cmd->add_alias("certificate");
 
   // cert export <owner> <keyring> --label L
-  auto export_cmd = command_ptr(new Command("export", "export a certificate from a key ring (PEM or PKCS#12)"));
+  auto export_cmd = command_ptr(new Command("export", "export a certificate from a key ring (PEM or PKCS#12) to a file or a data set"));
   export_cmd->add_positional_arg("owner", "key ring owner (userid)", ArgType_Single, true);
   export_cmd->add_positional_arg("keyring", "key ring name, or '*' for the owner's virtual key ring", ArgType_Single, true);
   export_cmd->add_keyword_arg("label", make_aliases("--label", "-l"), "certificate label", ArgType_Single, true);
-  export_cmd->add_keyword_arg("format", make_aliases("--format", "-F"), "export format: pem (certificate) or p12 (certificate + private key)", ArgType_Single, false, ArgValue(std::string("pem")));
-  export_cmd->add_keyword_arg("file", make_aliases("--file", "-f"), "output file path (required for p12; PEM prints to stdout if omitted)", ArgType_Single, false);
-  export_cmd->add_keyword_arg("password", make_aliases("--password", "-p"), "PKCS#12 passphrase (required with --format p12)", ArgType_Single, false);
+  export_cmd->add_keyword_arg("format", make_aliases("--format", "-F"), "export format: pem (certificate) or p12 (certificate + private key, PBES2/AES-256; requires OA64899 support and active ICSF)", ArgType_Single, false, ArgValue(std::string("pem")));
+  export_cmd->add_keyword_arg("file", make_aliases("--file", "-f"), "output file path (p12 requires --file or --dsn; PEM prints to stdout when neither is supplied); mutually exclusive with --dsn", ArgType_Single, false);
+  export_cmd->add_keyword_arg("dsn", make_aliases("--dsn"),
+                              "output data set (sequential or PDS/E member), created if absent; mutually exclusive with --file. "
+                              "Protection is the RACF DATASET profile, not file permissions.",
+                              ArgType_Single, false);
+  export_cmd->add_keyword_arg("password", make_aliases("--password", "-p"), "strong, unique PKCS#12 passphrase: 8-128 ASCII characters (required with --format p12)", ArgType_Single, false);
   export_cmd->set_handler(handle_cert_export);
-  export_cmd->add_example("Export a certificate as PEM", "zowex system cert export USER01 RING02 -l CERT03 -f ./CERT03.pem");
-  export_cmd->add_example("Export a certificate + key as PKCS#12", "zowex system cert export USER01 RING02 -l CERT03 -F p12 -f ./CERT03.p12 -p secret");
+  export_cmd->add_example("Export a certificate as PEM", "zo system cert export USER01 RING02 -l CERT03 -f ./CERT03.pem");
+  export_cmd->add_example("Export a certificate + key as PKCS#12 (replace the example passphrase)", "zo system cert export USER01 RING02 -l CERT03 -F p12 -f ./CERT03.p12 -p 'REPLACE-WITH-A-STRONG-UNIQUE-PASSPHRASE'");
+  export_cmd->add_example("Export a certificate + key as PKCS#12 to a data set (replace the example passphrase)", "zo system cert export USER01 RING02 -l CERT03 -F p12 -p 'REPLACE-WITH-A-STRONG-UNIQUE-PASSPHRASE' --dsn USER01.CERT03.P12");
   certops_cmd->add_command(export_cmd);
 
   // cert import <owner> <keyring> --label L --usage U --file F --password P
-  auto import_cmd = command_ptr(new Command("import", "import a certificate into a key ring from a PKCS#12 file"));
+  auto import_cmd = command_ptr(new Command("import", "import a certificate into a key ring from a PKCS#12 file or data set"));
   import_cmd->add_positional_arg("owner", "key ring owner (userid)", ArgType_Single, true);
   import_cmd->add_positional_arg("keyring", "key ring name (case-sensitive)", ArgType_Single, true);
   import_cmd->add_keyword_arg("label", make_aliases("--label", "-l"), "certificate label to assign (a new certificate only; an existing record keeps its own label)", ArgType_Single, true);
   import_cmd->add_keyword_arg("usage", make_aliases("--usage", "-u"), "certificate usage: PERSONAL or CERTAUTH", ArgType_Single, true);
-  import_cmd->add_keyword_arg("file", make_aliases("--file", "-f"), "path to the source PKCS#12 file", ArgType_Single, true);
+  import_cmd->add_keyword_arg("file", make_aliases("--file", "-f"), "path to the source PKCS#12 file; mutually exclusive with --dsn", ArgType_Single, false);
+  import_cmd->add_keyword_arg("dsn", make_aliases("--dsn"),
+                              "source PKCS#12 data set (sequential or PDS/E member); mutually exclusive with --file",
+                              ArgType_Single, false);
   import_cmd->add_keyword_arg("password", make_aliases("--password", "-p"), "PKCS#12 passphrase", ArgType_Single, true);
   import_cmd->add_keyword_arg("skip-refresh", make_aliases("--skip-refresh"), "do not automatically REFRESH the DIGTCERT class if the ESM reports it is required (by default the refresh is issued so the change takes effect)", ArgType_Flag, false, ArgValue(false));
   import_cmd->set_handler(handle_cert_import);
-  import_cmd->add_example("Import a personal certificate", "zowex system cert import USER01 RING02 -l CERT03 -u PERSONAL -f ./file.p12 -p secret");
+  import_cmd->add_example("Import a personal certificate", "zo system cert import USER01 RING02 -l CERT03 -u PERSONAL -f ./file.p12 -p secret");
+  import_cmd->add_example("Import a personal certificate from a data set", "zo system cert import USER01 RING02 -l CERT03 -u PERSONAL -p secret --dsn USER01.CERT03.P12");
   certops_cmd->add_command(import_cmd);
 
   // cert delete <owner> [keyring] --label L [--database]
@@ -778,8 +940,8 @@ void register_commands(parser::Command &parent)
   delete_cmd->add_keyword_arg("database", make_aliases("--database", "--db"), "delete the certificate from the ESM database (removes it entirely, not just from one ring)", ArgType_Flag, false, ArgValue(false));
   delete_cmd->add_keyword_arg("skip-refresh", make_aliases("--skip-refresh"), "do not automatically REFRESH the DIGTCERT class if the ESM reports it is required (by default the refresh is issued so the change takes effect)", ArgType_Flag, false, ArgValue(false));
   delete_cmd->set_handler(handle_cert_delete);
-  delete_cmd->add_example("Disconnect a certificate from a ring", "zowex system cert delete USER01 RING02 -l CERT03");
-  delete_cmd->add_example("Delete a certificate from the ESM database", "zowex system cert delete USER01 -l CERT03 --database");
+  delete_cmd->add_example("Disconnect a certificate from a ring", "zo system cert delete USER01 RING02 -l CERT03");
+  delete_cmd->add_example("Delete a certificate from the ESM database", "zo system cert delete USER01 -l CERT03 --database");
   certops_cmd->add_command(delete_cmd);
 
   // cert show <owner> <keyring> --label L
@@ -788,7 +950,7 @@ void register_commands(parser::Command &parent)
   show_cmd->add_positional_arg("keyring", "key ring name, or '*' for the owner's virtual key ring", ArgType_Single, true);
   show_cmd->add_keyword_arg("label", make_aliases("--label", "-l"), "certificate label", ArgType_Single, true);
   show_cmd->set_handler(handle_cert_show);
-  show_cmd->add_example("Show certificate detail", "zowex system cert show USER01 RING02 -l CERT03");
+  show_cmd->add_example("Show certificate detail", "zo system cert show USER01 RING02 -l CERT03");
   certops_cmd->add_command(show_cmd);
 
   // cert connect <owner> <keyring> --label L (--from-ring R | --from-database)
@@ -801,8 +963,8 @@ void register_commands(parser::Command &parent)
   connect_cmd->add_keyword_arg("usage", make_aliases("--usage", "-u"), "certificate usage: PERSONAL or CERTAUTH (default: the certificate's current usage)", ArgType_Single, false);
   connect_cmd->add_keyword_arg("default", make_aliases("--default"), "set this certificate as the target ring's default", ArgType_Flag, false, ArgValue(false));
   connect_cmd->set_handler(handle_cert_connect);
-  connect_cmd->add_example("Copy a certificate from one ring to another", "zowex system cert connect USER01 RING02 -l CACERT --from-ring RING01");
-  connect_cmd->add_example("Connect a certificate that is only in the database", "zowex system cert connect USER01 RING02 -l CACERT --from-database");
+  connect_cmd->add_example("Copy a certificate from one ring to another", "zo system cert connect USER01 RING02 -l CACERT --from-ring RING01");
+  connect_cmd->add_example("Connect a certificate that is only in the database", "zo system cert connect USER01 RING02 -l CACERT --from-database");
   certops_cmd->add_command(connect_cmd);
 
   // cert set-default <owner> <keyring> --label L
@@ -811,7 +973,7 @@ void register_commands(parser::Command &parent)
   set_default_cmd->add_positional_arg("keyring", "key ring name", ArgType_Single, true);
   set_default_cmd->add_keyword_arg("label", make_aliases("--label", "-l"), "certificate label", ArgType_Single, true);
   set_default_cmd->set_handler(handle_cert_set_default);
-  set_default_cmd->add_example("Set the ring default certificate", "zowex system cert set-default USER01 RING02 -l CERT03");
+  set_default_cmd->add_example("Set the ring default certificate", "zo system cert set-default USER01 RING02 -l CERT03");
   certops_cmd->add_command(set_default_cmd);
 
   // cert trust <owner> --label L --status S  (DataAlter; ring not required)
@@ -820,7 +982,7 @@ void register_commands(parser::Command &parent)
   trust_cmd->add_keyword_arg("label", make_aliases("--label", "-l"), "certificate label", ArgType_Single, true);
   trust_cmd->add_keyword_arg("status", make_aliases("--status", "-s"), "new trust status: TRUST, HIGHTRUST, or NOTRUST", ArgType_Single, true);
   trust_cmd->set_handler(handle_cert_trust);
-  trust_cmd->add_example("Mark a certificate NOTRUST", "zowex system cert trust USER01 -l CERT03 -s NOTRUST");
+  trust_cmd->add_example("Mark a certificate NOTRUST", "zo system cert trust USER01 -l CERT03 -s NOTRUST");
   certops_cmd->add_command(trust_cmd);
 
   // cert rename <owner> --label L --new-label N  (DataAlter; ring not required)
@@ -829,13 +991,13 @@ void register_commands(parser::Command &parent)
   rename_cmd->add_keyword_arg("label", make_aliases("--label", "-l"), "current certificate label", ArgType_Single, true);
   rename_cmd->add_keyword_arg("new-label", make_aliases("--new-label", "-n"), "new certificate label", ArgType_Single, true);
   rename_cmd->set_handler(handle_cert_rename);
-  rename_cmd->add_example("Rename a certificate", "zowex system cert rename USER01 -l OLDLABEL -n NEWLABEL");
+  rename_cmd->add_example("Rename a certificate", "zo system cert rename USER01 -l OLDLABEL -n NEWLABEL");
   certops_cmd->add_command(rename_cmd);
 
   // cert refresh -- refresh the DIGTCERT class
   auto refresh_cmd = command_ptr(new Command("refresh", "refresh the DIGTCERT class"));
   refresh_cmd->set_handler(handle_refresh);
-  refresh_cmd->add_example("Refresh the DIGTCERT class", "zowex system cert refresh");
+  refresh_cmd->add_example("Refresh the DIGTCERT class", "zo system cert refresh");
   certops_cmd->add_command(refresh_cmd);
 
   parent.add_command(keyring_cmd);

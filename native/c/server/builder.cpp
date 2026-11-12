@@ -10,7 +10,7 @@
  */
 
 #include "builder.hpp"
-#include "logger.hpp"
+#include "../zlogger.hpp"
 #include "rpcio.hpp"
 #include "rpc_server.hpp"
 #include "../zbase64.h"
@@ -335,6 +335,45 @@ void CommandBuilder::apply_input_transforms(MiddlewareContext &context) const
   }
 }
 
+static void apply_read_stdout_transform(MiddlewareContext &context, const ArgTransform &transform, const ast::Node &obj)
+{
+  try
+  {
+    string data = context.get_output_content();
+
+    if (transform.base64)
+    {
+      data = zbase64::encode(data);
+    }
+
+    if (data.size() < LARGE_DATA_THRESHOLD)
+    {
+      obj->set(transform.arg_name, ast::str(data));
+      return;
+    }
+
+    // Free captured stdout before escaping so peak memory stays at two copies
+    std::stringstream().swap(context.get_output_stream());
+
+    // add_large_data_to_json splices this verbatim, so escape it exactly as zjson
+    // escapes the sub-threshold value above.
+    // TODO(v4): Register every read_stdout transform with b64_encode=true (breaking
+    // change for text-returning RPC methods) and remove this escape.
+    if (!transform.base64)
+    {
+      data = zjson::escape_json_string(data);
+    }
+    context.store_large_data(transform.arg_name, std::move(data));
+    obj->set(transform.arg_name, ast::str(""));
+  }
+  catch (const std::exception &e)
+  {
+    string errMsg = string("Failed to process ReadStdout transform: ") + e.what();
+    context.errln(errMsg.c_str());
+    LOG_ERROR("%s", errMsg.c_str());
+  }
+}
+
 void CommandBuilder::apply_output_transforms(MiddlewareContext &context) const
 {
   auto obj = context.get_object();
@@ -354,45 +393,11 @@ void CommandBuilder::apply_output_transforms(MiddlewareContext &context) const
 
   for (const auto &transform : transforms_)
   {
-    // Get the field value from the object if it exists
-    auto field_value = obj->get(transform.arg_name);
-
     switch (transform.kind)
     {
     case ArgTransform::ReadStdout:
-    {
-      // ReadStdout: Read from stdout and write to output argument
-      // If base64 is true, encode base64 before writing to output
-      try
-      {
-        string data = context.get_output_content();
-
-        if (transform.base64)
-        {
-          data = zbase64::encode(data);
-        }
-
-        if (data.size() >= LARGE_DATA_THRESHOLD)
-        {
-          context.store_large_data(transform.arg_name, std::move(data));
-          obj->set(transform.arg_name, ast::str(""));
-
-          // Clear output buffer to free memory ASAP
-          std::stringstream().swap(context.get_output_stream());
-        }
-        else
-        {
-          obj->set(transform.arg_name, ast::str(data));
-        }
-      }
-      catch (const std::exception &e)
-      {
-        string errMsg = string("Failed to process ReadStdout transform: ") + e.what();
-        context.errln(errMsg.c_str());
-        LOG_ERROR("%s", errMsg.c_str());
-      }
+      apply_read_stdout_transform(context, transform, obj);
       break;
-    }
 
     case ArgTransform::HandleFifo:
     {
@@ -400,18 +405,20 @@ void CommandBuilder::apply_output_transforms(MiddlewareContext &context) const
       const auto &args = context.arguments();
       const auto pipe_path_arg = args.find(transform.arg_name);
 
-      if (pipe_path_arg != args.end())
+      if (pipe_path_arg == args.end())
       {
-        // Remove the pipe (ignore errors if already removed)
-        const string pipe_path = pipe_path_arg->second.get_string_value();
-        if (unlink(pipe_path.c_str()) == 0)
-        {
-          LOG_DEBUG("Cleaned up FIFO pipe: %s", pipe_path.c_str());
-        }
-        else if (errno != ENOENT)
-        {
-          LOG_ERROR("Failed to delete FIFO pipe: %s, errno: %d", pipe_path.c_str(), errno);
-        }
+        break;
+      }
+
+      // Remove the pipe (ignore errors if already removed)
+      const string pipe_path = pipe_path_arg->second.get_string_value();
+      if (unlink(pipe_path.c_str()) == 0)
+      {
+        LOG_DEBUG("Cleaned up FIFO pipe: %s", pipe_path.c_str());
+      }
+      else if (errno != ENOENT)
+      {
+        LOG_ERROR("Failed to delete FIFO pipe: %s, errno: %d", pipe_path.c_str(), errno);
       }
       break;
     }

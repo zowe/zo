@@ -81,6 +81,18 @@ export class SshConfigUtils {
                                 case "connecttimeout":
                                     session.handshakeTimeout = Number.parseInt(value, 10) * 1000;
                                     break;
+                                case "identityagent":
+                                    // "none" explicitly disables the agent; leave session.identityAgent unset.
+                                    if (value.toLowerCase() === "none") {
+                                        break;
+                                    }
+                                    session.identityAgent =
+                                        value === "SSH_AUTH_SOCK"
+                                            ? value
+                                            : path.normalize(
+                                                  value.startsWith("~") ? path.join(homeDir, value.slice(2)) : value,
+                                              );
+                                    break;
                                 default:
                                     break;
                             }

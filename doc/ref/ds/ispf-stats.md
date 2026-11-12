@@ -1,6 +1,6 @@
 # ISPF Member Statistics
 
-How `zowex` handles and validates ISPF member statistics stored inside PDS directory entries.
+How `zo` handles and validates ISPF member statistics stored inside PDS directory entries.
 
 ## Storage in PDS Directories
 
@@ -19,7 +19,7 @@ ISPF uses this `USER_DATA` field to store member statistics:
 
 ## Validation Logic (`zds.cpp`)
 
-Because directory `USER_DATA` can store anything (such as load module linkage editor data or custom SCM metadata), `zowex` verifies if the bytes actually contain valid ISPF stats before parsing them. This prevents displaying garbled text or encountering errors.
+Because directory `USER_DATA` can store anything (such as load module linkage editor data or custom SCM metadata), `zo` verifies if the bytes actually contain valid ISPF stats before parsing them. This prevents displaying garbled text or encountering errors.
 
 We run two checks in `is_valid_ispf_stats`:
 
@@ -34,9 +34,9 @@ To verify this:
 
 1. **Find a corrupted member:** Find or create a PDS member with non-ISPF directory user data (e.g., load module entries or custom SCM tags).
 2. **Check ISPF:** Open the data set in **ISPF Option 3.4**. The corrupted member should show blanks, warnings, or question marks (`??/??/??`).
-3. **Check zowex:** List member attributes for the data set via the `zowex` CLI:
+3. **Check zo:** List member attributes for the data set via the `zo` CLI:
    ```bash
-   zowex ds list-members "MY.CORRUPTED.PDS" --attributes
+   zo ds list-members "MY.CORRUPTED.PDS" --attributes
    ```
    Alternatively you can check the member attributes using an SSH profile in Zowe Explorer.
 4. **Verify Result:** The member(s) should list successfully without crashing and the corrupted attributes should simply be blank.

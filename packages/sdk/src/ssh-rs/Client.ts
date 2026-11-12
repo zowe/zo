@@ -11,6 +11,7 @@
 
 import { EventEmitter } from "node:events";
 import {
+    type AgentConnectionSpec,
     type AuthenticatedSSHClient,
     type AuthFailure,
     KeyPair,
@@ -147,6 +148,14 @@ export class Client extends EventEmitter {
         username: string,
         config: ConnectConfig,
     ): Promise<AuthenticatedSSHClient> {
+        // Checked first: an explicitly configured agent is a deliberate override of
+        // whatever privateKey/password a session also carries, not a fallback.
+        if (typeof config.agent === "string") {
+            this.debug(`russh: authenticating with agent for ${username}`);
+            const result = await unauthClient.authenticateWithAgent(username, Client.resolveAgentSpec(config.agent));
+            return this.assertAuthSuccess(result, "Agent");
+        }
+
         if (config.privateKey) {
             this.debug(`russh: authenticating with public key for ${username}`);
             const keyData =
@@ -166,7 +175,21 @@ export class Client extends EventEmitter {
             return this.assertAuthSuccess(result, "Password");
         }
 
-        throw new Error("No authentication method available: provide privateKey or password");
+        throw new Error("No authentication method available: provide agent, privateKey, or password");
+    }
+
+    /**
+     * Maps an ssh2-style `agent` string to a russh connection spec, following the same
+     * convention as ssh2's own `agent` option: `"pageant"` selects Pageant, otherwise the
+     * value is a socket path on POSIX or a named pipe path on Windows.
+     */
+    private static resolveAgentSpec(agent: string): AgentConnectionSpec {
+        if (agent === "pageant") {
+            return { kind: "pageant" };
+        }
+        return process.platform === "win32"
+            ? { kind: "named-pipe", path: agent }
+            : { kind: "unix-socket", path: agent };
     }
 
     private assertAuthSuccess(result: AuthenticatedSSHClient | AuthFailure, method: string): AuthenticatedSSHClient {

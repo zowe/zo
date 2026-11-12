@@ -87,6 +87,15 @@ const ArgTemplate ENCODING = {
     ArgValue(),
     make_aliases(), false, true};
 
+const ArgTemplate ENCODING_INPUT = {
+    "encoding",
+    make_aliases("--encoding", "--ec"),
+    "convert input contents to given encoding",
+    ArgType_Single,
+    false,
+    ArgValue(),
+    make_aliases(), false, true};
+
 const ArgTemplate LOCAL_ENCODING = {
     "local-encoding",
     make_aliases("--local-encoding", "--lec"),
@@ -109,6 +118,15 @@ const ArgTemplate RESPONSE_FORMAT_BYTES = {
     "response-format-bytes",
     make_aliases("--response-format-bytes", "--rfb"),
     "returns the response as raw bytes",
+    ArgType_Flag,
+    false,
+    ArgValue(false),
+    make_aliases()};
+
+const ArgTemplate RESPONSE_FORMAT_HEADER = {
+    "response-format-header",
+    make_aliases("--response-format-header", "--rfh"),
+    "includes a header row of column names in table and CSV output",
     ArgType_Flag,
     false,
     ArgValue(false),

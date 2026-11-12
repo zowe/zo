@@ -6,6 +6,34 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- Added an optional `dsn` field to the `exportCertificate`/`importCertificate` (RPC) endpoint, letting a certificate be exported to, or imported from, a sequential data set or PDS/E member. `importCertificate`'s `file` field is now optional since the `dsn` field can satisfy it instead. [#1126](https://github.com/zowe/zowex/pull/1126)
+- Fixed the `parseSearchOutput` method splitting a member into several entries when SuperC search output spans page breaks. [#1182](https://github.com/zowe/zo/issues/1182)
+- Added prompt for user to confirm saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
+
+## `1.1.0`
+
+- Documented the PBES2/AES-256 certificate export prerequisites and strong, unique 8–128-character passphrase requirement. [#1205](https://github.com/zowe/zo/pull/1205)
+- Added optional z/OSMF-compatible execution fields to job list and status response types, including `execSubmitted` and `execEnded` for submitted-date and completed-date sorting. [#1187](https://github.com/zowe/zo/pull/1187)
+- BugFix: Censored sensitive info when logging RPC request and response details in ZSshClient. [#1190](https://github.com/zowe/zo/pull/1190)
+- Added support for the `deleteVsam` command to delete VSAM clusters with optional erase and purge behavior. [#490](https://github.com/zowe/zowex/issues/490)
+- Fixed SSH utility helper functions closing their connection before asynchronous operations completed when passing an `SshSession`. [#1195](https://github.com/zowe/zo/issues/1195)
+
+## `1.0.2`
+
+- Fixed an error when issuing streamed RPC requests to a `zo` server running in Bash shell. [#1155](https://github.com/zowe/zowex/pull/1155)
+- Updated RPC command method signatures so that the parameters object is optional when none of the request properties are required. [#1174](https://github.com/zowe/zowex/pull/1174)
+- Added `SessionContext` class to cache SSH connections so they can be reused across utility methods. [#1144](https://github.com/zowe/zowex/pull/1144)
+- Added support for SSH agents (`IdentityAgent` in SSH config) as an authentication method. [#342](https://github.com/zowe/zowex/issues/342)
+
+## `1.0.1`
+
+- Enhanced the post-failure cleanup in the `ZSshUtils.installServer` method to delete the `zo` program if the installation process failed while extracting the `server.pax.Z` file. [#1143](https://github.com/zowe/zowex/pull/1143)
+- Fixed an error where `zo` is not found on the PATH if the OMVS shell is Bash. The expected behavior is that the `zo` binary is automatically deployed. [#1141](https://github.com/zowe/zowex/pull/1141)
+- Exported the `ZSshConstants` module so that extenders can access its constants. [#1142](https://github.com/zowe/zowex/pull/1142)
+
+## `1.0.0`
+
+- **Breaking** The `zowex` program bundled in `server.pax.Z` is now renamed to `zo`. [#1119](https://github.com/zowe/zowex/pull/1119)
 - Added JSON-RPC support for listing parmlib data sets. [#1124](https://github.com/zowe/zowex/pull/1124)
 - Added support for the `resolveDsAlias` RPC command which allows the caller to resolve data set aliases. [#1108](https://github.com/zowe/zowex/pull/1108)
 

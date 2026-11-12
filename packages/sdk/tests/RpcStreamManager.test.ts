@@ -104,7 +104,7 @@ describe("RpcStreamManager", () => {
                 }),
             };
             mockSshClient.exec.mockImplementation((cmd, cb) => {
-                expect(cmd).toBe("cat > /tmp/pipe_1");
+                expect(cmd).toBe(`exec /bin/sh -c "cat > /tmp/pipe_1"`);
                 cb(null, mockChannel);
             });
 
@@ -165,7 +165,7 @@ describe("RpcStreamManager", () => {
                 stdout: new PassThrough(),
             };
             mockSshClient.exec.mockImplementation((cmd, cb) => {
-                expect(cmd).toBe("cat /tmp/pipe_2");
+                expect(cmd).toBe(`exec /bin/sh -c "cat /tmp/pipe_2"`);
                 cb(null, mockChannel);
             });
 

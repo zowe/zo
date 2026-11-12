@@ -20,6 +20,7 @@ namespace core
 {
 parser::Command &setup_root_command(char *argv[], bool include_plugin_commands = true);
 int execute_command(int argc, char *argv[]);
+void disable_json_output();
 int handle_version(plugin::InvocationContext &context);
 void set_plugin_manager(plugin::PluginManager *manager);
 plugin::PluginManager *get_plugin_manager();

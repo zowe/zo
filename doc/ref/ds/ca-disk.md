@@ -8,7 +8,7 @@ Because CA Disk processes archive requests on a deferred schedule, the end-to-en
 
 - CA Disk must be installed and active on the target LPAR
 - The `DARCHIVE` TSO command must be available in your STEPLIB or LNKLST
-- `zowex` must be deployed and on `PATH` (or set `ZOWEX=/path/to/zowex`)
+- `zo` must be deployed and on `PATH` (or set `ZO=/path/to/zo`)
 
 ## Running the Manual Test
 
@@ -20,10 +20,10 @@ A shell script is provided at `native/c/test/test.cadisk.sh`. Run it directly on
 
 `HLQ` is optional and defaults to your TSO user ID. The test data set is named `<HLQ>.CADISK.TEST` and is deleted automatically when the script exits.
 
-To use a specific `zowex` binary:
+To use a specific `zo` binary:
 
 ```bash
-ZOWEX=/path/to/zowex ./test.cadisk.sh
+ZO=/path/to/zo ./test.cadisk.sh
 ```
 
 ## What the Script Does
@@ -34,7 +34,7 @@ ZOWEX=/path/to/zowex ./test.cadisk.sh
 | 2 | Writes content to it |
 | 3 | Submits a deferred archive request via `DARCHIVE <dsn>` |
 | 4 | Polls every 2 minutes until the volser changes to `ARCIVE` (CA Disk's pseudo-volume), up to ~46 minutes |
-| 5 | Restores the data set with `zowex data-set restore` |
+| 5 | Restores the data set with `zo data-set restore` |
 | 6 | Views the restored data set and verifies the content is intact |
 
 ## Expected Output
@@ -70,7 +70,7 @@ ZOWEX=/path/to/zowex ./test.cadisk.sh
 
 ## Known Issues
 
-- **`zowex data-set restore` returns success for non-archived data sets** — a data set that was never archived incorrectly reports "Data set restored". Tracked in [#1007](https://github.com/zowe/zowex/issues/1007). A placeholder test exists in `zowex.ds.test.cpp` (`should fail to restore a data set that was never archived`) and will be activated once the fix is in place.
+- **`zo data-set restore` returns success for non-archived data sets** — a data set that was never archived incorrectly reports "Data set restored". Tracked in [#1007](https://github.com/zowe/zowex/issues/1007). A placeholder test exists in `zo.ds.test.cpp` (`should fail to restore a data set that was never archived`) and will be activated once the fix is in place.
 
 ## Research Notes: JCL Approach Does Not Work
 
@@ -108,6 +108,6 @@ The full migrate/recall implementation covers two archival mechanisms:
 When the implementation story for CA Disk and DFSMShsm migrate/recall support lands in the SDK and CLI, these tests should be promoted to the automated suite. At that point:
 
 - Re-add `ZNP_CADISK: "1"` to `config.example.yaml` under `testEnv` to forward the flag to the remote test runner
-- Promote the `xit` placeholders in `zowex.ds.test.cpp` to active `it()` tests with appropriate timeouts
+- Promote the `xit` placeholders in `zo.ds.test.cpp` to active `it()` tests with appropriate timeouts
 - The `ZNP_CADISK` env var check already existed in the codebase and can be restored to gate these tests on systems where CA Disk is available
 - A separate `doc/ref/ds/dfsmshsm.md` and corresponding manual test script (`test.dfsmshsm.sh`) should be created following the same pattern as this document

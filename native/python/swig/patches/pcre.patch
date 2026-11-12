@@ -1,0 +1,31 @@
+diff --git a/Tools/pcre-build.sh b/Tools/pcre-build.sh
+index ff088c6b7..ee0c75ad9 100755
+--- a/Tools/pcre-build.sh
++++ b/Tools/pcre-build.sh
+@@ -35,17 +35,17 @@ if test -f "pcre-build.sh" ; then
+   usage
+ fi
+ 
+-echo "Looking for PCRE2 tarball..."
+-rm -rf pcre
+-pcre_tarball=`ls pcre2-*.tar*`
+-test -n "$pcre_tarball" || bail "Could not find tarball matching pattern: pcre2-*.tar*"
+-test -f "$pcre_tarball" || bail "Could not find a single PCRE2 tarball. Found: $pcre_tarball"
++# echo "Looking for PCRE2 tarball..."
++# rm -rf pcre
++# pcre_tarball=`ls pcre2-*.tar*`
++# test -n "$pcre_tarball" || bail "Could not find tarball matching pattern: pcre2-*.tar*"
++# test -f "$pcre_tarball" || bail "Could not find a single PCRE2 tarball. Found: $pcre_tarball"
+ 
+-echo "Extracting tarball: $pcre_tarball"
+-tar -xf $pcre_tarball || bail "Could not untar $pcre_tarball"
+-pcre_dir=`echo $pcre_tarball | sed -e "s/\.tar.*//"`
++# echo "Extracting tarball: $pcre_tarball"
++# tar -xf $pcre_tarball || bail "Could not untar $pcre_tarball"
++# pcre_dir=`echo $pcre_tarball | sed -e "s/\.tar.*//"`
+ echo "Configuring PCRE in directory: pcre"
+-mv $pcre_dir pcre || bail "Could not create pcre directory"
++# mv $pcre_dir pcre || bail "Could not create pcre directory"
+ cd pcre && ./configure --prefix=$pcre_install_dir --disable-shared $* || bail "PCRE2 configure failed"
+ echo "Building PCRE2..."
+ ${MAKE:-make} -s || bail "Could not build PCRE2"

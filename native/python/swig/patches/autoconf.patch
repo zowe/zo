@@ -1,0 +1,22 @@
+diff --git a/configure b/configure
+index 4351fc29e..d2a510f40 100755
+--- a/configure
++++ b/configure
+@@ -5552,7 +5552,7 @@ fi
+     then
+       if test "$GXX" = "yes"
+       then
+-        ac_compile_warnings_opt='-Wall -W -pedantic'
++        ac_compile_warnings_opt='-Wall -Wpedantic'
+       fi
+       CXXFLAGS="$CXXFLAGS $ac_compile_warnings_opt"
+       ac_compile_warnings_msg="$ac_compile_warnings_opt for C++"
+@@ -5562,7 +5562,7 @@ fi
+   then
+     if test "$GCC" = "yes"
+     then
+-      ac_compile_warnings_opt='-Wall -W -pedantic'
++      ac_compile_warnings_opt='-Wall -Wpedantic'
+     fi
+     CFLAGS="$CFLAGS $ac_compile_warnings_opt"
+     ac_compile_warnings_msg="$ac_compile_warnings_msg $ac_compile_warnings_opt for C"

@@ -75,7 +75,7 @@ class TestUSSFunctions:
     def test_move_uss_file_or_dir_success(self):
         """Test successful movement of USS file or directory."""
         # Create test directory and file
-        test_dir = f"{self.test_base_dir}/test_move_dir"
+        test_dir = f"{self.test_base_dir}/test_move_dir_old"
         uss.create_uss_dir(test_dir, "755")
         
         # Creat a file inside the folder
@@ -93,15 +93,15 @@ class TestUSSFunctions:
         assert "test_file.txt" not in listing
 
         # move the directory to a new location
-        new_dir = f"{self.test_base_dir}/test_move_dir_moved"
+        new_dir = f"{self.test_base_dir}/test_move_dir_new"
         uss.move_uss_file_or_dir(test_dir, new_dir)
         self.created_items.append(new_dir)
         
         # Verify directory was moved by listing directory
         listing = uss.list_uss_dir(self.test_base_dir)
         assert isinstance(listing, str)
-        assert "test_move_dir_moved" in listing
-        assert "test_move_dir" not in listing
+        assert "test_move_dir_new" in listing
+        assert "test_move_dir_old" not in listing
 
     def test_list_uss_dir_success(self):
         """Test successful listing of USS directory."""

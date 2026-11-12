@@ -5,22 +5,32 @@ TEST_ZUSF := test_zusf.py
 TEST_ZDS_UTF8 := test_zds_utf8.py
 TEST_ZJB_UTF8 := test_zjb_utf8.py
 TEST_ZUSF_UTF8 := test_zusf_utf8.py
+JUNIT_ZDS := results-zds.xml
+JUNIT_ZJB := results-zjb.xml
+JUNIT_ZUSF := results-zusf.xml
+JUNIT_ALL := pybi_results.xml
 PY_ENV := export PYTHONIOENCODING=utf-8 && ./venv
 PIP := $(PY_ENV)/bin/pip
 PYTEST := $(PY_ENV)/bin/pytest
 
 all: test
 
+# Runs every suite and always tears down, even if one fails, so a single suite's failure doesn't
+# skip the others or leave the venv behind - but the target still fails afterward so CI catches it.
 test: setup
 	@echo "=== Test Results - $$(date) ===" | tee $(RESULTS_FILE)
 	@echo | tee -a $(RESULTS_FILE)
-	@$(MAKE) test-zds 2>&1 | tee -a $(RESULTS_FILE)
-	@$(MAKE) test-zjb 2>&1 | tee -a $(RESULTS_FILE)
-	@$(MAKE) test-zusf 2>&1 | tee -a $(RESULTS_FILE)
+	@rm -f .tests_failed
+	@$(MAKE) test-zds 2>&1 | tee -a $(RESULTS_FILE) || touch .tests_failed
+	@$(MAKE) test-zjb 2>&1 | tee -a $(RESULTS_FILE) || touch .tests_failed
+	@$(MAKE) test-zusf 2>&1 | tee -a $(RESULTS_FILE) || touch .tests_failed
+	@$(MAKE) merge-results || touch .tests_failed
 	@echo | tee -a $(RESULTS_FILE)
 	@echo "=== Test Completed - $$(date) ===" | tee -a $(RESULTS_FILE)
 	@echo "Results saved to: $(PWD)/$(RESULTS_FILE)"
+	@echo "JUnit report saved to: $(PWD)/$(JUNIT_ALL)"
 	@$(MAKE) teardown
+	@if [ -f .tests_failed ]; then rm -f .tests_failed; exit 1; fi
 
 # Pattern rule to convert EBCDIC to UTF-8
 %_utf8.py: %.py
@@ -30,15 +40,19 @@ test: setup
 # Individual test targets
 test-zds: $(TEST_ZDS_UTF8)
 	@echo "Running dataset tests..."
-	@$(PYTEST) $(TEST_ZDS_UTF8) -v
+	@$(PYTEST) $(TEST_ZDS_UTF8) -v --junitxml=$(JUNIT_ZDS) -o junit_suite_name=TestDatasetFunctions
 
 test-zjb: $(TEST_ZJB_UTF8)
 	@echo "Running job tests..."
-	@$(PYTEST) $(TEST_ZJB_UTF8) -v
+	@$(PYTEST) $(TEST_ZJB_UTF8) -v --junitxml=$(JUNIT_ZJB) -o junit_suite_name=TestJobFunctions
 
 test-zusf: $(TEST_ZUSF_UTF8)
 	@echo "Running USS tests..."
-	@$(PYTEST) $(TEST_ZUSF_UTF8) -v
+	@$(PYTEST) $(TEST_ZUSF_UTF8) -v --junitxml=$(JUNIT_ZUSF) -o junit_suite_name=TestUSSFunctions
+
+# Combines the per-suite JUnit reports into a single file so CI only needs to retrieve/publish one report
+merge-results:
+	@$(PY_ENV)/bin/python -c "import sys, os, xml.etree.ElementTree as ET; root = ET.Element('testsuites'); [root.append(s) for f in sys.argv[2:] if os.path.exists(f) for s in ET.parse(f).getroot()]; ET.ElementTree(root).write(sys.argv[1], xml_declaration=True, encoding='UTF-8')" $(JUNIT_ALL) $(JUNIT_ZDS) $(JUNIT_ZJB) $(JUNIT_ZUSF)
 
 # Utility targets
 setup:
@@ -51,7 +65,7 @@ teardown:
 	@rm -rf __pycache__ venv requirements_utf8.txt
 
 clean: teardown
-	@rm -f test_results*.txt $(TEST_ZDS_UTF8) $(TEST_ZJB_UTF8) $(TEST_ZUSF_UTF8)
+	@rm -f test_results*.txt $(JUNIT_ZDS) $(JUNIT_ZJB) $(JUNIT_ZUSF) $(JUNIT_ALL) $(TEST_ZDS_UTF8) $(TEST_ZJB_UTF8) $(TEST_ZUSF_UTF8)
 
 help:
 	@echo "Available targets:"
@@ -64,4 +78,4 @@ help:
 	@echo "  teardown    - Teardown the test environment"
 	@echo "  help        - Show this help message"
 
-.PHONY: all test-zds test-zjb test-zusf clean-results help clean setup teardown
+.PHONY: all test-zds test-zjb test-zusf merge-results clean-results help clean setup teardown

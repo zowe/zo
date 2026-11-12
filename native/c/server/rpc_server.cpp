@@ -12,8 +12,18 @@
 #include "rpc_server.hpp"
 #include "rpcio.hpp"
 #include "dispatcher.hpp"
-#include "logger.hpp"
+#include "../json_output.hpp"
+#include "../zlogger.hpp"
 #include <iostream>
+
+ZJSON_DERIVE(RpcNotification, jsonrpc, method, params);
+ZJSON_DERIVE(RpcRequest, jsonrpc, method, params, id);
+ZJSON_DERIVE(ErrorDetails, code, message, data);
+ZJSON_SERIALIZABLE(RpcResponse,
+                   ZJSON_FIELD(RpcResponse, jsonrpc),
+                   ZJSON_FIELD(RpcResponse, result).skip_serializing_if_none(),
+                   ZJSON_FIELD(RpcResponse, error).skip_serializing_if_none(),
+                   ZJSON_FIELD(RpcResponse, id));
 
 using std::string;
 
@@ -35,7 +45,7 @@ static void process_error_output(const string &error_output, string &out_message
   }
 }
 
-void RpcServer::process_request(const string &request_data)
+void RpcServer::process_request(const string &request_data, std::function<void()> heartbeat_callback)
 {
   try
   {
@@ -88,6 +98,7 @@ void RpcServer::process_request(const string &request_data)
 
     // Create MiddlewareContext for the command
     MiddlewareContext context(request.method, args);
+    context.set_heartbeat_callback(std::move(heartbeat_callback));
 
     // Dispatch the command
     int result = dispatcher.dispatch(request.method, context);
@@ -278,56 +289,8 @@ zjson::Value RpcServer::convert_output_to_json(const string &output)
 
 zjson::Value RpcServer::convert_ast_to_json(const ast::Node &ast_node)
 {
-  if (!ast_node)
-  {
-    return zjson::Value(); // null
-  }
-
-  switch (ast_node->kind())
-  {
-  case ast::Ast::Null:
-    return zjson::Value(); // null
-
-  case ast::Ast::Boolean:
-    return zjson::Value(ast_node->as_bool());
-
-  case ast::Ast::Integer:
-    return zjson::Value(ast_node->as_integer());
-
-  case ast::Ast::Number:
-    return zjson::Value(ast_node->as_number());
-
-  case ast::Ast::String:
-    return zjson::Value(ast_node->as_string());
-
-  case ast::Ast::Array:
-  {
-    zjson::Value array_value = zjson::Value::create_array();
-    const auto &ast_array = ast_node->as_array();
-    array_value.reserve_array(ast_array.size());
-
-    for (size_t i = 0; i < ast_array.size(); ++i)
-    {
-      array_value.add_to_array(convert_ast_to_json(ast_array[i]));
-    }
-    return array_value;
-  }
-
-  case ast::Ast::Object:
-  {
-    zjson::Value object_value = zjson::Value::create_object();
-    const auto &ast_object = ast_node->as_object();
-
-    for (const auto &pair : ast_object)
-    {
-      object_value.add_to_object(pair.first, convert_ast_to_json(pair.second));
-    }
-    return object_value;
-  }
-
-  default:
-    return zjson::Value(); // null for unknown types
-  }
+  // Shared with the CLI's --json path so both agree on the ast -> JSON mapping.
+  return json_output::ast_to_json(ast_node);
 }
 
 void RpcServer::print_response(const RpcResponse &response, MiddlewareContext *context)
@@ -387,7 +350,7 @@ void RpcServer::add_large_data_to_json(string &json_string, const string &field_
     return;
   }
 
-  // Assume that data is Base64 encoded so no JSON escaping needed
+  // Data is already JSON-string-safe: Base64 or escaped by the ReadStdout transform
   const string replacement = "\"" + field_name + "\":\"" + data + "\"";
   json_string.replace(pos, search_pattern.length(), replacement);
 
@@ -599,12 +562,12 @@ validator::ValidationResult RpcServer::validate_json_with_schema(const string &m
   }
 
   const CommandBuilder &builder = it->second;
-  auto validator = is_request ? builder.get_request_validator() : builder.get_response_validator();
+  const auto &schema = is_request ? builder.get_request_schema() : builder.get_response_schema();
 
-  if (!validator)
+  if (!schema)
   {
     return validator::ValidationResult::success();
   }
 
-  return validator(data);
+  return validator::validate_schema(data, schema->fields, schema->field_count, is_request);
 }
