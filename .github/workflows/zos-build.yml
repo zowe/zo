@@ -3,8 +3,12 @@ name: z/OS Build
 on:
   pull_request:
     paths:
+      - ".github/workflows/release.yml"
       - ".github/workflows/zos-build.yml"
       - "native/**"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/buildTools.ts"
   push:
     branches:
       - main
@@ -12,6 +16,11 @@ on:
     inputs:
       debug:
         required: false
+        type: boolean
+      build-python:
+        description: Build Python bindings even without Python changes
+        required: false
+        default: false
         type: boolean
       version:
         required: false
@@ -26,10 +35,17 @@ on:
       SSH_MARIST_HOST_KEY:
         required: true
   workflow_dispatch:
+    inputs:
+      build-python:
+        description: Build and test Python bindings
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
   checks: write
+  contents: read
   pull-requests: write
 
 jobs:
@@ -37,13 +53,41 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: "zos-build"
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       # Build and tests share native objects, so they must use the same build type.
       ZOWE_NATIVE_DEBUG: ${{ inputs.debug && '1' || '0' }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select Python build
+        id: python
+        if: ${{ !inputs.debug }}
+        env:
+          FORCE_PYTHON: ${{ inputs.build-python || inputs.version != '' }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          build_python=false
+          if [[ "$FORCE_PYTHON" == "true" ]]; then
+            build_python=true
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request" || "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if [[ "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+              # A new branch has no previous tree to compare.
+              build_python=true
+            else
+              if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+                git fetch --no-tags --depth=1 origin "$BASE_SHA"
+              fi
+              # PR checkout uses the merge commit; compare it with the PR base.
+              python_changes=$(git diff --name-only "$BASE_SHA" HEAD -- native/python/)
+              if [[ -n "$python_changes" ]]; then
+                build_python=true
+              fi
+            fi
+          fi
+          echo "build=$build_python" >> "$GITHUB_OUTPUT"
+          echo "Build Python bindings: $build_python"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -70,7 +114,19 @@ jobs:
               #
               # \$PATH is escaped so it reaches config.yaml literally and is expanded by the z/OS
               # shell, not by this runner's heredoc.
-              preBuildCmd: "export PATH=/usr/lpp/IBM/cnw/v2r1/openxl/bin:\$PATH"
+              # Use the downloaded SWIG when the host does not provide one.
+              # Leave SWIG_LIB unset unless the downloaded library exists.
+              preBuildCmd: "export PATH=/usr/lpp/IBM/cnw/v2r1/openxl/bin:/ZOWE/tmp/zowex/python/swig:\$PATH\nif [ -d /ZOWE/tmp/zowex/python/swig/Lib ]; then export SWIG_LIB=/ZOWE/tmp/zowex/python/swig/Lib; fi"
+          EOF
+
+      - name: Set up Python test fixtures
+        if: ${{ steps.python.outputs.build == 'true' }}
+        run: |
+          cat << EOF > native/python/bindings/test/fixtures/env.yml
+          OWNER: ${{ secrets.SSH_MARIST_ZNP_ID }}
+          DSN_PREFIX: ${{ secrets.SSH_MARIST_ZNP_ID }}.PY#BI
+          USS_BASE_DIR: /ZOWE/tmp/test_uss_functions_for_python_bindings
+          KEYRING_PREFIX: ZKRUT
           EOF
 
       - name: Install Dependencies
@@ -155,6 +211,55 @@ jobs:
           name: Test results
           path: native/c/test/test-results.xml
           reporter: java-junit
+
+      # Selected Python builds reuse the native build and deployment in this job.
+      - name: Check for SWIG on z/OS
+        id: swig
+        if: ${{ steps.python.outputs.build == 'true' }}
+        run: |
+          if npm run -s z:has:swig; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch and install SWIG from GitHub Releases
+        if: ${{ steps.python.outputs.build == 'true' && steps.swig.outputs.present != 'true' }}
+        run: npm run z:python:swig:install
+
+      - name: Build Python Bindings
+        if: ${{ steps.python.outputs.build == 'true' }}
+        run: npm run z:python:build
+
+      - name: Test Python Bindings
+        id: python-tests
+        if: ${{ steps.python.outputs.build == 'true' }}
+        run: npm run z:python:test
+
+      # Fork pull requests cannot write checks. Report test failures before packaging the wheel.
+      - name: Python Test Report
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
+        if: ${{ !cancelled() && steps.python.outputs.build == 'true' && steps.python-tests.outcome != 'skipped' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        with:
+          name: Python binding test results
+          path: "native/python/bindings/test/pybi_results.xml"
+          reporter: java-junit
+
+      - name: Build Python Wheel
+        if: ${{ steps.python.outputs.build == 'true' }}
+        run: npm run z:python:wheel
+        env:
+          ZPY_PYTHON_ROOT: ${{ vars.ZPY_PYTHON_ROOT || '/usr/lpp/IBM/cyp/' }}
+
+      - name: Archive Python Wheel
+        if: ${{ steps.python.outputs.build == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zowe-python-wheel
+          path: |
+            dist/zo-*.whl
+            dist/zo-*.whl.sha256
+          if-no-files-found: error
 
       - name: Clean up on z/OS
         if: always()

@@ -28,15 +28,22 @@ compatible with future Python versions.
 
 ### GitHub Actions artifacts and releases
 
-The **z/OS Python Build** workflow builds the wheel after the binding tests pass
-and archives it with its SHA-256 file in the `zowe-python-wheel` Actions artifact.
-It runs for matching pull requests and can also be started with **Run workflow**.
+The **z/OS Build** workflow uses one deployment and native build for the server
+and Python bindings. Pull requests and pushes to `main` run the Python steps only
+when files under `native/python/` change. Other changes skip the Python steps.
+To run the Python steps manually, select `build-python` under **Run workflow**.
+Reusable workflow callers can also set `build-python` to `true`.
+Versioned releases always include Python. Nightly debug builds only build and test
+the server.
+
+When selected, the Python steps build the wheel after the binding tests pass.
+They archive the wheel and SHA-256 file in the `zowe-python-wheel` Actions artifact.
 The CI host must provide IBM Python 3.11, 3.13, and 3.14 under
 `/usr/lpp/IBM/cyp/`; set the `ZPY_PYTHON_ROOT` repository variable to use another
 installation root with the same `v3rXX/pyz/bin/python` layout.
 
 To publish, run the existing **Release** workflow with an explicit `version`.
-It passes that version to the Python build, downloads the wheel from the same
+It passes that version to the combined build, downloads the wheel from the same
 workflow run, verifies its checksum and Twine metadata, and uploads it to
 Zowe's `pypi-release-local` repository. A `dry-run` still builds, archives, and
 checks the wheel but skips the upload. Nightly releases do not publish wheels.
