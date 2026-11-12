@@ -1844,6 +1844,137 @@ void zusf_tests()
     });
   });
 
+  describe("zusf_create_uss_file_or_dir tests", [&]() -> void
+  {
+    ZUSF zusf{};
+    beforeEach([&zusf]() -> void
+    {
+      zusf = {};
+    });
+
+    it("should create a file with the requested mode regardless of umask", [&]() -> void
+    {
+      const std::string path = get_random_uss("/tmp");
+      const mode_t old_umask = umask(0077);
+      const int rc = zusf_create_uss_file_or_dir(&zusf, path, 0644, CreateOptions());
+      umask(old_umask);
+
+      ExpectWithContext(rc, zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      struct stat st{};
+      Expect(lstat(path.c_str(), &st)).ToBe(0);
+      Expect(S_ISREG(st.st_mode)).ToBe(true);
+      Expect(static_cast<int>(st.st_mode & 0777)).ToBe(0644);
+
+      unlink(path.c_str());
+    });
+
+    it("should truncate an existing file and apply the mode when overwriting", [&]() -> void
+    {
+      const std::string path = get_random_uss("/tmp");
+      {
+        std::ofstream pre(path.c_str(), std::ios::binary);
+        pre << "existing content";
+      }
+      chmod(path.c_str(), 0644);
+
+      const int rc = zusf_create_uss_file_or_dir(&zusf, path, 0600, CreateOptions(false, true));
+
+      ExpectWithContext(rc, zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      struct stat st{};
+      Expect(stat(path.c_str(), &st)).ToBe(0);
+      Expect(static_cast<int>(st.st_size)).ToBe(0);
+      Expect(static_cast<int>(st.st_mode & 0777)).ToBe(0600);
+
+      unlink(path.c_str());
+    });
+
+    it("should not overwrite through a symbolic link to an existing file", [&]() -> void
+    {
+      const std::string target = get_random_uss("/tmp");
+      const std::string link = get_random_uss("/tmp");
+      {
+        std::ofstream pre(target.c_str(), std::ios::binary);
+        pre << "existing content";
+      }
+      chmod(target.c_str(), 0644);
+      TestFileGuard link_guard(link.c_str(), 'l', target.c_str());
+
+      const int rc = zusf_create_uss_file_or_dir(&zusf, link, 0666, CreateOptions(false, true));
+      struct stat st{};
+      const bool target_exists = stat(target.c_str(), &st) == 0;
+      unlink(target.c_str());
+
+      Expect(rc).ToBe(RTNCD_FAILURE);
+      Expect(std::string(zusf.diag.e_msg)).ToContain("Path '" + link + "' is a symbolic link");
+      Expect(target_exists).ToBe(true);
+      Expect(static_cast<int>(st.st_size)).ToBe(static_cast<int>(std::string("existing content").size()));
+      Expect(static_cast<int>(st.st_mode & 0777)).ToBe(0644);
+    });
+
+    it("should not create a file through a dangling symbolic link", [&]() -> void
+    {
+      const std::string target = get_random_uss("/tmp");
+      const std::string link = get_random_uss("/tmp");
+      TestFileGuard link_guard(link.c_str(), 'l', target.c_str());
+
+      const int rc = zusf_create_uss_file_or_dir(&zusf, link, 0666, CreateOptions());
+      struct stat st{};
+      const bool target_created = lstat(target.c_str(), &st) == 0;
+      unlink(target.c_str());
+
+      Expect(rc).ToBe(RTNCD_FAILURE);
+      Expect(std::string(zusf.diag.e_msg)).ToContain("Path '" + link + "' is a symbolic link");
+      Expect(target_created).ToBe(false);
+      Expect(lstat(link.c_str(), &st)).ToBe(0);
+      Expect(S_ISLNK(st.st_mode)).ToBe(true);
+    });
+
+    it("should not create a file through a dangling symbolic link when overwriting", [&]() -> void
+    {
+      const std::string target = get_random_uss("/tmp");
+      const std::string link = get_random_uss("/tmp");
+      TestFileGuard link_guard(link.c_str(), 'l', target.c_str());
+
+      const int rc = zusf_create_uss_file_or_dir(&zusf, link, 0666, CreateOptions(false, true));
+      struct stat st{};
+      const bool target_created = lstat(target.c_str(), &st) == 0;
+      unlink(target.c_str());
+
+      Expect(rc).ToBe(RTNCD_FAILURE);
+      Expect(std::string(zusf.diag.e_msg)).ToContain("Path '" + link + "' is a symbolic link");
+      Expect(target_created).ToBe(false);
+    });
+
+    it("should create a directory with the requested mode regardless of umask", [&]() -> void
+    {
+      const std::string path = get_random_uss("/tmp");
+      const mode_t old_umask = umask(0077);
+      const int rc = zusf_create_uss_file_or_dir(&zusf, path, 0750, CreateOptions(true));
+      umask(old_umask);
+      struct stat st{};
+      const bool created = lstat(path.c_str(), &st) == 0;
+      rmdir(path.c_str());
+
+      ExpectWithContext(rc, zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      Expect(created).ToBe(true);
+      Expect(S_ISDIR(st.st_mode)).ToBe(true);
+      Expect(static_cast<int>(st.st_mode & 0777)).ToBe(0750);
+    });
+
+    it("should create a directory with a mode that denies the owner read access", [&]() -> void
+    {
+      const std::string path = get_random_uss("/tmp");
+      const int rc = zusf_create_uss_file_or_dir(&zusf, path, 0300, CreateOptions(true));
+      struct stat st{};
+      const bool created = lstat(path.c_str(), &st) == 0;
+      rmdir(path.c_str());
+
+      ExpectWithContext(rc, zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      Expect(created).ToBe(true);
+      Expect(static_cast<int>(st.st_mode & 0777)).ToBe(0300);
+    });
+  });
+
   describe("zusf_move_uss_file_or_dir tests", [&]() -> void
   {
     std::string zusf_test_dir = "/tmp/zusf_test_dir_" + get_random_string(10);
