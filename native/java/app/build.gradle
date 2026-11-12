@@ -40,6 +40,10 @@ dependencies {
     testImplementation 'org.springframework.security:spring-security-test'
 }
 
+springBoot {
+    mainClass = 'org.zowe.zowex.ZowexApplication'
+}
+
 dependencyManagement {
     imports {
         mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
