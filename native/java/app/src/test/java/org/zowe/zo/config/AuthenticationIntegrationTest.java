@@ -10,9 +10,8 @@ import org.zowe.apiml.zaasclient.exception.ZaasClientErrorCodes;
 import org.zowe.apiml.zaasclient.exception.ZaasClientException;
 import org.zowe.apiml.zaasclient.service.ZaasClient;
 import org.zowe.apiml.zaasclient.service.ZaasToken;
-import org.zowe.zo.controllers.ZdsController;
-import org.zowe.zo.ffm.ZdsBindings;
-import org.zowe.zo.ffm.ZdsService;
+import org.zowe.zo.controllers.zosmf.ZosmfDataSetController;
+import org.zowe.zo.service.DataSetService;
 
 import java.util.List;
 
@@ -29,7 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * via {@code @WithMockUser} — the request must pass through
  * {@link JwtAuthenticationFilter} and {@link BasicAuthenticationFilter}.
  */
-@WebMvcTest(ZdsController.class)
+@WebMvcTest(ZosmfDataSetController.class)
 @Import({JwtAuthenticationFilter.class, BasicAuthenticationFilter.class, SecurityConfig.class})
 class AuthenticationIntegrationTest {
 
@@ -40,7 +39,7 @@ class AuthenticationIntegrationTest {
     ZaasClient zaasClient;
 
     @MockitoBean
-    ZdsService zdsService;
+    DataSetService dataSetService;
 
     private static final String LIST_DS = "/zosmf/restfiles/ds";
 
@@ -64,9 +63,10 @@ class AuthenticationIntegrationTest {
         token.setUserId("jwtuser");
         when(zaasClient.query("valid.jwt.token")).thenReturn(token);
 
-        var entry = new ZdsBindings.ZDSEntry();
-        entry.name = "JWTUSER.DS";
-        when(zdsService.listDataSets(any())).thenReturn(List.of(entry));
+        var entry = new DataSetService.DataSetInfo("JWTUSER.DS", null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        when(dataSetService.listDataSets(any(), any(), any()))
+                .thenReturn(new DataSetService.ListPage<>(List.of(entry), false, null));
 
         mockMvc.perform(get(LIST_DS)
                 .param("dslevel", "JWTUSER")
@@ -115,7 +115,8 @@ class AuthenticationIntegrationTest {
         var token = new ZaasToken();
         token.setUserId("alice");
         when(zaasClient.query("alice.token")).thenReturn(token);
-        when(zdsService.listDataSets(any())).thenReturn(List.of());
+        when(dataSetService.listDataSets(any(), any(), any()))
+                .thenReturn(new DataSetService.ListPage<>(List.of(), false, null));
 
         mockMvc.perform(get(LIST_DS)
                 .param("dslevel", "ALICE")
