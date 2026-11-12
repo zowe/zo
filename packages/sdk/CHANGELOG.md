@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- Added an optional `dsn` field to `exportCertificate`/`importCertificate` (RPC), letting a certificate be exported to, or imported from, a sequential data set or PDS/E member. `importCertificate`'s `file` field is now optional since `dsn` can satisfy it instead. [#1126](https://github.com/zowe/zowex/pull/1126)
+- Added an optional `dsn` field to the `exportCertificate`/`importCertificate` (RPC) endpoint, letting a certificate be exported to, or imported from, a sequential data set or PDS/E member. `importCertificate`'s `file` field is now optional since the `dsn` field can satisfy it instead. [#1126](https://github.com/zowe/zowex/pull/1126)
 - Fixed the `parseSearchOutput` method splitting a member into several entries when SuperC search output spans page breaks. [#1182](https://github.com/zowe/zo/issues/1182)
 - Added prompt for user to confirm saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
 

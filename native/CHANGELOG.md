@@ -6,10 +6,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `c`: Preserved sequential data set attributes during binary writes to prevent padding and allow repeated PKCS#12 exports. [#1126](https://github.com/zowe/zo/pull/1126)
-- `c`: Guard against OPEN hanging on a password-protected data set (legacy MVS password protection issues a WTOR with no console to answer it) by failing fast, pre-OPEN, in `zds_read`, `zds_read_streamed`, `zds_write`, `zds_write_streamed`, `zds_write_binary`, the BPAM write path, and `zo system cert export`/`import --dsn`. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
-- `c`: Added `--dsn` to `zo system cert import`/`export`, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
+- `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added `zds_write_binary`, a byte-exact data set writer (BPAM for members, binary `fopen` for sequential) with no code-page conversion or line splitting; requires a V-format target. [#1126](https://github.com/zowe/zowex/pull/1126)
 - Build tooling now verifies the z/OS SSH host key against `~/.ssh/known_hosts` or an optional `hostFingerprint` in `config.yaml`, and fails if it can't be verified. [#1224](https://github.com/zowe/zo/pull/1224)
 - `c`: Added validation for the data set name argument to the `zo ds resolve-alias` command. [#1229](https://github.com/zowe/zo/pull/1229)
