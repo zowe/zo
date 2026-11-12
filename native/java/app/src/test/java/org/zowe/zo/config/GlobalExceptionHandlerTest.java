@@ -7,13 +7,21 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.zowe.zo.ffm.ZoRpcException;
 import org.zowe.zo.zos.security.platform.PlatformReturned;
 import org.zowe.zo.zos.security.platform.SafPlatformError;
 import org.zowe.zo.zos.security.service.AccessControlError;
 import org.zowe.zo.zos.security.service.SecurityRequestFailed;
 
+import java.util.Map;
+
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -71,6 +79,20 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/checked")
         public void checked() throws Exception {
             throw new Exception("checked exception message");
+        }
+
+        @GetMapping("/needs-param")
+        public void needsParam(@RequestParam("count") int count) {
+        }
+
+        @PostMapping(value = "/json-body", consumes = MediaType.APPLICATION_JSON_VALUE)
+        public void jsonBody(@RequestBody Map<String, Object> body) {
+        }
+
+        @GetMapping("/deep-rpc")
+        public void deepRpc() {
+            var rpc = new ZoRpcException("listDatasets", ZoRpcException.NOT_FOUND, "gone", null);
+            throw new RuntimeException(new RuntimeException(rpc));
         }
 
         @DeleteMapping("/checked-null-message")
@@ -142,10 +164,12 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void runtimeUnknown_returns500WithMessage() throws Exception {
+    void runtimeUnknown_returns500WithoutLeakingMessage() throws Exception {
         mockMvc.perform(get("/test/runtime-unknown"))
                .andExpect(status().isInternalServerError())
-               .andExpect(jsonPath("$.message").value("unexpected runtime failure"));
+               .andExpect(jsonPath("$.message").value("An unexpected error occurred"))
+               .andExpect(jsonPath("$.rc").value(-1))
+               .andExpect(jsonPath("$.details").isArray());
     }
 
     @Test
@@ -156,10 +180,10 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void checkedException_returns500WithMessage() throws Exception {
+    void checkedException_returns500WithoutLeakingMessage() throws Exception {
         mockMvc.perform(get("/test/checked"))
                .andExpect(status().isInternalServerError())
-               .andExpect(jsonPath("$.message").value("checked exception message"));
+               .andExpect(jsonPath("$.message").value("An unexpected error occurred"));
     }
 
     @Test
@@ -167,5 +191,42 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(delete("/test/checked-null-message"))
                .andExpect(status().isInternalServerError())
                .andExpect(jsonPath("$.message").value("An unexpected error occurred"));
+    }
+
+    @Test
+    void missingParameter_returns400() throws Exception {
+        mockMvc.perform(get("/test/needs-param")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void typeMismatch_returns400NamingParameter() throws Exception {
+        mockMvc.perform(get("/test/needs-param").param("count", "abc"))
+               .andExpect(status().isBadRequest())
+               .andExpect(jsonPath("$.message").value("Invalid value for parameter 'count'"));
+    }
+
+    @Test
+    void malformedBody_returns400WithoutEchoingContent() throws Exception {
+        mockMvc.perform(post("/test/json-body").contentType(MediaType.APPLICATION_JSON).content("{\"password\":\"s3cret"))
+               .andExpect(status().isBadRequest())
+               .andExpect(content().string(not(containsString("s3cret"))));
+    }
+
+    @Test
+    void unsupportedMediaType_returns415() throws Exception {
+        mockMvc.perform(post("/test/json-body").contentType(MediaType.TEXT_PLAIN).content("x"))
+               .andExpect(status().isUnsupportedMediaType());
+    }
+
+    @Test
+    void wrongMethod_returns405() throws Exception {
+        mockMvc.perform(put("/test/illegal-arg")).andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    void deeplyWrappedRpcException_mapsToItsStatus() throws Exception {
+        mockMvc.perform(get("/test/deep-rpc"))
+               .andExpect(status().isNotFound())
+               .andExpect(jsonPath("$.rc").value(ZoRpcException.NOT_FOUND));
     }
 }
