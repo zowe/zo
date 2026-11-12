@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `python`: Archive the z/OS wheel and checksum in GitHub Actions and publish versioned releases to Zowe's PyPI Artifactory repository. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `python`: Name the Python distribution `zo` and read its version from the same `package.json` used by the native binary; update wheel staging, posting, and installation checks. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `python`: Default release wheels to `py3-none-any` filename and metadata tags so pip accepts them across z/OS platform-tag conventions; retain native runtime checks during import. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `c`: Corrected PDS directory used-count handling so full 256-byte blocks, including those in `SYS1.PARMLIB`, list successfully and member parsing stays within the active entry bytes. [#1181](https://github.com/zowe/zowex/pull/1181)

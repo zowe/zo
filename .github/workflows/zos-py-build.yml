@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/zos-py-build.yml"
       - "native/python/**"
+      - "package.json"
+      - "scripts/buildTools.ts"
       # zkr_py shares these native/c sources with zowex (see native/python/bindings/
       # setup.py); listed individually rather than all of native/c/** since this job
       # shares the zos-build concurrency group and takes ~20 minutes.
@@ -15,6 +17,7 @@ on:
   # push:
   #   branches:
   #     - main
+  workflow_dispatch:
   workflow_call:
     inputs:
       version:
@@ -39,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: "zos-build"
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,6 +87,12 @@ jobs:
       - name: Install Dependencies
         run: npm ci --workspaces=false
 
+      - name: Set Build Version
+        if: ${{ inputs.version }}
+        run: npm pkg set version="$VERSION"
+        env:
+          VERSION: ${{ inputs.version }}
+
       - name: Build on z/OS
         run: npm run z:rebuild
 
@@ -112,6 +121,20 @@ jobs:
 
       - name: Test Python Bindings
         run: npm run z:python:test
+
+      - name: Build Python Wheel
+        run: npm run z:python:wheel
+        env:
+          ZPY_PYTHON_ROOT: ${{ vars.ZPY_PYTHON_ROOT || '/usr/lpp/IBM/cyp/' }}
+
+      - name: Archive Python Wheel
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zowe-python-wheel
+          path: |
+            dist/zo-*.whl
+            dist/zo-*.whl.sha256
+          if-no-files-found: error
 
       # dorny/test-reporter needs `checks: write`, which GitHub downgrades to read-only for
       # pull_request runs from forks, so skip it there rather than failing the job on a
