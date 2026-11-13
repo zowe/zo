@@ -21,6 +21,7 @@ import type {
     RpcNotification,
     RpcRequest,
     RpcResponse,
+    ServerInfo,
     StatusMessage,
 } from "./doc";
 import { RpcClientApi } from "./RpcClientApi";
@@ -38,7 +39,7 @@ export class ZSshClient extends RpcClientApi implements Disposable {
     private static readonly EXIT_CODE_PATTERN = new RegExp(String.raw`${ZSshClient.EXIT_CODE_MARKER}(\d+)`);
     private mErrHandler: ClientOptions["onError"];
     private mResponseTimeout: number;
-    private mServerInfo: { version?: string };
+    private mServerInfo: ServerInfo | undefined;
     private mSshClient: Client;
     private mSshStream: ClientChannel;
     private mStreamMgr: RpcStreamManager;
@@ -214,8 +215,14 @@ export class ZSshClient extends RpcClientApi implements Disposable {
         this.dispose();
     }
 
+    /** @deprecated Use `serverInfo?.version` instead. */
     public get serverVersion(): string | undefined {
-        return this.mServerInfo?.version;
+        return this.serverInfo?.version;
+    }
+
+    /** Metadata reported by the server, available after its ready message. */
+    public get serverInfo(): Readonly<ServerInfo> | undefined {
+        return this.mServerInfo;
     }
 
     /**
