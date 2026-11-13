@@ -236,7 +236,7 @@ Command &setup_root_command(char *argv[], bool include_plugin_commands)
 {
   g_arg_parser = std::make_shared<ArgumentParser>(argv[0], "Zowe Z Open CLI");
   g_arg_parser->add_pre_command_hook([](const Command &command, bool is_help_request)
-                                     {
+  {
     if (!is_help_request && command.is_privileged())
     {
       return true;
@@ -260,7 +260,7 @@ Command &setup_root_command(char *argv[], bool include_plugin_commands)
   // The root handler prints help or enters the REPL, which owns stdout for its
   // lifetime and frames each result with [rc] plus an EOT byte. Neither is a
   // result worth wrapping -- but --json still has to parse here so that
-  // `zowex --json ds list` reaches the subcommand.
+  // `zo --json ds list` reaches the subcommand.
   root_command.disable_json_capture();
   root_command.set_handler(handle_command);
 

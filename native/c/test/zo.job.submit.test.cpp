@@ -216,7 +216,7 @@ void zo_job_submit_tests(std::vector<std::string> &_jobs, std::vector<std::strin
       int rc = execute_command_with_output(cmd, response);
       ExpectWithContext(rc, response).ToBe(0);
 
-      // Ensure file is untagged so zowex reads raw EBCDIC without conversion
+      // Ensure file is untagged so zo reads raw EBCDIC without conversion
       execute_command_with_output("chtag -r " + filename, response);
 
       // Submit

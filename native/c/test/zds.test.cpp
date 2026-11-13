@@ -10,6 +10,8 @@
  */
 
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -591,6 +593,99 @@ void zds_tests()
       });
     });
 
+    describe("migrated data set writes", [&]() -> void
+    {
+      const char *migration_env = std::getenv("ZNP_TEST_MIGRATION");
+      const std::string migration = migration_env == nullptr ? "" : migration_env;
+      TEST_OPTIONS migration_timeout = {false, 3000};
+
+      auto migrate = [&](const std::string &dsn) -> void
+      {
+        Expect(dsn.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@$.-")).ToBe(std::string::npos);
+        // Escape the TSO quotes inside the shell's single-quoted argument.
+        const std::string quoted_dsn = "'\\''" + dsn + "'\\''";
+        const std::string command = migration == "HSM"
+                                        ? "HMIGRATE " + quoted_dsn + " NOWAIT"
+                                        : "DARCHIVE DSN(" + quoted_dsn + ") SCRATCH RECATALOG";
+        std::string response;
+        int rc = execute_command_with_output(zo_command + " tso issue '" + command + "'", response);
+        ExpectWithContext(rc, response).ToBe(RTNCD_SUCCESS);
+        TestLog("Waiting for migration of " + dsn + ": " + response);
+
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::seconds(migration == "CADISK" ? 2760 : 120);
+        do
+        {
+          ZDS catalog{};
+          std::vector<ZDSEntry> entries;
+          rc = zds_list_data_sets(&catalog, dsn, entries, true);
+          ExpectWithContext(rc, catalog.diag.e_msg).ToBe(RTNCD_SUCCESS);
+          Expect(entries.size()).ToBe(static_cast<size_t>(1));
+          if (entries[0].migrated)
+          {
+            Expect(entries[0].volser).ToBe(migration == "HSM" ? "MIGRAT" : "ARCIVE");
+            TestLog("Migration confirmed for " + dsn);
+            return;
+          }
+          std::this_thread::sleep_for(std::chrono::seconds(5));
+        } while (std::chrono::steady_clock::now() < deadline);
+
+        throw std::runtime_error("Migration did not complete for " + dsn + "; last response: " + response);
+      };
+
+      for (const bool streamed : {false, true})
+      {
+        itif(
+            std::string("should recall and write a migrated sequential data set (") + (streamed ? "streamed)" : "buffered)"),
+            [&]() -> void
+        {
+          ExpectWithContext(migration == "HSM" || migration == "CADISK",
+                            "Set ZNP_TEST_MIGRATION to HSM or CADISK")
+              .ToBe(true);
+          const std::string dsn = get_random_ds(3);
+          ZDS setup{};
+          DS_ATTRIBUTES attrs{};
+          attrs.dsorg = "PS";
+          attrs.recfm = "V,B";
+          attrs.lrecl = 84;
+          attrs.blksize = 27998;
+          attrs.primary = 1;
+          attrs.secondary = 1;
+          create_dsn_with_attrs(&setup, dsn, attrs, "migration test data set");
+          created_dsns.push_back(dsn);
+          ExpectWithContext(zds_write(ZDSWriteOpts{.zds = &setup, .dsname = dsn}, "original content\n"),
+                            setup.diag.e_msg)
+              .ToBe(RTNCD_SUCCESS);
+
+          const std::string expected = "replacement content\nsecond record\n";
+          const std::string input_path = get_random_uss("/tmp");
+          TestFileGuard input(input_path.c_str());
+          Expect(static_cast<bool>(input)).ToBe(true);
+          const std::string encoded = zbase64::encode(expected);
+          Expect(fputs(encoded.c_str(), input) >= 0).ToBe(true);
+          Expect(fclose(input)).ToBe(0);
+
+          migrate(dsn);
+          // Do not OPEN or restore the data set before the write under test.
+          ZDS writer{};
+          ZDSWriteOpts opts{.zds = &writer, .dsname = dsn};
+          size_t content_len = 0;
+          const int rc = streamed ? zds_write_streamed(opts, input_path, &content_len) : zds_write(opts, expected);
+          ExpectWithContext(rc, writer.diag.e_msg).ToBe(RTNCD_SUCCESS);
+          if (streamed)
+            Expect(content_len).ToBe(expected.size());
+
+          ZDS reader{};
+          std::string actual;
+          ExpectWithContext(zds_read(ZDSReadOpts{.zds = &reader, .dsname = dsn}, actual),
+                            reader.diag.e_msg)
+              .ToBe(RTNCD_SUCCESS);
+          Expect(actual).ToBe(expected);
+        },
+            migration_timeout, !migration.empty());
+      }
+    });
+
     // Regression tests for writing DBCS content to PDS members with a
     // stateful mixed SBCS/DBCS target codepage (e.g. IBM-1399). Each
     // record must be self-contained: it has to start and end in
@@ -685,6 +780,53 @@ void zds_tests()
         ExpectWithContext(out.find(japanese) != std::string::npos, "DBCS record should round-trip intact").ToBe(true);
         Expect(out.find(marker_a) != std::string::npos).ToBe(true);
         Expect(out.find(marker_b) != std::string::npos).ToBe(true);
+      });
+    });
+
+    describe("write validation", [&]() -> void
+    {
+      it("should reject buffered writes to a missing data set without creating it", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          Expect(zds_write(ZDSWriteOpts{.zds = &zds, .dsname = target}, "data")).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
+      });
+
+      it("should reject binary writes to a missing data set without creating it", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          Expect(zds_write_binary(ZDSWriteOpts{.zds = &zds, .dsname = target}, "data")).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
+      });
+
+      it("should reject streamed writes to a missing data set before opening the input", [&]() -> void
+      {
+        const std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        for (const auto &target : {dsn, dsn + "(MEMBER)"})
+        {
+          ZDS zds{};
+          size_t content_len = 0;
+          Expect(zds_write_streamed(ZDSWriteOpts{.zds = &zds, .dsname = target}, "", &content_len)).ToBe(RTNCD_FAILURE);
+          Expect(std::string(zds.diag.e_msg)).ToContain("Could not access '" + target + "'");
+          Expect(content_len).ToBe(0);
+          Expect(zds_dataset_exists(dsn)).ToBe(false);
+        }
       });
     });
 
@@ -790,6 +932,39 @@ void zds_tests()
         Expect(out == vb_input).ToBe(true);
       });
 
+      it("should keep records that exactly fill a VB block (LRECL 84, BLKSIZE 88)", [&]() -> void
+      {
+        ZDS zds = {};
+        std::string response;
+        std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+
+        DS_ATTRIBUTES attr{};
+        attr.dsorg = "PO";
+        attr.recfm = "VB";
+        attr.lrecl = 84;
+        attr.blksize = 88;
+        attr.alcunit = "TRACKS";
+        attr.primary = 1;
+        attr.secondary = 1;
+        attr.dirblk = 1;
+        ExpectWithContext(zds_create_dsn(&zds, dsn, attr, response), response).ToBe(0);
+
+        // Two full 80-byte chunks plus a partial last chunk
+        std::string data;
+        for (int i = 0; i < 200; ++i)
+          data.push_back(static_cast<char>(i));
+
+        std::string member = dsn + "(BIN)";
+        ExpectWithContext(zds_write_binary(ZDSWriteOpts{.zds = &zds, .dsname = member}, data), zds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+
+        ZDS rzds = {};
+        zut_prepare_encoding("binary", &rzds.encoding_opts);
+        std::string out;
+        ExpectWithContext(zds_read(ZDSReadOpts{.zds = &rzds, .dsname = member}, out), rzds.diag.e_msg).ToBe(RTNCD_SUCCESS);
+        Expect(out.size()).ToBe(data.size());
+        Expect(out == data).ToBe(true);
+      });
     });
 
     describe("copy datasets", [&]() -> void
@@ -2664,6 +2839,81 @@ void zds_tests()
         {
           rc = zds_write(write_opts, large_data);
         }).ToAbend();
+      });
+    });
+
+    describe("validate_data_set_name", [&]() -> void
+    {
+      it("should fail on a data set name starting with a dot", [&]() -> void
+      {
+        int result = validate_data_set_name(".DATA.SET");
+        Expect(result).ToBe(false);
+      });
+
+      it("should fail on a data set name ending with a dot", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET.");
+        Expect(result).ToBe(false);
+      });
+
+      it("should fail on a data set name containing multiple dots", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA..SET");
+        Expect(result).ToBe(false);
+      });
+
+      it("should fail on a data set segment starting with a number", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.1SET");
+        Expect(result).ToBe(false);
+      });
+
+      it("should fail on a data set segment with too many characters", [&]() -> void
+      {
+        int result = validate_data_set_name("DATAAAAAA.SET");
+        Expect(result).ToBe(false);
+      });
+
+      it("should fail on a data set with a member", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET(MEM)");
+        Expect(result).ToBe(false);
+      });
+
+      it("should fail on a data set with too long a name", [&]() -> void
+      {
+        int result = validate_data_set_name("AAAAAAAA.AAAAAAAA.AAAAAAAA.AAAAAAAA.AAAAAAAA.A");
+        Expect(result).ToBe(false);
+      });
+
+      it("should succeed if there is only one segment", [&]() -> void
+      {
+        int result = validate_data_set_name("DATASET");
+        Expect(result).ToBe(true);
+      });
+
+      it("should fail with illegal characters", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET.MY'SET");
+        Expect(result).ToBe(false);
+      });
+
+      it("should fail with an accent", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET.H\x71LLO"); // E with acute accent
+        Expect(result).ToBe(false);
+      });
+
+      it("should succeed with a properly formatted name", [&]() -> void
+      {
+        int result = validate_data_set_name("DATA.SET");
+        Expect(result).ToBe(true);
+      });
+
+      it("should succeed with a properly formatted name in lower case", [&]() -> void
+      {
+        int result = validate_data_set_name("data.set");
+        Expect(result).ToBe(true);
       });
     });
   });

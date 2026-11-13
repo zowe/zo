@@ -167,12 +167,12 @@ void command_routing_tests()
     it("routes both macro families to the selected command or server file", []()
     {
       ScopedLogger scope;
-      LOG_INFO("command LOG marker %d", 17);
-      ZLOG_INFO("command ZLOG marker %s", "hello");
+      LOG_WARN("command LOG marker %d", 17);
+      ZLOG_WARN("command ZLOG marker %s", "hello");
 
       scope.logger.initialize_server();
-      LOG_INFO("server LOG marker");
-      ZLOG_INFO("server ZLOG marker");
+      LOG_WARN("server LOG marker");
+      ZLOG_WARN("server ZLOG marker");
 
       scope.logger.initialize();
       LOG_WARN("returned command LOG marker");
@@ -237,7 +237,8 @@ void command_level_and_format_tests()
     {
       ScopedLogger scope;
       LOG_DEBUG("filtered default command debug");
-      ZLOG_INFO("retained default command info");
+      ZLOG_INFO("filtered default command info");
+      LOG_WARN("retained default command warning");
       scope.logger.set_log_level(ZLOGLEVEL_ERROR);
       LOG_WARN("filtered runtime warning");
       ZLOG_ERROR("retained runtime error");
@@ -251,7 +252,7 @@ void command_level_and_format_tests()
       scope.logger.shutdown();
 
       const std::string contents = read_file_contents(scope.command_path());
-      Expect(contents).ToContain("retained default command info");
+      Expect(contents).ToContain("retained default command warning");
       Expect(contents).ToContain("retained runtime error");
       Expect(contents).Not().ToContain("filtered");
     });
@@ -260,8 +261,8 @@ void command_level_and_format_tests()
     {
       ScopedLogger scope;
       const std::string oversized(12000, 'x');
-      LOG_INFO("long-begin:%s:long-end", oversized.c_str());
-      ZLOG_INFO("following record %d !@#$^&*()", 42);
+      LOG_WARN("long-begin:%s:long-end", oversized.c_str());
+      ZLOG_WARN("following record %d !@#$^&*()", 42);
       scope.logger.shutdown();
 
       const std::string contents = read_file_contents(scope.command_path());
@@ -299,11 +300,11 @@ void concurrent_logging_tests()
           {
             if (record % 2 == 0)
             {
-              LOG_INFO("record:%d:%d:payload-complete", thread, record);
+              LOG_WARN("record:%d:%d:payload-complete", thread, record);
             }
             else
             {
-              ZLOG_INFO("record:%d:%d:payload-complete", thread, record);
+              ZLOG_WARN("record:%d:%d:payload-complete", thread, record);
             }
           }
         });
@@ -346,7 +347,7 @@ void logger_shutdown_tests()
     it("does not reopen after shutdown and resumes only through explicit initialization", []()
     {
       ScopedLogger scope;
-      LOG_INFO("before shutdown marker");
+      LOG_WARN("before shutdown marker");
       scope.logger.shutdown();
       const std::string before = read_file_contents(scope.command_path());
       LOG_ERROR("blocked command LOG marker");
@@ -358,11 +359,11 @@ void logger_shutdown_tests()
       Expect(file_exists(scope.root + "/after-shutdown/zowex.log")).ToBe(false);
       setenv("ZO_LOGS_DIR", scope.dir.c_str(), 1);
       scope.logger.initialize_server();
-      LOG_INFO("resumed server marker");
+      LOG_WARN("resumed server marker");
       scope.logger.shutdown();
       LOG_ERROR("blocked server marker");
       scope.logger.initialize();
-      ZLOG_INFO("resumed command marker");
+      ZLOG_WARN("resumed command marker");
       scope.logger.shutdown();
 
       const std::string command = read_file_contents(scope.command_path());

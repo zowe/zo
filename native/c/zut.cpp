@@ -9,13 +9,13 @@
  *
  */
 
+// O_NOFOLLOW is only defined under _XPLATFORM_SOURCE, which must precede the first system header.
+#ifndef _XPLATFORM_SOURCE
+#define _XPLATFORM_SOURCE
+#endif
 #ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE
 #include "ztype.h"
-#endif
-// _XPLATFORM_SOURCE allows use of O_NOFOLLOW flag.
-#ifndef _XPLATFORM_SOURCE
-#define _XPLATFORM_SOURCE
 #endif
 
 #define _OPEN_SYS_EXT
@@ -1251,38 +1251,61 @@ std::string zut_read_input(std::istream &input_stream)
   return data;
 }
 
+int zut_open_for_write(const std::string &path, mode_t mode, bool truncate)
+{
+  // One open() binds the existence check, creation, and truncation to the same object.
+  // O_NOFOLLOW refuses a symbolic link as the last component, dangling or not.
+  const int flags = O_WRONLY | O_CREAT | O_NOFOLLOW | (truncate ? O_TRUNC : O_EXCL);
+  const int fd = open(path.c_str(), flags, mode);
+  if (fd == -1 && errno == EEXIST)
+  {
+    // O_EXCL may report a symbolic link as EEXIST before O_NOFOLLOW reports ELOOP.
+    struct stat link_stats;
+    const bool is_link = lstat(path.c_str(), &link_stats) == 0 && S_ISLNK(link_stats.st_mode);
+    errno = is_link ? ELOOP : EEXIST;
+  }
+  return fd;
+}
+
 int zut_write_file_private(const std::string &path, const std::string &data, std::string &error)
 {
-  time_t now = time(0);
-
-  std::string temp_path = path + "." + std::to_string(now) + ".tmp";
   struct stat file_stats;
-
-  if (unlink(temp_path.c_str()) == -1 && errno != ENOENT)
+  if (lstat(path.c_str(), &file_stats) == 0)
   {
-    // if we fail to delete for any reason other than that the file did not exist
-    error = "Failed to delete '" + temp_path + "' before overwriting: " + strerror(errno);
+    if (S_ISLNK(file_stats.st_mode))
+    {
+      error = "could not open '" + path + "': path is a symbolic link";
+      return RTNCD_FAILURE;
+    }
+  }
+  else if (errno != ENOENT)
+  {
+    error = "could not stat '" + path + "': " + strerror(errno);
     return RTNCD_FAILURE;
   }
-  int temp_fd = open(temp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
+
+  // Publish a complete private file without truncating the old output or its hard links.
+  std::string temp_path = path + ".XXXXXX";
+  const int temp_fd = mkstemp(temp_path.data());
   if (temp_fd == -1)
   {
     error = "could not open '" + temp_path + "': " + strerror(errno);
     return RTNCD_FAILURE;
   }
 
-  // O_CREAT's mode only applies when the file is newly created, so an existing
-  // file with looser permissions needs to be tightened explicitly.
+  // Restore owner read/write permissions even under a restrictive umask.
   if (fchmod(temp_fd, S_IRUSR | S_IWUSR) == -1)
   {
     error = "could not set permissions on '" + temp_path + "': " + strerror(errno);
     close(temp_fd);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
   if (fstat(temp_fd, &file_stats) == -1)
   {
-    error = "could not stat '" + path + "': " + strerror(errno);
+    error = "could not stat '" + temp_path + "': " + strerror(errno);
     close(temp_fd);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
 
@@ -1290,6 +1313,7 @@ int zut_write_file_private(const std::string &path, const std::string &data, std
   {
     error = "Failed to create '" + temp_path + "' with the expected permissions.";
     close(temp_fd);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
 
@@ -1306,7 +1330,7 @@ int zut_write_file_private(const std::string &path, const std::string &data, std
       }
       error = "could not write to '" + temp_path + "': " + strerror(errno);
       close(temp_fd);
-      unlink(temp_path.c_str()); // clean up temp file
+      unlink(temp_path.c_str());
       return RTNCD_FAILURE;
     }
     buf += written;
@@ -1316,11 +1340,13 @@ int zut_write_file_private(const std::string &path, const std::string &data, std
   if (close(temp_fd) == -1)
   {
     error = "could not close '" + temp_path + "': " + strerror(errno);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
   if (rename(temp_path.c_str(), path.c_str()) != 0)
   {
     error = "Unable to move temporary path '" + temp_path + "' to '" + path + "': " + strerror(errno);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
 
