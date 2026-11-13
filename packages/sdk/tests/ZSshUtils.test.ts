@@ -62,7 +62,7 @@ describe("ZSshUtils", () => {
             await ZSshUtils.lacksWriteAccess(context, "/tmp");
             await ZSshUtils.lacksWriteAccess(context, "/tmp");
             expect(connectSpy).toHaveBeenCalledTimes(3);
-            expect(execSpy).toHaveBeenCalledTimes(8);
+            expect(execSpy).toHaveBeenCalledTimes(4);
             expect(disposeSpy).toHaveBeenCalledTimes(2);
         }
         expect(disposeSpy).toHaveBeenCalledTimes(3);
@@ -75,7 +75,7 @@ describe("ZSshUtils", () => {
             const disposeSpy = vi.spyOn(NodeSSH.prototype, "dispose").mockImplementation(() => {});
             const commandStarted = new DeferredPromise<void>();
             const commandResult = new DeferredPromise<SSHExecCommandResponse>();
-            const response = { code: 0, stdout: "", stderr: "" };
+            const response = { code: 1, stdout: "", stderr: "" };
             vi.spyOn(NodeSSH.prototype, "execCommand")
                 .mockImplementationOnce(() => {
                     commandStarted.resolve();
@@ -1207,19 +1207,9 @@ describe("ZSshUtils", () => {
     });
 
     describe("lacksWriteAccess", () => {
-        const mockLacksWriteAccessSsh = (shouldExist: boolean, shouldHaveWriteAccess: boolean) => {
+        const mockLacksWriteAccessSsh = (code: number) => {
             const sshMock = {
-                execCommand: vi.fn().mockImplementation((cmd) => {
-                    if (cmd.indexOf("-e") > 0) {
-                        return shouldExist ? { code: 0, stderr: "", stdout: "" } : { code: 1, stderr: "", stdout: "" };
-                    } else if (cmd.indexOf("-w") > 0) {
-                        return shouldHaveWriteAccess
-                            ? { code: 0, stderr: "", stdout: "" }
-                            : { code: 1, stderr: "", stdout: "" };
-                    }
-
-                    throw new Error("Unknown command passed to execCommand");
-                }),
+                execCommand: vi.fn().mockResolvedValue({ code, stderr: "", stdout: "" }),
             };
             vi.spyOn(ZSshUtils as any, "withSsh").mockImplementation(
                 async (_session: any, callback: (ssh: any) => Promise<any>) => {
@@ -1229,7 +1219,7 @@ describe("ZSshUtils", () => {
         };
 
         it("Should return true if the path does exist but the user does NOT have write access to it", async () => {
-            mockLacksWriteAccessSsh(true, false);
+            mockLacksWriteAccessSsh(0);
             const session = new SshSession({
                 hostname: "example.com",
                 port: 22,
@@ -1239,7 +1229,7 @@ describe("ZSshUtils", () => {
             expect(lacksAccess).toEqual(true);
         });
         it("Should return false if the path does exist but the user does INDEED have write access to it", async () => {
-            mockLacksWriteAccessSsh(true, true);
+            mockLacksWriteAccessSsh(1);
             const session = new SshSession({
                 hostname: "example.com",
                 port: 22,
@@ -1249,7 +1239,7 @@ describe("ZSshUtils", () => {
             expect(lacksAccess).toEqual(false);
         });
         it("Should return false if the path does NOT exist even if (for some reason) write access check returns 0", async () => {
-            mockLacksWriteAccessSsh(false, true);
+            mockLacksWriteAccessSsh(1);
             const session = new SshSession({
                 hostname: "example.com",
                 port: 22,
@@ -1261,7 +1251,7 @@ describe("ZSshUtils", () => {
         it("Should return false if the path does NOT exist and the write access command also fails", async () => {
             // since if the path does not exist, we don't know whether the user can create the directory without
             // additional checks
-            mockLacksWriteAccessSsh(false, false);
+            mockLacksWriteAccessSsh(1);
             const session = new SshSession({
                 hostname: "example.com",
                 port: 22,
