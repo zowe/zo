@@ -1,0 +1,51 @@
+*----------------------------------------------------------------------
+* zo-rest (Zowe API ML extension): CA ACF2 definitions.
+*
+* UNVERIFIED TRANSLATION. Derived from the RACF sample
+* (zo-rest-racf.jcl) and documented ACF2 resource-rule syntax; NOT run
+* on an ACF2 system. Have your ACF2 administrator review and adjust
+* them to your site's resource-rule conventions, and report corrections
+* back so this file can be fixed.
+*
+* Run under TSO/ACF with security administrator authority.
+* Placeholder names (edit before use):
+*   ZWESVUSR = Zowe started task logonid (zowe.setup.security.users.zowe)
+*   ZWEINST  = logonid that runs 'zwe components install'
+*   ZOENDUID = UID string (or mask) of end users for the optional grants
+*----------------------------------------------------------------------
+
+* 1. BPX.SERVER (FAC): lets the service logonid create per-user security
+*    environments without a password. RACF UPDATE maps to SERVICE(UPDATE).
+ACF
+SET RESOURCE(FAC)
+COMPILE *
+$KEY(BPX.SERVER) TYPE(FAC)
+ UID(ZWESVUSR) SERVICE(UPDATE) ALLOW
+STORE
+
+* 2. BPX.FILEATTR.PROGCTL: lets the installer run 'extattr +p' on lib/*.so.
+*    Only needed if the installer is not a superuser.
+$KEY(BPX.FILEATTR.PROGCTL) TYPE(FAC)
+ UID(ZWEINST) SERVICE(READ) ALLOW
+STORE
+
+* 3. Certificate and keyring endpoints (optional): per-user R_datalib checks.
+$KEY(IRR.DIGTCERT.LIST) TYPE(FAC)
+ UID(ZOENDUID) SERVICE(READ) ALLOW
+STORE
+$KEY(IRR.DIGTCERT.LISTRING) TYPE(FAC)
+ UID(ZOENDUID) SERVICE(READ) ALLOW
+STORE
+
+* 4. Optional APPL gate (NOT yet wired in the extension), via the APL class.
+SET RESOURCE(APL)
+COMPILE *
+$KEY(ZOREST) TYPE(APL)
+ UID(ZOENDUID) SERVICE(READ) ALLOW
+STORE
+
+* 5. Activate (rebuild in-core resource rules) from the console, then verify.
+*    F ACF2,REBUILD(FAC)
+*    F ACF2,REBUILD(APL)
+SET RESOURCE(FAC)
+LIST LIKE(BPX.SERVER)

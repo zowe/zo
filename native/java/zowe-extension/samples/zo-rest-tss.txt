@@ -1,0 +1,43 @@
+*----------------------------------------------------------------------
+* zo-rest (Zowe API ML extension): CA Top Secret (TSS) definitions.
+*
+* UNVERIFIED TRANSLATION. Derived from the RACF sample
+* (zo-rest-racf.jcl) and documented TSS command syntax; NOT run on a
+* Top Secret system. Have your TSS administrator review and adjust
+* them (owning department, IBMFAC prefixes), and report corrections
+* back so this file can be fixed.
+*
+* Run as TSO commands or batch (PGM=TSSB) by a security administrator.
+* Placeholder names (edit before use):
+*   ZWESVUSR = Zowe started task ACID (zowe.setup.security.users.zowe)
+*   ZWEINST  = ACID that runs 'zwe components install'
+*   ZOENDGRP = profile or ACID of end users for the optional grants
+*   ZOOWNER  = department ACID that owns the resources
+*----------------------------------------------------------------------
+
+* 1. Ownership of the resource names. Skip any already owned (for example
+*    by Zowe's ZWESECUR TSS variant); ADD then fails harmlessly.
+TSS ADD(ZOOWNER) IBMFAC(BPX.SERVER)
+TSS ADD(ZOOWNER) IBMFAC(BPX.FILEATTR.PROGCTL)
+TSS ADD(ZOOWNER) IBMFAC(IRR.DIGTCERT.)
+
+* 2. BPX.SERVER: lets the service ACID create per-user security
+*    environments without a password. UPDATE is required.
+TSS PERMIT(ZWESVUSR) IBMFAC(BPX.SERVER) ACCESS(UPDATE)
+
+* 3. BPX.FILEATTR.PROGCTL: lets the installer run 'extattr +p' on lib/*.so.
+*    Only needed if the installer is not a superuser.
+TSS PERMIT(ZWEINST) IBMFAC(BPX.FILEATTR.PROGCTL) ACCESS(READ)
+
+* 4. Certificate and keyring endpoints (optional).
+TSS PERMIT(ZOENDGRP) IBMFAC(IRR.DIGTCERT.LIST) ACCESS(READ)
+TSS PERMIT(ZOENDGRP) IBMFAC(IRR.DIGTCERT.LISTRING) ACCESS(READ)
+
+* 5. Optional APPL gate (NOT yet wired in the extension).
+TSS ADD(ZOOWNER) APPL(ZOREST)
+TSS PERMIT(ZOENDGRP) APPL(ZOREST)
+
+* 6. Verify.
+TSS LIST(ZWESVUSR) DATA(ALL)
+TSS WHOHAS IBMFAC(BPX.SERVER)
+TSS WHOHAS IBMFAC(BPX.FILEATTR.PROGCTL)
