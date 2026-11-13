@@ -59,7 +59,8 @@ apiml:
         version: 1.0.0
         gatewayUrl: api/v1
         swaggerUrl: https://${ZO_HOSTNAME}:${ZO_PORT}/v3/api-docs
-        documentationUrl: https://docs.zowe.org
+        # APIML rejects registrations whose metadata URLs are outside its allowed domains
+        documentationUrl: https://${ZO_HOSTNAME}:${ZO_PORT}/swagger-ui.html
         defaultApi: true
     catalog:
       tile:
