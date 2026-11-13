@@ -11,13 +11,14 @@
 
 #include "builder.hpp"
 #include "../zlogger.hpp"
+#include "../ztemp.hpp"
 #include "rpcio.hpp"
 #include "rpc_server.hpp"
 #include "../zbase64.h"
 #include <cerrno>
-#include <cstdlib>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -168,8 +169,7 @@ void CommandBuilder::apply_input_transforms(MiddlewareContext &context) const
         catch (const std::exception &e)
         {
           string errMsg = string("Failed to process WriteStdin transform: ") + e.what();
-          context.errln(errMsg.c_str());
-          LOG_ERROR("%s", errMsg.c_str());
+          throw std::runtime_error(errMsg);
         }
       }
       break;
@@ -187,9 +187,7 @@ void CommandBuilder::apply_input_transforms(MiddlewareContext &context) const
           if (!parse_result.has_value())
           {
             string errMsg = string("Failed to parse JSON for FlattenObj transform: ") + parse_result.error().what();
-            context.errln(errMsg.c_str());
-            LOG_ERROR("%s", errMsg.c_str());
-            break;
+            throw std::runtime_error(errMsg);
           }
 
           const auto &jsonValue = parse_result.value();
@@ -197,9 +195,7 @@ void CommandBuilder::apply_input_transforms(MiddlewareContext &context) const
           // Verify it's an object
           if (!jsonValue.is_object())
           {
-            context.errln("FlattenObj transform requires a JSON object");
-            LOG_ERROR("FlattenObj transform requires a JSON object");
-            break;
+            throw std::invalid_argument("FlattenObj transform requires a JSON object");
           }
 
           // Add each property from the object to the argument map
@@ -233,8 +229,7 @@ void CommandBuilder::apply_input_transforms(MiddlewareContext &context) const
         catch (const std::exception &e)
         {
           string errMsg = string("Failed to process FlattenObj transform: ") + e.what();
-          context.errln(errMsg.c_str());
-          LOG_ERROR("%s", errMsg.c_str());
+          throw std::runtime_error(errMsg);
         }
       }
       break;
@@ -253,43 +248,20 @@ void CommandBuilder::apply_input_transforms(MiddlewareContext &context) const
           const long long *stream_id_ptr = rpc_id_arg->second.get_int();
           if (stream_id_ptr == nullptr)
           {
-            context.errln("HandleFifo: RPC ID argument is not an integer");
-            LOG_ERROR("HandleFifo: RPC ID argument is not an integer");
-            break;
+            throw std::invalid_argument("HandleFifo: RPC ID argument is not an integer");
           }
           long long stream_id = *stream_id_ptr;
 
-          // Create pipe path: /tmp/zowex_{uid}_{pid}_{stream_id}_fifo
-          const char *tmp_dir = std::getenv("TMPDIR");
-          if (tmp_dir == nullptr || tmp_dir[0] == '\0')
-          {
-            tmp_dir = "/tmp";
-          }
-
+          const string fifo_dir = ztemp::prepare_dir();
           std::ostringstream pipe_path_stream;
-          pipe_path_stream << tmp_dir << "/zowex_"
+          pipe_path_stream << fifo_dir << "/zowex_"
                            << geteuid() << "_"
                            << getpid() << "_"
                            << stream_id << "_fifo";
           const string pipe_path = pipe_path_stream.str();
 
-          // Remove any existing pipe (ignore errors if it doesn't exist)
-          if (unlink(pipe_path.c_str()) != 0 && errno != ENOENT)
-          {
-            string errMsg = string("Failed to delete existing FIFO pipe: ") + pipe_path + ", errno: " + std::to_string(errno);
-            context.errln(errMsg.c_str());
-            LOG_ERROR("%s", errMsg.c_str());
-            break;
-          }
-
-          // Create the FIFO pipe
-          if (mkfifo(pipe_path.c_str(), 0600) != 0)
-          {
-            string errMsg = string("Failed to create FIFO pipe: ") + pipe_path + ", errno: " + std::to_string(errno);
-            context.errln(errMsg.c_str());
-            LOG_ERROR("%s", errMsg.c_str());
-            break;
-          }
+          ztemp::remove_fifo(pipe_path);
+          context.set_temp_file(ztemp::FileGuard::create_fifo(pipe_path));
 
           LOG_DEBUG("Created FIFO pipe: %s", pipe_path.c_str());
 
@@ -321,8 +293,7 @@ void CommandBuilder::apply_input_transforms(MiddlewareContext &context) const
         catch (const std::exception &e)
         {
           string errMsg = string("Failed to process HandleFifo transform: ") + e.what();
-          context.errln(errMsg.c_str());
-          LOG_ERROR("%s", errMsg.c_str());
+          throw std::runtime_error(errMsg);
         }
       }
       break;
@@ -401,25 +372,7 @@ void CommandBuilder::apply_output_transforms(MiddlewareContext &context) const
 
     case ArgTransform::HandleFifo:
     {
-      // HandleFifo cleanup: Remove the FIFO pipe after command execution
-      const auto &args = context.arguments();
-      const auto pipe_path_arg = args.find(transform.arg_name);
-
-      if (pipe_path_arg == args.end())
-      {
-        break;
-      }
-
-      // Remove the pipe (ignore errors if already removed)
-      const string pipe_path = pipe_path_arg->second.get_string_value();
-      if (unlink(pipe_path.c_str()) == 0)
-      {
-        LOG_DEBUG("Cleaned up FIFO pipe: %s", pipe_path.c_str());
-      }
-      else if (errno != ENOENT)
-      {
-        LOG_ERROR("Failed to delete FIFO pipe: %s, errno: %d", pipe_path.c_str(), errno);
-      }
+      context.cleanup_temp_file();
       break;
     }
 

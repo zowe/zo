@@ -20,6 +20,11 @@
 #include <optional>
 #include <sstream>
 
+namespace ztemp
+{
+class FileGuard;
+}
+
 // JSON-RPC 2.0 Standard Error Codes
 namespace RpcErrorCode
 {
@@ -100,6 +105,17 @@ public:
   // Store pending notification for delayed sending
   void set_pending_notification(const RpcNotification &notification);
 
+  // Retain the pipe through handler execution; context destruction also cleans up on errors.
+  void set_temp_file(std::shared_ptr<ztemp::FileGuard> file)
+  {
+    m_temp_file = std::move(file);
+  }
+
+  void cleanup_temp_file()
+  {
+    m_temp_file.reset();
+  }
+
   // Get large data map
   std::map<std::string, std::string> &get_large_data()
   {
@@ -117,6 +133,7 @@ private:
   std::unique_ptr<RpcNotification> m_pending_notification;
   std::map<std::string, std::string> m_large_data;
   std::function<void()> m_heartbeat_callback;
+  std::shared_ptr<ztemp::FileGuard> m_temp_file;
 };
 
 #endif
