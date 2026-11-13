@@ -200,14 +200,14 @@ class DataSetServiceTest {
     // ----------------------------------------------------------------- content
 
     @Test
-    void read_usesContentIoWithFullNameAndVolume() throws Exception {
+    void read_usesContentIoWithFullName() throws Exception {
         when(contentIo.readDataset(any(), any())).thenReturn(new ZoContentIo.Content(new byte[]{1}, "e"));
 
-        service.read(Target.of("user.pds", "mem", "vol001"), new ZoContentIo.Options("IBM-037", null, null));
+        service.read(Target.of("user.pds", "mem", null), new ZoContentIo.Options("IBM-037", null, null));
 
         ArgumentCaptor<ZoContentIo.Options> options = ArgumentCaptor.forClass(ZoContentIo.Options.class);
         verify(contentIo).readDataset(eq("USER.PDS(MEM)"), options.capture());
-        assertEquals(new ZoContentIo.Options("IBM-037", null, "VOL001"), options.getValue());
+        assertEquals(new ZoContentIo.Options("IBM-037", null, null), options.getValue());
         verify(rpc, never()).call(any(), any());
     }
 

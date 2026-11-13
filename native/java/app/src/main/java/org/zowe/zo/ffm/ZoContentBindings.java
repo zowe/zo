@@ -36,21 +36,25 @@ public class ZoContentBindings implements ZoContentIo {
 
     @Override
     public Content readDataset(String dsname, Options options) throws ZoRpcException {
+        requireLatin1(dsname);
         return read(Native.READ_DATASET, "readDataset", dsname, options);
     }
 
     @Override
     public WriteResult writeDataset(String dsname, byte[] data, Options options, String etag) throws ZoRpcException {
+        requireLatin1(dsname);
         return write(Native.WRITE_DATASET, "writeDataset", dsname, data, options, etag);
     }
 
     @Override
     public Content readFile(String path, Options options) throws ZoRpcException {
+        requireLatin1(path);
         return read(Native.READ_FILE, "readFile", path, options);
     }
 
     @Override
     public WriteResult writeFile(String path, byte[] data, Options options, String etag) throws ZoRpcException {
+        requireLatin1(path);
         return write(Native.WRITE_FILE, "writeFile", path, data, options, etag);
     }
 
@@ -119,7 +123,15 @@ public class ZoContentBindings implements ZoContentIo {
         }
     }
 
+    /** FFM would silently replace characters outside ISO8859-1 with '?', addressing another resource. */
+    private static void requireLatin1(String value) {
+        if (value != null && !value.chars().allMatch(c -> c <= 0xFF)) {
+            throw new IllegalArgumentException("Name contains characters that cannot be represented in IBM-1047");
+        }
+    }
+
     private static MemorySegment ascii(Arena arena, String value) {
+        requireLatin1(value);
         return value == null ? MemorySegment.NULL : arena.allocateFrom(value, StandardCharsets.ISO_8859_1);
     }
 

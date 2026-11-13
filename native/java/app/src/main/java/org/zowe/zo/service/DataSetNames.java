@@ -25,7 +25,7 @@ public final class DataSetNames {
     private static final Pattern MEMBER_PATTERN = Pattern.compile("[A-Z0-9@#$*%?]{1,8}");
     private static final Pattern VOLSER = Pattern.compile("[A-Z0-9]{1,6}");
     private static final Pattern CLASS_NAME = Pattern.compile("[A-Z0-9@#$]{1,8}");
-    private static final Pattern CODEPAGE = Pattern.compile("[A-Za-z0-9_.:-]{1,32}");
+    private static final Pattern CODEPAGE = Pattern.compile("[A-Za-z0-9_.:-]{1,15}");
 
     private DataSetNames() {
     }

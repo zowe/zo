@@ -30,7 +30,7 @@ public final class InputValidator {
     private static final Pattern OCTAL_MODE = Pattern.compile("[0-7]{3,4}");
     private static final Pattern SYMBOLIC_MODE = Pattern.compile("[r-][w-][x-][r-][w-][x-][r-][w-][x-]");
     private static final Pattern OWNER_NAME = Pattern.compile("[A-Za-z0-9@#$_.-]{1,8}|\\d{1,10}");
-    private static final Pattern CODESET = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,31}");
+    private static final Pattern CODESET = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,14}");
     private static final int MAX_PATH = 1023;
 
     private InputValidator() {

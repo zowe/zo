@@ -306,7 +306,13 @@ public class DataSetService {
         }
     }
 
-    private static ZoContentIo.Options validated(ZoContentIo.Options o, String volser) {
+    private static ZoContentIo.Options validated(ZoContentIo.Options o, String volser) throws ZoRpcException {
+        if (volser != null || o.volume() != null) {
+            // No volume-specific password check exists before OPEN, which could block the request
+            // thread in password-prompt processing; refuse until one does.
+            throw new ZoRpcException("readDataset", ZoRpcException.METHOD_NOT_FOUND,
+                    "Reading or writing volume-qualified (uncataloged) data sets is not supported", null);
+        }
         String encoding = o.encoding() == null || o.isBinary() ? o.encoding() : DataSetNames.codepage(o.encoding());
         String local = o.localEncoding() == null ? null : DataSetNames.codepage(o.localEncoding());
         return new ZoContentIo.Options(encoding, local, volser != null ? volser : o.volume());

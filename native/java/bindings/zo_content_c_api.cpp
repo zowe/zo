@@ -75,7 +75,12 @@ template <typename T>
 bool apply_encoding(T &target, const ZoContentOptions_C *options, std::string &error)
 {
   const bool has_encoding = options && options->encoding && *options->encoding;
-  zut_prepare_encoding(has_encoding ? ebcdic_arg(options->encoding) : std::string("IBM-1047"), &target.encoding_opts);
+  if (!zut_prepare_encoding(has_encoding ? ebcdic_arg(options->encoding) : std::string("IBM-1047"), &target.encoding_opts))
+  {
+    // An empty codepage would silently disable conversion
+    error = "invalid or unsupported encoding";
+    return false;
+  }
   if (!options)
   {
     return true;

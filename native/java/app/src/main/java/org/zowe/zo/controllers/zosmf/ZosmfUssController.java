@@ -22,6 +22,7 @@ import org.zowe.zo.ffm.ZoContentIo.Options;
 import org.zowe.zo.ffm.ZoContentIo.WriteResult;
 import org.zowe.zo.ffm.ZoRpcException;
 import org.zowe.zo.service.InputValidator;
+import org.zowe.zo.service.ContentCharsets;
 import org.zowe.zo.service.UssService;
 import org.zowe.zo.service.UssService.CopyOptions;
 import org.zowe.zo.service.UssService.UssEntry;
@@ -113,6 +114,7 @@ public class ZosmfUssController {
             throws ZoRpcException {
         Options parsed = UssService.parseDataType(dataType);
         String charset = parsed.isBinary() ? null : requestCharset(contentType);
+        if (!parsed.isBinary() && charset == null) charset = ContentCharsets.defaultFor(data);
         Options options = charset == null ? parsed : new Options(parsed.encoding(), charset, parsed.volume());
         WriteResult result = ussService.write(path, data == null ? new byte[0] : data, options, stripEtag(ifMatch));
         ResponseEntity.BodyBuilder response = ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.NO_CONTENT);

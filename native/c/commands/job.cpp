@@ -269,7 +269,10 @@ int handle_job_view_status(InvocationContext &context)
       .emit();
 
   const auto result = obj();
-  result->set("id", str(jobid));
+  // Report the resolved job ID; the argument may be a job correlator rather than an ID
+  std::string resolved_id = job.jobid;
+  zut_rtrim(resolved_id);
+  result->set("id", str(resolved_id.empty() ? jobid : resolved_id));
   std::string trimmed_name = job.jobname;
   result->set("name", str(zut_rtrim(trimmed_name)));
   trimmed_name = job.subsystem;

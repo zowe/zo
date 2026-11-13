@@ -46,7 +46,13 @@ export ZO_TRUSTSTORE_TYPE="${ZWE_zowe_certificate_truststore_type:-PKCS12}"
 export ZO_TRUSTSTORE_PASSWORD="${ZWE_zowe_certificate_truststore_password}"
 [ -n "${ZO_KEYSTORE}" ] && [ -n "${ZO_TRUSTSTORE}" ] || fail "zowe.certificate keystore/truststore are not configured."
 
-# SAF keyrings: Spring/JSSE expect safkeyring:// URLs with an empty password.
+# SAF keyrings: Spring/JSSE expect safkeyring:// URLs. Semeru 17+ ships the safkeyring URL
+# handler per keystore provider (the Java 8 com.ibm.crypto.provider handler no longer exists).
+case "${ZO_KEYSTORE_TYPE}" in
+  JCECCARACFKS) ZO_PROTOCOL_HANDLER_PKGS="com.ibm.crypto.hdwrCCA.provider" ;;
+  JCEHYBRIDRACFKS) ZO_PROTOCOL_HANDLER_PKGS="com.ibm.crypto.ibmjcehybrid.provider" ;;
+  *) ZO_PROTOCOL_HANDLER_PKGS="com.ibm.crypto.zsecurity.provider" ;;
+esac
 case "${ZO_KEYSTORE_TYPE}" in
   JCE*RACFKS)
     ZO_KEYSTORE=$(echo "${ZO_KEYSTORE}" | sed 's#^safkeyring:/*#safkeyring://#')
@@ -96,7 +102,7 @@ exec "${ZO_JAVA_HOME}/bin/java" \
   -Dfile.encoding=UTF-8 \
   -Djava.io.tmpdir="${TMPDIR:-/tmp}" \
   -Djava.library.path="${LIB_DIR}:${LIBPATH}" \
-  -Djava.protocol.handler.pkgs=com.ibm.crypto.provider \
+  -Djava.protocol.handler.pkgs="${ZO_PROTOCOL_HANDLER_PKGS}" \
   -Djava.net.preferIPv4Stack=true \
   -Dibm.serversocket.recover=true \
   -jar "${COMPONENT_HOME}/lib/zo-java-app.jar" \

@@ -141,4 +141,36 @@ class ReviewRegressionTest {
         Throwable thrown = assertThrows(Throwable.class, () -> aspect.wrapInSecurityContext(joinPoint));
         assertSame(failure, thrown);
     }
+
+    @Test
+    void contentIoRejectsCharactersOutsideLatin1BeforeNativeCall() {
+        var io = new org.zowe.zo.ffm.ZoContentBindings();
+        assertThrows(IllegalArgumentException.class,
+                () -> io.writeFile("/tmp/report\u20ac", new byte[0], ZoContentIo.Options.DEFAULT, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> io.readFile("/tmp/report\u20ac", ZoContentIo.Options.DEFAULT));
+    }
+
+    @Test
+    void overlongEncodingIsRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> org.zowe.zo.service.DataSetNames.codepage("AAAAAAAAAAAAAAAA"));
+        assertEquals("IBM-1047", org.zowe.zo.service.DataSetNames.codepage("IBM-1047"));
+    }
+
+    @Test
+    void volumeQualifiedContentIoIsRejectedBeforeDispatch() {
+        var service = new DataSetService(rpc, contentIo);
+        var target = DataSetService.Target.of("USER.DATA", null, "VOL002");
+        assertThrows(ZoRpcException.class, () -> service.read(target, ZoContentIo.Options.DEFAULT));
+        assertThrows(ZoRpcException.class, () -> service.write(target, new byte[0], ZoContentIo.Options.DEFAULT, null));
+        verifyNoInteractions(contentIo);
+    }
+
+    @Test
+    void uploadCharsetDefaultsToUtf8OnlyForValidUtf8() {
+        assertEquals("UTF-8", org.zowe.zo.service.ContentCharsets.defaultFor("caf\u00e9".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertEquals("UTF-8", org.zowe.zo.service.ContentCharsets.defaultFor("plain ascii".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+        assertEquals("ISO8859-1", org.zowe.zo.service.ContentCharsets.defaultFor("caf\u00e9".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)));
+    }
 }

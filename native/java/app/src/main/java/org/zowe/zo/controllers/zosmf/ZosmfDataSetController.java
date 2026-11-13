@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.zowe.zo.ffm.ZoContentIo;
 import org.zowe.zo.ffm.ZoRpcException;
 import org.zowe.zo.service.DataSetNames;
+import org.zowe.zo.service.ContentCharsets;
 import org.zowe.zo.service.DataSetService;
 import org.zowe.zo.service.DataSetService.CopySource;
 import org.zowe.zo.service.DataSetService.CreateSpec;
@@ -280,6 +281,10 @@ public class ZosmfDataSetController {
                 .anyMatch(v -> v.equals("*") || v.equals(etag));
     }
 
+    private static String charsetOrDefault(String declared, byte[] body) {
+        return declared != null ? declared : ContentCharsets.defaultFor(body);
+    }
+
     /** Accepts "text/plain;charset=X" as well as the bare codepage name some Zowe clients send. */
     private static String requestCharset(HttpServletRequest request) {
         String header = request.getContentType();
@@ -351,7 +356,7 @@ public class ZosmfDataSetController {
         String etag = ifMatch == null || etagValue(ifMatch).equals("*") ? null : etagValue(ifMatch);
         byte[] body = request.getInputStream().readAllBytes();
         ZoContentIo.WriteResult result = dataSetService.write(target(name, vol), body,
-                type.toOptions(type.binary() ? null : requestCharset(request)), etag);
+                type.toOptions(type.binary() ? null : charsetOrDefault(requestCharset(request), body)), etag);
         ResponseEntity.BodyBuilder response = ResponseEntity.status(result.created() ? HttpStatus.CREATED
                 : HttpStatus.NO_CONTENT);
         if (result.etag() != null) {

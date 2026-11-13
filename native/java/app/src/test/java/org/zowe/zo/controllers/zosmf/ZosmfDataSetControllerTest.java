@@ -393,7 +393,8 @@ class ZosmfDataSetControllerTest {
         ArgumentCaptor<ZoContentIo.Options> options = ArgumentCaptor.forClass(ZoContentIo.Options.class);
         verify(service).write(any(), any(), options.capture(), eq("old1"));
         assertEquals("IBM-1047", options.getValue().encoding());
-        assertNull(options.getValue().localEncoding());
+        // no charset declared and the body is valid UTF-8
+        assertEquals("UTF-8", options.getValue().localEncoding());
     }
 
     @Test

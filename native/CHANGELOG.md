@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `c`: Fixed the `getJobStatus` RPC returning the job correlator as `id` when a job is looked up by correlator; it now returns the resolved job ID. [#TBD](https://github.com/zowe/zowex/pulls)
 - `c`: Added `RpcServer::call()`, which runs a JSON-RPC request through the same parse, validation and dispatch path as `zo server` but returns the response instead of writing it to stdout, so the zo command handlers can be embedded in another process. The stdio server is unchanged. [#TBD](https://github.com/zowe/zowex/pulls)
 - `c`: Added a host-sink mode to the zo logger so an embedding multi-tenant process (the Java REST API) owns log output; the CLI and `zo server` keep writing per-user log files. [#TBD](https://github.com/zowe/zowex/pulls)
 - `java`: Added `libzo_java.so` entry points for the zo REST API: an allowlisted in-process RPC bridge, and binary-safe data set and USS content I/O with ETags. [#TBD](https://github.com/zowe/zowex/pulls)
