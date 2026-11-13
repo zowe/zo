@@ -174,6 +174,11 @@ are executed under the end user's identity. Zowe's `ZWESECUR` normally grants it
 RLIST FACILITY BPX.SERVER AUTHUSER
 ```
 
+> **Do not define `BPX.SERVER` just for zo-rest if it does not exist.** Defining it switches every
+> z/OS UNIX server on the system from superuser rules to profile-based authorization. If `RLIST` shows no
+> profile, involve your security team.
+
+
 Expected: `ZWESVUSR` listed with `UPDATE` (or a group containing it). If missing, requests fail
 with a security environment or `EDC5139I Operation not permitted` style errors in the log.
 

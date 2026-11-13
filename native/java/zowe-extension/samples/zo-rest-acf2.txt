@@ -14,38 +14,33 @@
 *   ZOENDUID = UID string (or mask) of end users for the optional grants
 *----------------------------------------------------------------------
 
+* IMPORTANT: use RECKEY ... ADD(), which adds an entry to an existing rule
+* set. Compiling "$KEY(...)" + STORE would REPLACE the whole rule set and
+* remove every other user's access (BPX.SERVER is shared with other servers).
+
 * 1. BPX.SERVER (FAC): lets the service logonid create per-user security
 *    environments without a password. RACF UPDATE maps to SERVICE(UPDATE).
+*    Zowe's own security setup normally grants this already. If no rule
+*    exists for BPX.SERVER, involve your security team before creating one:
+*    it changes z/OS UNIX server authorization system wide.
 ACF
 SET RESOURCE(FAC)
-COMPILE *
-$KEY(BPX.SERVER) TYPE(FAC)
- UID(ZWESVUSR) SERVICE(UPDATE) ALLOW
-STORE
+RECKEY BPX.SERVER TYPE(FAC) ADD(UID(ZWESVUSR) SERVICE(UPDATE) ALLOW)
 
 * 2. BPX.FILEATTR.PROGCTL: lets the installer run 'extattr +p' on lib/*.so.
 *    Only needed if the installer is not a superuser.
-$KEY(BPX.FILEATTR.PROGCTL) TYPE(FAC)
- UID(ZWEINST) SERVICE(READ) ALLOW
-STORE
+RECKEY BPX.FILEATTR.PROGCTL TYPE(FAC) ADD(UID(ZWEINST) SERVICE(READ) ALLOW)
 
 * 3. Certificate and keyring endpoints (optional): per-user R_datalib checks.
-$KEY(IRR.DIGTCERT.LIST) TYPE(FAC)
- UID(ZOENDUID) SERVICE(READ) ALLOW
-STORE
-$KEY(IRR.DIGTCERT.LISTRING) TYPE(FAC)
- UID(ZOENDUID) SERVICE(READ) ALLOW
-STORE
+RECKEY IRR.DIGTCERT.LIST TYPE(FAC) ADD(UID(ZOENDUID) SERVICE(READ) ALLOW)
+RECKEY IRR.DIGTCERT.LISTRING TYPE(FAC) ADD(UID(ZOENDUID) SERVICE(READ) ALLOW)
 
 * 4. Optional APPL gate (NOT yet wired in the extension), via the APL class.
-SET RESOURCE(APL)
-COMPILE *
-$KEY(ZOREST) TYPE(APL)
- UID(ZOENDUID) SERVICE(READ) ALLOW
-STORE
+*    Left commented out; enable only when the extension supports it.
+*    SET RESOURCE(APL)
+*    RECKEY ZOREST TYPE(APL) ADD(UID(ZOENDUID) SERVICE(READ) ALLOW)
 
 * 5. Activate (rebuild in-core resource rules) from the console, then verify.
 *    F ACF2,REBUILD(FAC)
-*    F ACF2,REBUILD(APL)
 SET RESOURCE(FAC)
 LIST LIKE(BPX.SERVER)

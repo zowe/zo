@@ -98,7 +98,6 @@ export LIBPATH="${LIB_DIR}:${LIBPATH}"
 
 echo "ZOREST000I Starting zo REST API on ${ZO_HOSTNAME}:${ZO_PORT} (java ${java_major}, discovery ${ZO_DISCOVERY_URLS})"
 
-_BPXK_AUTOCVT=OFF
 export _BPX_JOBNAME="${ZWE_zowe_job_prefix:-ZWE}ZO"
 exec "${ZO_JAVA_HOME}/bin/java" \
   -Xms${ZWE_configs_heap_init:-64}m -Xmx${ZWE_configs_heap_max:-512}m \

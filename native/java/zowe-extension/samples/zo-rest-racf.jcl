@@ -18,13 +18,17 @@
 //RACF     EXEC PGM=IKJEFT01,REGION=0M
 //SYSTSPRT DD SYSOUT=*
 //SYSTSIN  DD *
- /* ---- 1. FACILITY class must be active and RACLISTed ------------ */
- SETROPTS CLASSACT(FACILITY) RACLIST(FACILITY)
+ /* ---- 1. FACILITY is active and RACLISTed on any normal system;
+         nothing to change here.                                     */
 
  /* ---- 2. BPX.SERVER: lets the service user create per-user
          security environments (no password) for APIML JWT requests.
-         UPDATE is required. Zowe's ZWESECUR normally defines this.   */
- RDEFINE FACILITY BPX.SERVER UACC(NONE)
+         UPDATE is required. Zowe's ZWESECUR normally grants this.
+         WARNING: do NOT define BPX.SERVER here if it does not exist.
+         Defining it switches every z/OS UNIX server on the system
+         from superuser rules to profile-based authorization. If the
+         RLIST at the end shows no profile, involve your security
+         team before defining it.                                     */
  PERMIT BPX.SERVER CLASS(FACILITY) ID(ZWESVUSR) ACCESS(UPDATE)
 
  /* ---- 3. BPX.FILEATTR.PROGCTL: lets the installer run 'extattr +p'
@@ -46,14 +50,14 @@
  PERMIT IRR.DIGTCERT.LISTRING CLASS(FACILITY) ID(ZOENDGRP) ACCESS(READ)
 
  /* ---- 5. Optional APPL gate (NOT yet wired in the extension).
-         For zowe.commons.security.saf.applid. Define it only if you
-         plan to enable the gate once the extension supports it.      */
- SETROPTS CLASSACT(APPL) RACLIST(APPL)
+         For zowe.commons.security.saf.applid. Left commented out:
+         activating the APPL class is a system-wide decision.
  RDEFINE APPL ZOREST UACC(NONE)
  PERMIT ZOREST CLASS(APPL) ID(ZOENDGRP) ACCESS(READ)
+                                                                      */
 
  /* ---- 6. Activate the changes ----------------------------------- */
- SETROPTS RACLIST(FACILITY APPL) REFRESH
+ SETROPTS RACLIST(FACILITY) REFRESH
 
  /* ---- 7. Verify: expect ZWESVUSR UPDATE on BPX.SERVER and ZWEINST
          READ on BPX.FILEATTR.PROGCTL                                 */
@@ -61,7 +65,6 @@
  RLIST FACILITY BPX.FILEATTR.PROGCTL AUTHUSER
  RLIST FACILITY IRR.DIGTCERT.LIST AUTHUSER
  RLIST FACILITY IRR.DIGTCERT.LISTRING AUTHUSER
- RLIST APPL ZOREST AUTHUSER
 /*
 //*--------------------------------------------------------------------
 //* Removal (only for dedicated profiles):

@@ -15,11 +15,13 @@
 *   ZOOWNER  = department ACID that owns the resources
 *----------------------------------------------------------------------
 
-* 1. Ownership of the resource names. Skip any already owned (for example
-*    by Zowe's ZWESECUR TSS variant); ADD then fails harmlessly.
-TSS ADD(ZOOWNER) IBMFAC(BPX.SERVER)
-TSS ADD(ZOOWNER) IBMFAC(BPX.FILEATTR.PROGCTL)
-TSS ADD(ZOOWNER) IBMFAC(IRR.DIGTCERT.)
+* 1. Ownership. These resources are normally already owned (Zowe's own TSS
+*    setup covers BPX.SERVER). Do NOT add ownership of BPX.SERVER if it is
+*    unowned: that protects it and changes z/OS UNIX server authorization
+*    system wide; involve your security team first. Check with:
+*      TSS WHOOWNS IBMFAC(BPX.SERVER)
+*      TSS WHOOWNS IBMFAC(BPX.FILEATTR.PROGCTL)
+*      TSS WHOOWNS IBMFAC(IRR.DIGTCERT.)
 
 * 2. BPX.SERVER: lets the service ACID create per-user security
 *    environments without a password. UPDATE is required.
@@ -33,9 +35,10 @@ TSS PERMIT(ZWEINST) IBMFAC(BPX.FILEATTR.PROGCTL) ACCESS(READ)
 TSS PERMIT(ZOENDGRP) IBMFAC(IRR.DIGTCERT.LIST) ACCESS(READ)
 TSS PERMIT(ZOENDGRP) IBMFAC(IRR.DIGTCERT.LISTRING) ACCESS(READ)
 
-* 5. Optional APPL gate (NOT yet wired in the extension).
-TSS ADD(ZOOWNER) APPL(ZOREST)
-TSS PERMIT(ZOENDGRP) APPL(ZOREST)
+* 5. Optional APPL gate (NOT yet wired in the extension). Left commented
+*    out; enable only when the extension supports it.
+*    TSS ADD(ZOOWNER) APPL(ZOREST)
+*    TSS PERMIT(ZOENDGRP) APPL(ZOREST)
 
 * 6. Verify.
 TSS LIST(ZWESVUSR) DATA(ALL)

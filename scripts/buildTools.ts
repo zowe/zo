@@ -1221,6 +1221,18 @@ function getLatestTag(repoName: string, prefix?: string) {
  * (e.g. the tarball was removed from the host), so callers fail fast instead
  * of proceeding to extract a missing or invalid archive.
  */
+/** The Spring Boot jar built by native/java/app (version comes from build.gradle). */
+function javaAppJar(): string {
+    const libs = path.resolve(__dirname, "../native/java/app/build/libs");
+    const jar = fs
+        .readdirSync(libs)
+        .find((f) => f.startsWith("zo-java-app-") && f.endsWith(".jar") && !f.endsWith("-plain.jar"));
+    if (!jar) {
+        throw new Error(`No zo-java-app jar found in ${libs}; build native/java/app first`);
+    }
+    return path.join(libs, jar);
+}
+
 async function downloadTarball(url: string, destPath: string) {
     if (fs.existsSync(destPath)) {
         return;
@@ -2102,8 +2114,8 @@ async function main() {
                 {
                     const sftp = await promisify(sshClient.sftp.bind(sshClient))();
                     await promisify(sftp.fastPut.bind(sftp))(
-                        path.resolve(__dirname, "../native/java/app/build/libs/zo-java-app-0.5.0.jar"),
-                        `${deployDirs.javaDir}/build/libs/zo-java-app-0.5.0.jar`,
+                        javaAppJar(),
+                        `${deployDirs.javaDir}/build/libs/${path.basename(javaAppJar())}`,
                     );
                     sftp.end();
                 }
@@ -2117,12 +2129,7 @@ async function main() {
                 });
                 const extDir = deployDirs.javaExtensionDir;
                 const sftp = await promisify(sshClient.sftp.bind(sshClient))();
-                await uploadFile(
-                    sftp,
-                    path.resolve(__dirname, "../native/java/app/build/libs/zo-java-app-0.5.0.jar"),
-                    `${extDir}/zo-java-app.jar`,
-                    false,
-                );
+                await uploadFile(sftp, javaAppJar(), `${extDir}/zo-java-app.jar`, false);
                 await runCommandInShell(
                     sshClient,
                     `cd ${extDir} && sh package.sh zo-java-app.jar ${deployDirs.javaBindingsDir}/build-out/libzo_java.so ${deployDirs.javaSecurDir}/libzowe-commons-secur.so zo-rest.pax\n`,
