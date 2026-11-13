@@ -187,6 +187,20 @@ public class ZoRpcBindings implements ZoRpcClient {
         }
     }
 
+    /**
+     * Loads and initializes libzo_java.so if needed and reports whether it is usable. Static so
+     * health checks can call it without a user security context (Spring AOP only advises beans).
+     */
+    public static boolean nativeReady() {
+        try {
+            Class.forName(Native.class.getName(), true, Native.class.getClassLoader());
+            return true;
+        } catch (Throwable t) {
+            log.warn("zo native library is not available: {}", t.toString());
+            return false;
+        }
+    }
+
     /** Re-read the "org.zowe.zo.native" logger level and push it to the native layer. */
     public void refreshNativeLogLevel() {
         Native.refreshLogLevel();
