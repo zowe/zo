@@ -12,6 +12,13 @@
 import type { CommandRequest, CommandResponse } from "./rpc/common";
 import type { ProgressCallback, RpcPromise } from "./types";
 
+/** Metadata reported in the server ready message. */
+export interface ServerInfo {
+    version?: string;
+    /** Whether the server's executable directory is writable; omitted by older servers. */
+    dirWritable?: boolean;
+}
+
 export interface ClientOptions {
     /**
      * Maximum number of unanswered keep-alive messages before the connection is considered dead

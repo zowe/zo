@@ -202,6 +202,8 @@ void zo_server_tests()
 
       Expect(response).ToContain("\"message\":\"zo server is ready to accept input\"");
       Expect(response).ToContain("\"status\":\"ready\"");
+      const std::string writable = access(zo_dir.c_str(), W_OK) == 0 ? "true" : "false";
+      Expect(response).ToContain("\"dirWritable\":" + writable);
     });
     it("should ignore an invalid ZO_NUM_WORKERS when a worker CLI argument is supplied", []() -> void
     {
