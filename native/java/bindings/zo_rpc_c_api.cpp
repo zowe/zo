@@ -39,9 +39,9 @@ enum class Lane
 // - FIFO-streaming content methods (readDataset/writeDataset/readFile/writeFile): typed FFM shims
 // - methods that spawn child processes or need APF (tsoCommand, unixCommand, consoleCommand,
 //   submitUss): child identity under thread-level security is unverified
-const std::map<std::string, Lane> &allowed_methods()
+std::map<std::string, Lane> &allowed_methods()
 {
-  static const std::map<std::string, Lane> methods = {
+  static std::map<std::string, Lane> methods = {
       // Data sets
       {"listDatasets", Lane::Concurrent},
       {"listDsMembers", Lane::Concurrent},
@@ -100,6 +100,28 @@ const std::map<std::string, Lane> &allowed_methods()
       {"refreshDigtcert", Lane::Concurrent},
   };
   return methods;
+}
+
+// Methods that spawn child processes. Off unless ZO_EXPERIMENTAL_METHODS names them, so their
+// identity under thread-level security can be evaluated without exposing them by default.
+const char *const k_experimental_methods[] = {"unixCommand", "tsoCommand"};
+
+void enable_experimental_methods()
+{
+  const char *env = std::getenv("ZO_EXPERIMENTAL_METHODS");
+  if (!env || !*env)
+  {
+    return;
+  }
+  const std::string requested = std::string(",") + env + ",";
+  for (const char *method : k_experimental_methods)
+  {
+    if (requested.find(std::string(",") + method + ",") != std::string::npos)
+    {
+      allowed_methods()[method] = Lane::Concurrent;
+      LOG_WARN("Experimental RPC method enabled: %s", method);
+    }
+  }
 }
 
 std::atomic<ZoLogCallback> g_log_callback{nullptr};
@@ -180,7 +202,9 @@ extern "C"
     g_log_callback.store(log_callback, std::memory_order_release);
     ZLogger::get_instance().set_host_sink(forward_log, static_cast<LogLevel>(log_level));
     std::call_once(g_register_once, []()
-                   { register_all_commands(CommandDispatcher::get_instance()); });
+                   {
+                     register_all_commands(CommandDispatcher::get_instance());
+                     enable_experimental_methods(); });
     return 0;
   }
 

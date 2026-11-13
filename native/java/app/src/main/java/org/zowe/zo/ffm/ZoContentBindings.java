@@ -33,6 +33,7 @@ public class ZoContentBindings implements ZoContentIo {
     private static final int NOT_FOUND = 2;
     private static final int ETAG_MISMATCH = 3;
     private static final int INVALID = 4;
+    private static final int FORBIDDEN = 5;
 
     @Override
     public Content readDataset(String dsname, Options options) throws ZoRpcException {
@@ -113,6 +114,7 @@ public class ZoContentBindings implements ZoContentIo {
                     case NOT_FOUND -> ZoRpcException.NOT_FOUND;
                     case ETAG_MISMATCH -> ZoRpcException.ETAG_MISMATCH;
                     case INVALID -> ZoRpcException.INVALID_PARAMS;
+                    case FORBIDDEN -> ZoRpcException.FORBIDDEN;
                     default -> ZoRpcException.INTERNAL_ERROR;
                 };
                 throw new ZoRpcException(op, code, message != null ? message : op + " failed", null);

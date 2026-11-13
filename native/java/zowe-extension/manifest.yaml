@@ -28,3 +28,6 @@ configs:
   security:
     requireCsrfHeader: true
   debug: false
+  experimental:
+    # Evaluation only: TSO and unixCommand endpoints (child processes)
+    spawningCommands: false

@@ -85,6 +85,11 @@ fi
 export ZO_LOG_LEVEL="${ZWE_configs_logging_level:-INFO}"
 export ZO_NATIVE_LOG_LEVEL="${ZWE_configs_logging_nativeLevel:-WARN}"
 export ZO_REQUIRE_CSRF_HEADER="${ZWE_configs_security_requireCsrfHeader:-true}"
+# Evaluation only: exposes commands that spawn child processes (see APIML-REGISTRATION.md)
+if [ "${ZWE_configs_experimental_spawningCommands}" = "true" ]; then
+  export ZO_EXPERIMENTAL_SPAWNING=true
+  export ZO_EXPERIMENTAL_METHODS="unixCommand,tsoCommand"
+fi
 profiles="zos"
 [ "${ZWE_configs_debug}" = "true" ] && profiles="${profiles},debug"
 

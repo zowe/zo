@@ -22,7 +22,7 @@ DLL_BND_FLAGS=$(DLL_BND_BASE_FLAGS)
 CPP_FLAGS+=$(LOG_FLAGS)
 .END
 
-OBJS = $(OUT_DIR)/zds_c_api.o $(OUT_DIR)/zusf_c_api.o $(OUT_DIR)/zjb_c_api.o $(OUT_DIR)/zo_rpc_c_api.o $(OUT_DIR)/zo_content_c_api.o
+OBJS = $(OUT_DIR)/zo_rpc_c_api.o $(OUT_DIR)/zo_content_c_api.o
 
 # zo RPC dispatcher + command handlers (same objects linked into the zo binary, minus zo.o)
 ZO_RPC_OBJS = $(C_OUT_DIR)/json_output.o \

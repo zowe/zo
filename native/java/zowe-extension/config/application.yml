@@ -27,6 +27,8 @@ spring:
 zo:
   security:
     require-csrf-header: ${ZO_REQUIRE_CSRF_HEADER:true}
+  experimental:
+    spawning-commands: ${ZO_EXPERIMENTAL_SPAWNING:false}
 
 apiml:
   enabled: true

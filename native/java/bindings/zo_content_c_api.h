@@ -23,6 +23,7 @@ extern "C" {
 #define ZO_CONTENT_NOT_FOUND 2
 #define ZO_CONTENT_ETAG_MISMATCH 3
 #define ZO_CONTENT_INVALID 4
+#define ZO_CONTENT_FORBIDDEN 5
 
 /** All strings are ASCII (ISO8859-1) and may be NULL. */
 typedef struct {

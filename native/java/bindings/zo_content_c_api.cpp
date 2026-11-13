@@ -19,7 +19,10 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <cerrno>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 namespace
@@ -113,6 +116,19 @@ bool apply_etag(char (&target)[N], const ZoContentOptions_C *options, std::strin
   }
   std::memcpy(target, etag.c_str(), etag.size() + 1);
   return true;
+}
+
+// Distinguishes "not authorized" from other failures after a USS operation fails. Runs on the
+// request thread, so the open() is checked against the caller's identity.
+bool access_denied(const std::string &path, int flags)
+{
+  const int fd = open(path.c_str(), flags);
+  if (fd >= 0)
+  {
+    close(fd);
+    return false;
+  }
+  return errno == EACCES;
 }
 
 bool is_etag_mismatch(const char *e_msg)
@@ -386,7 +402,8 @@ extern "C"
       std::string content;
       if (zusf_read_from_uss_file(&zusf, path, content) != RTNCD_SUCCESS)
       {
-        fail(result, ZO_CONTENT_FAILED, std::string("could not read file: ") + zusf.diag.e_msg);
+        const int status = access_denied(path, O_RDONLY) ? ZO_CONTENT_FORBIDDEN : ZO_CONTENT_FAILED;
+        fail(result, status, std::string("could not read file: ") + zusf.diag.e_msg);
         return;
       }
 
@@ -421,7 +438,11 @@ extern "C"
       std::string content(data ? data : "", data ? length : 0);
       if (zusf_write_to_uss_file(&zusf, path, content) != RTNCD_SUCCESS)
       {
-        const int status = is_etag_mismatch(zusf.diag.e_msg) ? ZO_CONTENT_ETAG_MISMATCH : ZO_CONTENT_FAILED;
+        int status = is_etag_mismatch(zusf.diag.e_msg) ? ZO_CONTENT_ETAG_MISMATCH : ZO_CONTENT_FAILED;
+        if (status == ZO_CONTENT_FAILED && !result->created && access_denied(path, O_WRONLY))
+        {
+          status = ZO_CONTENT_FORBIDDEN;
+        }
         fail(result, status, std::string("could not write file: ") + zusf.diag.e_msg);
         return;
       }

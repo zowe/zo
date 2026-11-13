@@ -33,6 +33,8 @@ public class ZoRpcException extends Exception {
     public static final int NOT_FOUND = -32011;
     /** Implementation-defined: the target already exists and overwriting was not requested. */
     public static final int CONFLICT = -32012;
+    /** Implementation-defined: the caller is not authorized to the target. */
+    public static final int FORBIDDEN = -32013;
 
     private final String method;
     private final int code;
