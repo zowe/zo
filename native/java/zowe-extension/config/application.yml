@@ -29,6 +29,11 @@ zo:
     require-csrf-header: ${ZO_REQUIRE_CSRF_HEADER:true}
   experimental:
     spawning-commands: ${ZO_EXPERIMENTAL_SPAWNING:false}
+  info:
+    zos-version: ${ZO_ZOS_VERSION:}
+    hostname: ${ZO_HOSTNAME}
+    port: ${ZO_PORT}
+    version: ${ZO_VERSION:0.5.0}
 
 apiml:
   enabled: true

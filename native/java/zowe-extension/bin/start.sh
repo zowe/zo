@@ -82,6 +82,8 @@ else
 fi
 
 # --- Application settings -------------------------------------------------------
+# z/OSMF-style z/OS level for /zosmf/info: uname version.release, e.g. 05.29.00
+export ZO_ZOS_VERSION="$(uname -v 2>/dev/null).$(uname -r 2>/dev/null)"
 export ZO_LOG_LEVEL="${ZWE_configs_logging_level:-INFO}"
 export ZO_NATIVE_LOG_LEVEL="${ZWE_configs_logging_nativeLevel:-WARN}"
 export ZO_REQUIRE_CSRF_HEADER="${ZWE_configs_security_requireCsrfHeader:-true}"
