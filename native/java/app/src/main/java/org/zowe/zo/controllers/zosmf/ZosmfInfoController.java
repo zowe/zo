@@ -34,7 +34,7 @@ public class ZosmfInfoController {
     public ZosmfInfoController(@Value("${zo.info.zos-version:}") String zosVersion,
                                @Value("${zo.info.hostname:${apiml.service.hostname:localhost}}") String hostname,
                                @Value("${zo.info.port:${server.port:0}}") String port,
-                               @Value("${zo.info.version:0.5.0}") String zoVersion) {
+                               @Value("${zo.info.version:unknown}") String zoVersion) {
         String release = zosVersion.contains(".") ? zosVersion.substring(zosVersion.indexOf('.') + 1) : "";
         String major = release.contains(".") ? release.substring(0, release.indexOf('.')) : release;
         Map<String, Object> body = new LinkedHashMap<>();

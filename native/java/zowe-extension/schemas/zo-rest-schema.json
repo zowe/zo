@@ -87,7 +87,27 @@
                         "spawningCommands": {
                           "type": "boolean",
                           "default": false,
-                          "description": "Expose TSO and unixCommand endpoints (child processes)"
+                          "description": "Expose the unixCommand endpoint (spawns a shell)"
+                        }
+                      }
+                    },
+                    "tso": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "default": true,
+                          "description": "Expose one-shot TSO commands and emulated sessions under /zo/api/v1/tso"
+                        }
+                      }
+                    },
+                    "upload": {
+                      "type": "object",
+                      "properties": {
+                        "detectUtf8": {
+                          "type": "boolean",
+                          "default": false,
+                          "description": "Treat charset-less text uploads that are valid UTF-8 as UTF-8 instead of z/OSMF's ISO8859-1 default"
                         }
                       }
                     }

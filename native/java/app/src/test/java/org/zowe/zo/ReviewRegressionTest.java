@@ -168,9 +168,16 @@ class ReviewRegressionTest {
     }
 
     @Test
-    void uploadCharsetDefaultsToUtf8OnlyForValidUtf8() {
-        assertEquals("UTF-8", org.zowe.zo.service.ContentCharsets.defaultFor("caf\u00e9".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-        assertEquals("UTF-8", org.zowe.zo.service.ContentCharsets.defaultFor("plain ascii".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
-        assertEquals("ISO8859-1", org.zowe.zo.service.ContentCharsets.defaultFor("caf\u00e9".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)));
+    void uploadCharsetDefaultsToZosmfIso88591UnlessDetectionIsEnabled() {
+        byte[] utf8 = "caf\u00e9".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] latin1 = "caf\u00e9".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        assertEquals("ISO8859-1", org.zowe.zo.service.ContentCharsets.defaultFor(utf8));
+        try {
+            org.zowe.zo.service.ContentCharsets.setDetectUtf8(true);
+            assertEquals("UTF-8", org.zowe.zo.service.ContentCharsets.defaultFor(utf8));
+            assertEquals("ISO8859-1", org.zowe.zo.service.ContentCharsets.defaultFor(latin1));
+        } finally {
+            org.zowe.zo.service.ContentCharsets.setDetectUtf8(false);
+        }
     }
 }

@@ -12,9 +12,11 @@
 # native/java bindings and secur libraries are built). Text files are expected in EBCDIC
 # (as uploaded by scripts/buildTools.ts) and are tagged IBM-1047; binaries are tagged binary.
 #
-# usage: package.sh <zo-java-app.jar> <libzo_java.so> <libzowe-commons-secur.so> <out.pax>
+# usage: package.sh <zo-java-app.jar> <libzo_java.so> <libzowe-commons-secur.so> <out.pax> [version] [commit]
 set -e
-[ $# -eq 4 ] || { echo "usage: $0 <jar> <libzo_java.so> <libzowe-commons-secur.so> <out.pax>" >&2; exit 1; }
+[ $# -ge 4 ] || { echo "usage: $0 <jar> <libzo_java.so> <libzowe-commons-secur.so> <out.pax> [version] [commit]" >&2; exit 1; }
+version="${5:-0.0.0-dev}"
+commit="${6:-unknown}"
 
 here=$(cd "$(dirname "$0")" && pwd)
 stage="${here}/.stage.$$"
@@ -23,7 +25,9 @@ rm -rf "$4" "${here}"/.stage.*
 trap 'rm -rf "${stage}"' EXIT
 mkdir -p "${stage}/bin" "${stage}/config" "${stage}/schemas" "${stage}/lib"
 
-cp "${here}/manifest.yaml" "${stage}/"
+sed "s/^version: .*/version: ${version}/" "${here}/manifest.yaml" > "${stage}/manifest.yaml"
+# Build identity read by bin/start.sh (registration metadata, /zosmf/info)
+printf 'version=%s\ncommit=%s\nbuilt=%s\n' "${version}" "${commit}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${stage}/BUILD"
 cp "${here}"/bin/*.sh "${stage}/bin/"
 cp "${here}"/config/*.yml "${stage}/config/"
 cp "${here}"/schemas/*.json "${stage}/schemas/"

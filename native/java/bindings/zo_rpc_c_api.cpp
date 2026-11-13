@@ -37,8 +37,9 @@ enum class Lane
 
 // Methods reachable from the JVM. Excluded on purpose:
 // - FIFO-streaming content methods (readDataset/writeDataset/readFile/writeFile): typed FFM shims
-// - methods that spawn child processes or need APF (tsoCommand, unixCommand, consoleCommand,
-//   submitUss): child identity under thread-level security is unverified
+// - consoleCommand (needs the APF-authorized zoa) and submitUss
+// - unixCommand unless enabled through ZO_EXPERIMENTAL_METHODS
+// tsoCommand is allowed: verified on z/OS that its tsocmd child runs as the caller
 std::map<std::string, Lane> &allowed_methods()
 {
   static std::map<std::string, Lane> methods = {
@@ -77,6 +78,7 @@ std::map<std::string, Lane> &allowed_methods()
       {"chtagFile", Lane::Concurrent},
       // Tools / system
       {"toolSearch", Lane::Serialized},
+      {"tsoCommand", Lane::Concurrent},
       {"getInfo", Lane::Concurrent},
       {"viewSyslog", Lane::Concurrent},
       {"listParmlib", Lane::Concurrent},
@@ -104,7 +106,7 @@ std::map<std::string, Lane> &allowed_methods()
 
 // Methods that spawn child processes. Off unless ZO_EXPERIMENTAL_METHODS names them, so their
 // identity under thread-level security can be evaluated without exposing them by default.
-const char *const k_experimental_methods[] = {"unixCommand", "tsoCommand"};
+const char *const k_experimental_methods[] = {"unixCommand"};
 
 void enable_experimental_methods()
 {

@@ -1233,6 +1233,23 @@ function javaAppJar(): string {
     return path.join(libs, jar);
 }
 
+/** Version of the built zo-java-app jar, from its file name (zo-java-app-<version>.jar). */
+function javaAppVersion(): string {
+    return path
+        .basename(javaAppJar())
+        .replace(/^zo-java-app-/, "")
+        .replace(/\.jar$/, "");
+}
+
+/** Short commit hash of the working tree, or "unknown" outside a git checkout. */
+function gitCommit(): string {
+    try {
+        return childProcess.execSync("git rev-parse --short HEAD", { cwd: __dirname }).toString().trim();
+    } catch {
+        return "unknown";
+    }
+}
+
 async function downloadTarball(url: string, destPath: string) {
     if (fs.existsSync(destPath)) {
         return;
@@ -2132,7 +2149,7 @@ async function main() {
                 await uploadFile(sftp, javaAppJar(), `${extDir}/zo-java-app.jar`, false);
                 await runCommandInShell(
                     sshClient,
-                    `cd ${extDir} && sh package.sh zo-java-app.jar ${deployDirs.javaBindingsDir}/build-out/libzo_java.so ${deployDirs.javaSecurDir}/libzowe-commons-secur.so zo-rest.pax\n`,
+                    `cd ${extDir} && sh package.sh zo-java-app.jar ${deployDirs.javaBindingsDir}/build-out/libzo_java.so ${deployDirs.javaSecurDir}/libzowe-commons-secur.so zo-rest.pax ${javaAppVersion()} ${gitCommit()}\n`,
                     { stepName: "Assemble zo-rest Zowe extension" },
                 );
                 const localPax = path.resolve(__dirname, "../native/java/dist/zo-rest.pax");

@@ -20,6 +20,7 @@
 #include <sstream>
 #include <string>
 #include <cerrno>
+#include <iconv.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -101,6 +102,30 @@ bool apply_encoding(T &target, const ZoContentOptions_C *options, std::string &e
   return true;
 }
 
+// zut's converter returns empty output when iconv_open fails, which the writers would accept as
+// content (truncating the target). Confirm the pair converts both ways before any I/O.
+template <typename T>
+bool converter_available(const T &target, std::string &error)
+{
+  if (target.encoding_opts.data_type == eDataTypeBinary)
+  {
+    return true;
+  }
+  const char *local = target.encoding_opts.source_codepage[0] ? target.encoding_opts.source_codepage : "UTF-8";
+  for (int direction = 0; direction < 2; ++direction)
+  {
+    iconv_t cd = direction == 0 ? iconv_open(target.encoding_opts.codepage, local)
+                                : iconv_open(local, target.encoding_opts.codepage);
+    if (cd == (iconv_t)-1)
+    {
+      error = "unsupported encoding conversion";
+      return false;
+    }
+    iconv_close(cd);
+  }
+  return true;
+}
+
 template <size_t N>
 bool apply_etag(char (&target)[N], const ZoContentOptions_C *options, std::string &error)
 {
@@ -119,10 +144,16 @@ bool apply_etag(char (&target)[N], const ZoContentOptions_C *options, std::strin
 }
 
 // Distinguishes "not authorized" from other failures after a USS operation fails. Runs on the
-// request thread, so the open() is checked against the caller's identity.
+// request thread, so the open() is checked against the caller's identity. Only regular files are
+// probed, non-blocking, so FIFOs and devices can never hold the request thread.
 bool access_denied(const std::string &path, int flags)
 {
-  const int fd = open(path.c_str(), flags);
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+  {
+    return false;
+  }
+  const int fd = open(path.c_str(), flags | O_NONBLOCK);
   if (fd >= 0)
   {
     close(fd);
@@ -260,7 +291,7 @@ extern "C"
 
       ZDS zds{};
       std::string error;
-      if (!apply_encoding(zds, options, error))
+      if (!apply_encoding(zds, options, error) || !converter_available(zds, error))
       {
         fail(result, ZO_CONTENT_INVALID, error);
         return;
@@ -318,7 +349,7 @@ extern "C"
 
       ZDS zds{};
       std::string error;
-      if (!apply_encoding(zds, options, error) || !apply_etag(zds.etag, options, error))
+      if (!apply_encoding(zds, options, error) || !converter_available(zds, error) || !apply_etag(zds.etag, options, error))
       {
         fail(result, ZO_CONTENT_INVALID, error);
         return;
@@ -386,7 +417,7 @@ extern "C"
 
       ZUSF zusf{};
       std::string error;
-      if (!apply_encoding(zusf, options, error))
+      if (!apply_encoding(zusf, options, error) || !converter_available(zusf, error))
       {
         fail(result, ZO_CONTENT_INVALID, error);
         return;
@@ -426,7 +457,7 @@ extern "C"
 
       ZUSF zusf{};
       std::string error;
-      if (!apply_encoding(zusf, options, error) || !apply_etag(zusf.etag, options, error))
+      if (!apply_encoding(zusf, options, error) || !converter_available(zusf, error) || !apply_etag(zusf.etag, options, error))
       {
         fail(result, ZO_CONTENT_INVALID, error);
         return;

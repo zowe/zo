@@ -209,14 +209,14 @@ class ZosmfUssControllerTest {
 
     @Test
     void writeCreatedReturns201WithEtag() throws Exception {
-        when(contentIo.writeFile(eq("/u/new.txt"), any(), eq(new Options(null, "UTF-8", null)), eq(null)))
+        when(contentIo.writeFile(eq("/u/new.txt"), any(), eq(new Options(null, "ISO8859-1", null)), eq(null)))
                 .thenReturn(new WriteResult("E1", null, true));
 
         mockMvc.perform(put(BASE + "/u/new.txt").contentType(MediaType.TEXT_PLAIN).content("hi"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string(HttpHeaders.ETAG, "\"E1\""));
 
-        verify(contentIo).writeFile("/u/new.txt", "hi".getBytes(), new Options(null, "UTF-8", null), null);
+        verify(contentIo).writeFile("/u/new.txt", "hi".getBytes(), new Options(null, "ISO8859-1", null), null);
     }
 
     @Test

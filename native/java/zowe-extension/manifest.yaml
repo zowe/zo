@@ -1,6 +1,8 @@
 ---
 name: zo-rest
 id: org.zowe.zo.rest
+# Replaced with the built version by package.sh
+version: 0.0.0-dev
 title: zo REST API
 description: z/OSMF-compatible REST API for data sets, USS files and jobs, plus zo extensions, backed in-process by the zo native libraries.
 license: EPL-2.0
@@ -28,6 +30,12 @@ configs:
   security:
     requireCsrfHeader: true
   debug: false
+  upload:
+    # Charset-less text uploads use z/OSMF's ISO8859-1 default; true treats valid UTF-8 bodies as UTF-8
+    detectUtf8: false
+  tso:
+    # One-shot TSO commands and emulated sessions under /zo/api/v1/tso
+    enabled: true
   experimental:
-    # Evaluation only: TSO and unixCommand endpoints (child processes)
+    # Evaluation only: unixCommand endpoint (spawns a shell)
     spawningCommands: false

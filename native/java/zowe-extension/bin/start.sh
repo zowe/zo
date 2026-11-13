@@ -81,16 +81,25 @@ else
   export ZO_DISCOVERY_URLS="https://${ZWE_zowe_externalDomains_0:-${ZO_HOSTNAME}}:${discovery_port}/eureka/"
 fi
 
+# --- Build identity (written by package.sh) ----------------------------------------
+if [ -f "${COMPONENT_HOME}/BUILD" ]; then
+  export ZO_VERSION="$(sed -n 's/^version=//p' "${COMPONENT_HOME}/BUILD")"
+  export ZO_BUILD_COMMIT="$(sed -n 's/^commit=//p' "${COMPONENT_HOME}/BUILD")"
+  export ZO_BUILD_TIME="$(sed -n 's/^built=//p' "${COMPONENT_HOME}/BUILD")"
+fi
+
 # --- Application settings -------------------------------------------------------
 # z/OSMF-style z/OS level for /zosmf/info: uname version.release, e.g. 05.29.00
 export ZO_ZOS_VERSION="$(uname -v 2>/dev/null).$(uname -r 2>/dev/null)"
 export ZO_LOG_LEVEL="${ZWE_configs_logging_level:-INFO}"
 export ZO_NATIVE_LOG_LEVEL="${ZWE_configs_logging_nativeLevel:-WARN}"
 export ZO_REQUIRE_CSRF_HEADER="${ZWE_configs_security_requireCsrfHeader:-true}"
+export ZO_TSO_ENABLED="${ZWE_configs_tso_enabled:-true}"
+export ZO_UPLOAD_DETECT_UTF8="${ZWE_configs_upload_detectUtf8:-false}"
 # Evaluation only: exposes commands that spawn child processes (see APIML-REGISTRATION.md)
 if [ "${ZWE_configs_experimental_spawningCommands}" = "true" ]; then
   export ZO_EXPERIMENTAL_SPAWNING=true
-  export ZO_EXPERIMENTAL_METHODS="unixCommand,tsoCommand"
+  export ZO_EXPERIMENTAL_METHODS="unixCommand"
 fi
 profiles="zos"
 [ "${ZWE_configs_debug}" = "true" ] && profiles="${profiles},debug"

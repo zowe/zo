@@ -24,7 +24,7 @@ import org.zowe.zo.ffm.ZoRpcException;
 import java.util.Map;
 
 /**
- * Evaluation-only endpoints for zo commands that spawn child processes. Disabled unless
+ * Evaluation-only endpoint for zo's unixCommand (spawns a shell). Disabled unless
  * zo.experimental.spawning-commands=true (and the native allowlist is extended to match).
  */
 @RestController
@@ -43,11 +43,6 @@ public class ZoExperimentalController {
     @PostMapping(value = "/unix-command", produces = MediaType.TEXT_PLAIN_VALUE)
     public String unixCommand(@RequestBody Map<String, String> body) throws ZoRpcException {
         return text(rpc.call("unixCommand", Map.of("commandText", command(body))));
-    }
-
-    @PostMapping(value = "/tso-command", produces = MediaType.TEXT_PLAIN_VALUE)
-    public String tsoCommand(@RequestBody Map<String, String> body) throws ZoRpcException {
-        return text(rpc.call("tsoCommand", Map.of("commandText", command(body))));
     }
 
     private static String command(Map<String, String> body) {
