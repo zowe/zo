@@ -16,7 +16,7 @@ import type { ProgressCallback, RpcPromise } from "./types";
 export interface ServerInfo {
     version?: string;
     /** Whether the server's executable directory is writable; omitted by older servers. */
-    dirWritable?: boolean;
+    serverPathWritable?: boolean;
 }
 
 export interface ClientOptions {

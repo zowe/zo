@@ -22,7 +22,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Added the `NOPRTCC` parm to `zo tool search` when invoked through RPC so SuperC listings no longer contain page breaks or repeated page titles. [#1182](https://github.com/zowe/zo/issues/1182)
 - `c`: Defaulted command and server logging to WARN and made `zo server --verbose` select DEBUG over the `ZO_LOG_LEVEL` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
 - `c`: Made explicit `zo server --num-workers` and `-w` values override the `ZO_NUM_WORKERS` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
-- `c`: Added `dirWritable` property to the ready message returned by the `zo` RPC server to report if the server's parent directory has write access. [#1233](https://github.com/zowe/zo/pull/1233)
+- `c`: Added `serverPathWritable` property to the ready message returned by the `zo` RPC server to report if the server's parent directory has write access. [#1233](https://github.com/zowe/zo/pull/1233)
 
 ## `1.1.0`
 

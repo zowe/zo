@@ -115,7 +115,7 @@ void ZServer::print_ready_message()
   zjson::Value data = zjson::Value::create_object();
 
   data.add_to_object("version", zjson::Value(core::get_version()));
-  data.add_to_object("dirWritable", zjson::Value(access(options.exec_dir.c_str(), W_OK) == 0));
+  data.add_to_object("serverPathWritable", zjson::Value(access(options.exec_dir.c_str(), W_OK) == 0));
 
   StatusMessage status_msg{
       .status = "ready",

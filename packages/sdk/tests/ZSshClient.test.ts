@@ -624,7 +624,7 @@ describe("ZSshClient", () => {
 
     describe("callbacks", () => {
         it("should receive ready message with server information", async () => {
-            const serverInfo = { version: "0.6.1", dirWritable: true };
+            const serverInfo = { version: "0.6.1", serverPathWritable: true };
             const sshStream = { stderr: new EventEmitter(), stdout: new EventEmitter() };
             const onStderrMock = vi.spyOn(sshStream.stderr, "on");
             const onStdoutMock = vi.spyOn(sshStream.stdout, "on");
@@ -729,7 +729,7 @@ describe("ZSshClient", () => {
             };
             await (client as any).execAsync();
             expect(client.serverInfo?.version).toBe("0.6.1");
-            expect(client.serverInfo?.dirWritable).toBeUndefined();
+            expect(client.serverInfo?.serverPathWritable).toBeUndefined();
         });
 
         it("should handle a Language Environment load failure from Zowe server", async () => {
