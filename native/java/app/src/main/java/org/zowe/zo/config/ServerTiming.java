@@ -71,8 +71,9 @@ public final class ServerTiming {
         Long start = START.get();
         if (phases == null || start == null) return null;
         StringBuilder sb = new StringBuilder();
-        phases.forEach((k, v) -> sb.append(k).append(";dur=").append(String.format("%.1f", v)).append(", "));
-        sb.append("app;dur=").append(String.format("%.1f", (System.nanoTime() - start) / 1e6));
+        // Locale.ROOT: the header grammar needs '.' decimals regardless of the JVM's default locale
+        phases.forEach((k, v) -> sb.append(k).append(";dur=").append(String.format(java.util.Locale.ROOT, "%.1f", v)).append(", "));
+        sb.append("app;dur=").append(String.format(java.util.Locale.ROOT, "%.1f", (System.nanoTime() - start) / 1e6));
         return sb.toString();
     }
 

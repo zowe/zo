@@ -114,18 +114,29 @@ public class TsoService {
         return info(session);
     }
 
-    /** Runs a command in the session, buffers its output for {@link #receive}, and returns it. */
+    static final String TRUNCATED_MARKER = "\n[output truncated: session buffer full]";
+
+    /**
+     * Runs a command in the session, buffers its output for {@link #receive}, and returns it.
+     * A full buffer is rejected before the command runs; once a command has run it always
+     * succeeds (its side effects happened), and only the buffered copy may be truncated.
+     */
     public CommandResult send(String sessionId, String command) throws ZoRpcException {
         Session session = owned(sessionId);
-        CommandResult result = issue(command);
         synchronized (session) {
-            int size = result.output() == null ? 0 : result.output().length();
-            if (session.pendingBytes + size > maxBufferedBytes) {
+            if (session.pendingBytes >= maxBufferedBytes) {
                 throw new ZoRpcException("tsoSession", ZoRpcException.CONFLICT,
                         "Session output buffer is full; receive pending output first", null);
             }
-            session.pending.add(result);
-            session.pendingBytes += size;
+        }
+        CommandResult result = issue(command);
+        synchronized (session) {
+            String output = result.output() == null ? "" : result.output();
+            int room = Math.max(0, maxBufferedBytes - session.pendingBytes);
+            CommandResult buffered = output.length() <= room ? result
+                    : new CommandResult(result.command(), result.rc(), output.substring(0, room) + TRUNCATED_MARKER);
+            session.pending.add(buffered);
+            session.pendingBytes += Math.min(output.length(), room);
             session.lastUsed = clock.instant();
         }
         return result;
