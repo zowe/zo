@@ -75,8 +75,9 @@ export class RpcStreamManager {
 
         const sshStream = await new Promise<ClientChannel>((resolve, reject) => {
             // Need to use sh built-in version of cat that converts to EBCDIC
-            this.mSshClient.exec(`exec /bin/sh -c "cat > ${ZSshUtils.quotePath(params.pipePath)}"`, (err, stream) =>
-                err ? reject(err) : resolve(stream),
+            this.mSshClient.exec(
+                `ZO_FIFO_PATH=${ZSshUtils.quotePath(params.pipePath)} exec /bin/sh -c 'cat > "$ZO_FIFO_PATH"'`,
+                (err, stream) => (err ? reject(err) : resolve(stream)),
             );
         });
         const progressTransform = new ProgressTransform(callbackInfo, () => readStream.emit("keepAlive"));
@@ -100,8 +101,9 @@ export class RpcStreamManager {
 
         const sshStream = await new Promise<ClientChannel>((resolve, reject) => {
             // Need to use sh built-in version of cat that converts to EBCDIC
-            this.mSshClient.exec(`exec /bin/sh -c "cat ${ZSshUtils.quotePath(params.pipePath)}"`, (err, stream) =>
-                err ? reject(err) : resolve(stream),
+            this.mSshClient.exec(
+                `ZO_FIFO_PATH=${ZSshUtils.quotePath(params.pipePath)} exec /bin/sh -c 'cat "$ZO_FIFO_PATH"'`,
+                (err, stream) => (err ? reject(err) : resolve(stream)),
             );
         });
         const progressTransform = new ProgressTransform(callbackInfo, () => writeStream.emit("keepAlive"));
