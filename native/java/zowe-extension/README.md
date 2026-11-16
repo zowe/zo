@@ -94,6 +94,18 @@ MOUNT FILESYSTEM('OMVS.JAVA25.ZFS') TYPE(ZFS)
 If you use a bind to a Zowe directory, check the mount that actually contains the `java`
 binary, not just its parent.
 
+### Automated verification
+
+`verify/zo_verify.py` runs 29 end-to-end checks against a deployed instance, directly and through
+the Gateway: `/zosmf/info`, health, TSO commands and sessions (including owner isolation and
+limits), and content safety (rejected encodings leave files intact, z/OSMF's ISO8859-1 default,
+403 on denied access). It needs two test users in netrc files, which are passed to curl and never
+read by the script:
+
+```sh
+python3 verify/zo_verify.py <host> <service-port> <gateway-port> user1.netrc user2.netrc <expected-version>
+```
+
 ## 3. Install
 
 1. Upload the pax in **binary** (it carries extended attributes and tags). With SFTP:
