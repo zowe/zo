@@ -27,13 +27,13 @@ import type { ProgressCallback } from "./doc/types";
 
 export type RpcParams<ReqT extends CommandRequest> = Omit<ReqT, "command">;
 
-export type RpcArgs<ReqT extends CommandRequest> = Record<string, never> extends RpcParams<ReqT>
-    ? [request?: RpcParams<ReqT>]
-    : [request: RpcParams<ReqT>];
+export type RpcArgs<ReqT extends CommandRequest> =
+    Record<string, never> extends RpcParams<ReqT> ? [request?: RpcParams<ReqT>] : [request: RpcParams<ReqT>];
 
-export type RpcArgsWithProgress<ReqT extends CommandRequest> = Record<string, never> extends RpcParams<ReqT>
-    ? [request?: RpcParams<ReqT>, progressCallback?: ProgressCallback]
-    : [request: RpcParams<ReqT>, progressCallback?: ProgressCallback];
+export type RpcArgsWithProgress<ReqT extends CommandRequest> =
+    Record<string, never> extends RpcParams<ReqT>
+        ? [request?: RpcParams<ReqT>, progressCallback?: ProgressCallback]
+        : [request: RpcParams<ReqT>, progressCallback?: ProgressCallback];
 
 export abstract class RpcClientApi implements IRpcClient {
     public abstract request<ReqT extends CommandRequest, RespT extends CommandResponse>(

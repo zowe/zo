@@ -54,7 +54,6 @@ export class ZSshClient extends RpcClientApi implements Disposable {
     // single chunk would then match.
     private mStartupOutput = "";
     private readonly mRequestMap: Map<number, ExistingClientRequest> = new Map();
-    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: Not unused, sent to SSH server
     private mRequestId = 0;
 
     private constructor() {
