@@ -73,7 +73,14 @@ public class ZoRpcBindings implements ZoRpcClient {
 
         JsonNode response;
         try {
-            response = mapper.readTree(Native.call(requestJson));
+            long t0 = System.nanoTime();
+            long c0 = org.zowe.zo.config.ServerTiming.cpuNanos();
+            String raw = Native.call(requestJson);
+            org.zowe.zo.config.ServerTiming.record("native", t0);
+            org.zowe.zo.config.ServerTiming.recordCpu("native-cpu", c0);
+            long t1 = System.nanoTime();
+            response = mapper.readTree(raw);
+            org.zowe.zo.config.ServerTiming.record("json", t1);
         } catch (ZoRpcException e) {
             throw e;
         } catch (Exception e) {

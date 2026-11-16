@@ -33,6 +33,8 @@ zo:
     enabled: ${ZO_TSO_ENABLED:true}
   upload:
     detect-utf8: ${ZO_UPLOAD_DETECT_UTF8:false}
+  diagnostics:
+    server-timing: ${ZO_SERVER_TIMING:false}
   info:
     zos-version: ${ZO_ZOS_VERSION:}
     hostname: ${ZO_HOSTNAME}

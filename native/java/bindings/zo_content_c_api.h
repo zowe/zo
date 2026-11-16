@@ -51,6 +51,8 @@ ZoContentResult_C *zo_c_read_dataset(const char *dsname, const ZoContentOptions_
 ZoContentResult_C *zo_c_write_dataset(const char *dsname, const char *data, size_t length, const ZoContentOptions_C *options);
 ZoContentResult_C *zo_c_read_file(const char *path, const ZoContentOptions_C *options);
 ZoContentResult_C *zo_c_write_file(const char *path, const char *data, size_t length, const ZoContentOptions_C *options);
+/** Spool file content by job ID (or correlator) and spool file key; no ETag. */
+ZoContentResult_C *zo_c_read_spool(const char *jobid, int key, const ZoContentOptions_C *options);
 void zo_c_free_content_result(ZoContentResult_C *result);
 
 #ifdef __cplusplus

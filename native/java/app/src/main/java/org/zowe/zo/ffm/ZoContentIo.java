@@ -48,4 +48,7 @@ public interface ZoContentIo {
     Content readFile(String path, Options options) throws ZoRpcException;
 
     WriteResult writeFile(String path, byte[] data, Options options, String etag) throws ZoRpcException;
+
+    /** Spool file content; {@code jobRef} is a job ID or correlator. The returned ETag is null. */
+    Content readSpool(String jobRef, int spoolId, Options options) throws ZoRpcException;
 }

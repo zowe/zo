@@ -12,10 +12,10 @@
 package org.zowe.zo.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.zowe.zo.ffm.ZoContentIo;
 import org.zowe.zo.ffm.ZoRpcClient;
 import org.zowe.zo.ffm.ZoRpcException;
 
@@ -27,7 +27,6 @@ import java.util.Locale;
 import java.util.Map;
 
 @Service
-@RequiredArgsConstructor
 public class JobService {
 
     public static final int DEFAULT_MAX_JOBS = 1000;
@@ -35,6 +34,18 @@ public class JobService {
     private static final String BINARY = "binary";
 
     private final ZoRpcClient rpc;
+    /** Binary spool reads; null falls back to the base64 JSON-RPC path. */
+    private final ZoContentIo contentIo;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public JobService(ZoRpcClient rpc, ZoContentIo contentIo) {
+        this.rpc = rpc;
+        this.contentIo = contentIo;
+    }
+
+    public JobService(ZoRpcClient rpc) {
+        this(rpc, null);
+    }
 
     public enum JobAction {
         HOLD("holdJob"),
@@ -131,6 +142,18 @@ public class JobService {
      */
     public byte[] readSpool(String jobRef, int spoolId, String encoding) throws ZoRpcException {
         if (spoolId < 1) throw new IllegalArgumentException("Invalid spool file ID");
+        if (contentIo != null) {
+            boolean binary = encoding != null && encoding.equalsIgnoreCase(BINARY);
+            ZoContentIo.Options options = binary
+                    ? new ZoContentIo.Options(BINARY, null, null)
+                    : new ZoContentIo.Options(encoding == null ? null : InputValidator.codeset(encoding), LOCAL_ENCODING, null);
+            try {
+                return contentIo.readSpool(InputValidator.jobRef(jobRef), spoolId, options).data();
+            } catch (ZoRpcException e) {
+                if (e.getCode() == ZoRpcException.NOT_FOUND) throw InputValidator.notFound("readSpool", "Spool file was not found");
+                throw e;
+            }
+        }
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("jobId", InputValidator.jobRef(jobRef));
         params.put("spoolId", spoolId);

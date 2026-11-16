@@ -11,6 +11,7 @@
 
 #include "zo_content_c_api.h"
 #include "../../c/zds.hpp"
+#include "../../c/zjb.hpp"
 #include "../../c/zusf.hpp"
 #include "../../c/zut.hpp"
 #include "../../python/bindings/conversion.hpp"
@@ -479,6 +480,36 @@ extern "C"
       }
 
       result->etag = ascii_copy(zusf.etag);
+      result->status = ZO_CONTENT_OK; });
+  }
+
+  ZoContentResult_C *zo_c_read_spool(const char *jobid_ascii, int key, const ZoContentOptions_C *options)
+  {
+    return guarded([&](ZoContentResult_C *result)
+                   {
+      const std::string jobid = ebcdic_arg(jobid_ascii);
+      if (jobid.empty() || key < 1)
+      {
+        fail(result, ZO_CONTENT_INVALID, "invalid job ID or spool file key");
+        return;
+      }
+
+      ZJB zjb{};
+      std::string error;
+      if (!apply_encoding(zjb, options, error) || !converter_available(zjb, error))
+      {
+        fail(result, ZO_CONTENT_INVALID, error);
+        return;
+      }
+
+      std::string content;
+      if (zjb_read_job_content_by_key(&zjb, jobid, key, content) != RTNCD_SUCCESS)
+      {
+        fail(result, ZO_CONTENT_NOT_FOUND, std::string("could not read spool file: ") + zjb.diag.e_msg);
+        return;
+      }
+
+      set_data(result, content);
       result->status = ZO_CONTENT_OK; });
   }
 

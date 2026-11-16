@@ -59,14 +59,42 @@ public class ZoContentBindings implements ZoContentIo {
         return write(Native.WRITE_FILE, "writeFile", path, data, options, etag);
     }
 
+    @Override
+    public Content readSpool(String jobRef, int spoolId, Options options) throws ZoRpcException {
+        requireLatin1(jobRef);
+        try (Arena arena = Arena.ofConfined()) {
+            long t0 = System.nanoTime();
+            long c0 = org.zowe.zo.config.ServerTiming.cpuNanos();
+            MemorySegment result = (MemorySegment) Native.READ_SPOOL.invokeExact(
+                    ascii(arena, jobRef), spoolId, Native.options(arena, options, null));
+            org.zowe.zo.config.ServerTiming.record("native", t0);
+            org.zowe.zo.config.ServerTiming.recordCpu("native-cpu", c0);
+            return withResult("readSpool", result, r -> {
+                long length = (long) Native.LENGTH.get(r, 0L);
+                MemorySegment data = (MemorySegment) Native.DATA.get(r, 0L);
+                return new Content(length == 0 ? new byte[0] : data.reinterpret(length).toArray(ValueLayout.JAVA_BYTE), null);
+            });
+        } catch (ZoRpcException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new ZoRpcException("readSpool", ZoRpcException.INTERNAL_ERROR, "Native call failed", null);
+        }
+    }
+
     private Content read(MethodHandle fn, String op, String target, Options options) throws ZoRpcException {
         try (Arena arena = Arena.ofConfined()) {
+            long t0 = System.nanoTime();
+            long c0 = org.zowe.zo.config.ServerTiming.cpuNanos();
             MemorySegment result = (MemorySegment) fn.invokeExact(
                     ascii(arena, target), Native.options(arena, options, null));
+            org.zowe.zo.config.ServerTiming.record("native", t0);
+            org.zowe.zo.config.ServerTiming.recordCpu("native-cpu", c0);
             return withResult(op, result, r -> {
+                long t1 = System.nanoTime();
                 long length = (long) Native.LENGTH.get(r, 0L);
                 MemorySegment data = (MemorySegment) Native.DATA.get(r, 0L);
                 byte[] bytes = length == 0 ? new byte[0] : data.reinterpret(length).toArray(ValueLayout.JAVA_BYTE);
+                org.zowe.zo.config.ServerTiming.record("copy", t1);
                 return new Content(bytes, string((MemorySegment) Native.ETAG.get(r, 0L)));
             });
         } catch (ZoRpcException e) {
@@ -169,6 +197,7 @@ public class ZoContentBindings implements ZoContentIo {
         static final MethodHandle WRITE_DATASET;
         static final MethodHandle READ_FILE;
         static final MethodHandle WRITE_FILE;
+        static final MethodHandle READ_SPOOL;
         static final MethodHandle FREE;
 
         static {
@@ -186,6 +215,8 @@ public class ZoContentBindings implements ZoContentIo {
             WRITE_DATASET = linker.downcallHandle(lookup.findOrThrow("zo_c_write_dataset"), writeDesc);
             READ_FILE = linker.downcallHandle(lookup.findOrThrow("zo_c_read_file"), readDesc);
             WRITE_FILE = linker.downcallHandle(lookup.findOrThrow("zo_c_write_file"), writeDesc);
+            READ_SPOOL = linker.downcallHandle(lookup.findOrThrow("zo_c_read_spool"), FunctionDescriptor.of(
+                    ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
             FREE = linker.downcallHandle(lookup.findOrThrow("zo_c_free_content_result"),
                     FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
         }
