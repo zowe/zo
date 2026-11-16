@@ -33,9 +33,7 @@ public class SecurityConfig {
     /** APIML Discovery probes these anonymously; health details are never exposed. */
     private static final String[] HEALTH_WHITELIST = {
             "/application/health",
-            "/application/info",
-            // z/OSMF serves its info endpoint without authentication; Zowe clients probe it
-            "/zosmf/info"
+            "/application/info"
     };
 
     /**

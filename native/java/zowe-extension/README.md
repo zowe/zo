@@ -97,7 +97,7 @@ binary, not just its parent.
 ### Automated verification
 
 `verify/zo_verify.py` runs 29 end-to-end checks against a deployed instance, directly and through
-the Gateway: `/zosmf/info`, health, TSO commands and sessions (including owner isolation and
+the Gateway: `/zosmf/info` (authenticated), health, TSO commands and sessions (including owner isolation and
 limits), and content safety (rejected encodings leave files intact, z/OSMF's ISO8859-1 default,
 403 on denied access). It needs two test users in netrc files, which are passed to curl and never
 read by the script:

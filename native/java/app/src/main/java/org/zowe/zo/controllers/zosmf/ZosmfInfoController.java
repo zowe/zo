@@ -22,7 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * z/OSMF-compatible GET /zosmf/info. Unauthenticated like z/OSMF; Zowe clients (CheckStatus,
+ * z/OSMF-compatible GET /zosmf/info. Requires authentication, as current z/OSMF does; Zowe clients (CheckStatus,
  * profile validation) read zos_version, zosmf_version, zosmf_hostname, zosmf_port and plugins.
  * The z/OS level comes from uname (version.release, e.g. "05.29.00"), exported by start.sh.
  */

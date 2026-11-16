@@ -47,10 +47,12 @@ def js(data):
 
 # --- A. info, health, gating -------------------------------------------------
 for label, base in (("direct", DIRECT), ("gateway", GATEWAY)):
-    code, data = curl(f"{base}/zosmf/info")
+    code, _ = curl(f"{base}/zosmf/info")
+    check(f"A0 {label}: /zosmf/info without credentials -> 401", code == 401, f"{code}")
+    code, data = curl(f"{base}/zosmf/info", netrc=N1)
     info = js(data)
     plugin = (info.get("plugins") or [{}])[0]
-    check(f"A1 {label}: /zosmf/info unauthenticated 200", code == 200, f"{code}")
+    check(f"A1 {label}: /zosmf/info authenticated 200", code == 200, f"{code}")
     check(f"A2 {label}: plugin reports zo-rest;{VERSION}", plugin.get("pluginVersion") == f"zo-rest;{VERSION}",
           str(plugin))
     check(f"A3 {label}: plugin says it is zo, not z/OSMF", "this is zo, not z/OSMF" in plugin.get("pluginDefaultName", ""))
