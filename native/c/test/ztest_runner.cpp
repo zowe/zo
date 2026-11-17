@@ -35,6 +35,7 @@
 #include "zo.job.server.test.hpp"
 #include "server/worker.test.hpp"
 #include "server/validator.test.hpp"
+#include "server/builder.test.hpp"
 #include "server_logger.test.hpp"
 #include "plugin.test.hpp"
 #include "ztest.hpp"
