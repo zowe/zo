@@ -89,7 +89,7 @@ describe("RpcStreamManager", () => {
                 method: "sendStream",
                 params: {
                     id: 1,
-                    pipePath: "/tmp/pipe_1",
+                    pipePath: "/u/DEV$LABEL/my home/.zowex/temp/pipe_1",
                 },
             };
 
@@ -104,7 +104,9 @@ describe("RpcStreamManager", () => {
                 }),
             };
             mockSshClient.exec.mockImplementation((cmd, cb) => {
-                expect(cmd).toBe(`exec /bin/sh -c "cat > /tmp/pipe_1"`);
+                expect(cmd).toBe(
+                    `ZO_FIFO_PATH='/u/DEV$LABEL/my home/.zowex/temp/pipe_1' exec /bin/sh -c 'cat > "$ZO_FIFO_PATH"'`,
+                );
                 cb(null, mockChannel);
             });
 
@@ -156,7 +158,7 @@ describe("RpcStreamManager", () => {
                 method: "receiveStream",
                 params: {
                     id: 2,
-                    pipePath: "/tmp/pipe_2",
+                    pipePath: "/u/DEV$LABEL/my home/.zowex/temp/pipe_2",
                     contentLen: 12,
                 },
             };
@@ -165,7 +167,9 @@ describe("RpcStreamManager", () => {
                 stdout: new PassThrough(),
             };
             mockSshClient.exec.mockImplementation((cmd, cb) => {
-                expect(cmd).toBe(`exec /bin/sh -c "cat /tmp/pipe_2"`);
+                expect(cmd).toBe(
+                    `ZO_FIFO_PATH='/u/DEV$LABEL/my home/.zowex/temp/pipe_2' exec /bin/sh -c 'cat "$ZO_FIFO_PATH"'`,
+                );
                 cb(null, mockChannel);
             });
 
