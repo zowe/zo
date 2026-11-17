@@ -41,6 +41,7 @@
 #include "zamtypes.h"
 
 const size_t MAX_DS_LENGTH = 44u;
+const size_t MAX_FQ_DS_LENGTH = 54u;
 const size_t MAX_VOLSER_LENGTH = 6u;
 // carriage return character, used for detecting CRLF line endings
 const char CR_CHAR = '\x0D';
