@@ -332,6 +332,10 @@ $(OUT_DIR)/libztso.a: $(OUT_DIR)/ztso.o
 
 libztso.a: $(OUT_DIR) $(OUT_DIR)/libztso.a
 
+$(OUT_DIR)/censor.o: censor.cpp
+	@echo 'Building $(OUT_DIR)/censor.o'
+	$(CXX) $(CPP_FLAGS) -c $< -o $@
+
 #
 # Commands
 #
@@ -388,13 +392,13 @@ $(OUT_DIR)/extend/plugin.o: extend/plugin.cpp
 #
 # Test CLI
 #
-$(OUT_DIR)/zo: $(OUT_DIR)/zo.o $(OUT_DIR)/json_output.o $(OUT_DIR)/extend/plugin.o $(COMMAND_OBJS) $(SERVER_OBJS) $(OUT_DIR)/zjsonm.o $(OUT_DIR)/libzut.a $(OUT_DIR)/libzjb.a $(OUT_DIR)/libzds.a $(OUT_DIR)/libzusf.a $(OUT_DIR)/libztso.a $(OUT_DIR)/libzkr.a
+$(OUT_DIR)/zo: $(OUT_DIR)/zo.o $(OUT_DIR)/censor.o $(OUT_DIR)/json_output.o $(OUT_DIR)/extend/plugin.o $(COMMAND_OBJS) $(SERVER_OBJS) $(OUT_DIR)/zjsonm.o $(OUT_DIR)/libzut.a $(OUT_DIR)/libzjb.a $(OUT_DIR)/libzds.a $(OUT_DIR)/libzusf.a $(OUT_DIR)/libztso.a $(OUT_DIR)/libzkr.a
 	@echo 'Building zo (z/OS target level: $(ZosMinLevel))'
 	$(CXX) $(CPP_BND_FLAGS) -o $@ $^ $(GSKCMS_SIDEDECK)
 
 zo: $(OUT_DIR) $(OUT_DIR)/zo
 
-$(OUT_DIR)/zoa: $(OUT_DIR)/zoa.o $(OUT_DIR)/json_output.o $(OUT_DIR)/commands/console.o $(OUT_DIR)/commands/core.o $(OUT_DIR)/zjsonm.o $(OUT_DIR)/libzcn.a $(OUT_DIR)/libzut.a
+$(OUT_DIR)/zoa: $(OUT_DIR)/zoa.o $(OUT_DIR)/censor.o $(OUT_DIR)/json_output.o $(OUT_DIR)/commands/console.o $(OUT_DIR)/commands/core.o $(OUT_DIR)/zjsonm.o $(OUT_DIR)/libzcn.a $(OUT_DIR)/libzut.a
 	@echo 'Building zoa (z/OS target level: $(ZosMinLevel))'
 	$(CXX) $(CPP_BND_FLAGS_AUTH) -o $@ $^
 	extattr +ap $@

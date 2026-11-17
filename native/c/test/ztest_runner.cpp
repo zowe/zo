@@ -9,6 +9,7 @@
  *
  */
 
+#include "censor.test.hpp"
 #include "zstorage.test.hpp"
 #include "zut.test.hpp"
 #include "zjb.test.hpp"
@@ -59,35 +60,36 @@ int main(int argc, char *argv[])
   int rc = tests(
       argc, argv,
       []() -> void
-      {
-        zo_uss_tests();
-        zut_tests();
-        zjb_tests();
-        zds_tests();
-        zkr_tests();
-        zcn_tests();
-        zstorage_tests();
-        zrecovery_tests();
-        zmetal_tests();
-        zusf_tests();
-        zbase64_tests();
-        zo_tests();
-        zlogger_tests();
-        zwto_tests();
-        parser_tests();
-        result_table_tests();
-        zstd_tests();
-        zjson_tests();
-        zo_server_tests();
-        zo_uss_server_tests();
-        zo_ds_server_tests();
-        zo_cert_server_tests();
-        zo_job_server_tests();
-        server_worker_tests();
-        server_validator_tests();
-        server_logger_tests();
-        plugin_tests();
-      });
+  {
+    zo_uss_tests();
+    zut_tests();
+    zjb_tests();
+    zds_tests();
+    zkr_tests();
+    zcn_tests();
+    zstorage_tests();
+    zrecovery_tests();
+    zmetal_tests();
+    zusf_tests();
+    zbase64_tests();
+    zo_tests();
+    zlogger_tests();
+    zwto_tests();
+    censor_tests();
+    parser_tests();
+    result_table_tests();
+    zstd_tests();
+    zjson_tests();
+    zo_server_tests();
+    zo_uss_server_tests();
+    zo_ds_server_tests();
+    zo_cert_server_tests();
+    zo_job_server_tests();
+    server_worker_tests();
+    server_validator_tests();
+    server_logger_tests();
+    plugin_tests();
+  });
 
   return rc;
 }
