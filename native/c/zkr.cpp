@@ -513,15 +513,13 @@ int zkr_list_ring(ZKR *zkr, const std::string &owner, const std::string &ring,
   return result;
 }
 
-std::vector<ZKRCertInfo> zkr_filter_certs(const std::vector<ZKRCertInfo> &certs,
-                                          const std::string &label,
-                                          const std::string &usage,
-                                          size_t max_entries, bool *more_available)
+void zkr_filter_certs_into(const std::vector<ZKRCertInfo> &certs, const std::string &label,
+                           const std::string &usage, size_t max_entries, bool *more_available,
+                           std::vector<ZKRCertInfo> &out)
 {
   if (more_available != nullptr)
     *more_available = false;
 
-  std::vector<ZKRCertInfo> out;
   for (std::vector<ZKRCertInfo>::const_iterator it = certs.begin(); it != certs.end(); ++it)
   {
     // RACDCERT LABEL semantics: exact and case-sensitive, no wildcards.
@@ -539,6 +537,15 @@ std::vector<ZKRCertInfo> zkr_filter_certs(const std::vector<ZKRCertInfo> &certs,
     }
     out.push_back(*it);
   }
+}
+
+std::vector<ZKRCertInfo> zkr_filter_certs(const std::vector<ZKRCertInfo> &certs,
+                                          const std::string &label,
+                                          const std::string &usage,
+                                          size_t max_entries, bool *more_available)
+{
+  std::vector<ZKRCertInfo> out;
+  zkr_filter_certs_into(certs, label, usage, max_entries, more_available, out);
   return out;
 }
 

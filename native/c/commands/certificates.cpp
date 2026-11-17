@@ -11,6 +11,7 @@
 
 #include "certificates.hpp"
 #include "../zkr.hpp"
+#include "../zkrio.hpp"
 #include "../zbase64.h"
 #include "../zds.hpp"
 #include "../ztype.h"
@@ -115,114 +116,6 @@ int run_simple(InvocationContext &context, int rc, ZKR &zkr, const std::string &
     result->set("warning", str(zkr.diag.warning));
   add_saf_returns(result, zkr);
   context.set_object(result);
-  return RTNCD_SUCCESS;
-}
-
-// Read a PKCS#12 blob out of a sequential data set or PDS/E member. Binary mode so
-// LE concatenates record data with no RDWs and no code-page conversion --
-// byte-identical to `cp -B "//'DSN'"`. Fixed-format sources are accepted:IBM's GSK
-// (Global Security Kit) ignores the record padding that follows the PKCS#12 DER structure.
-int read_cert_dsn(const std::string &dsn, std::string &data, std::string &err)
-{
-  ZDS zds{};
-  // zds_dataset_exists() OPENs the data set, which would hang on a password prompt.
-  if (zds_validate_no_password(&zds, dsn, false) != RTNCD_SUCCESS)
-  {
-    err = zds.diag.e_msg;
-    return RTNCD_FAILURE;
-  }
-  if (!zds_dataset_exists(dsn))
-  {
-    err = "Could not access data set: " + dsn;
-    return RTNCD_FAILURE;
-  }
-
-  zut_prepare_encoding("binary", &zds.encoding_opts);
-  const int rc = zds_read(ZDSReadOpts{.zds = &zds, .dsname = dsn}, data);
-  if (rc != RTNCD_SUCCESS)
-  {
-    err = zds.diag.e_msg;
-    return RTNCD_FAILURE;
-  }
-  if (data.empty())
-  {
-    err = "PKCS#12 data set is empty: " + dsn;
-    return RTNCD_FAILURE;
-  }
-  return RTNCD_SUCCESS;
-}
-
-// Write exported certificate bytes to a data set, creating it when absent.
-// is_binary=true  (p12): raw bytes, chunked into V-format records (zds_write_binary).
-// is_binary=false (pem): the EBCDIC PEM text is written as records via zds_write in
-//                        text mode -- one line per record.
-int write_cert_dsn(const std::string &dsn, const std::string &data, bool is_binary, std::string &err)
-{
-  std::string created_dsn; // set only when this call allocated the data set, so a failed write can roll it back
-  ZDS check{};
-  // zds_dataset_exists() OPENs the data set, which would hang on a password prompt.
-  if (zds_validate_no_password(&check, dsn, true) != RTNCD_SUCCESS)
-  {
-    err = check.diag.e_msg;
-    return RTNCD_FAILURE;
-  }
-  if (!zds_dataset_exists(dsn))
-  {
-    const auto open_paren = dsn.find('(');
-    const auto close_paren = dsn.find(')');
-    const bool has_member = open_paren != std::string::npos && close_paren != std::string::npos && close_paren > open_paren;
-    const std::string base_dsn = has_member ? dsn.substr(0, open_paren) : dsn;
-
-    if (has_member)
-    {
-      const std::string member = dsn.substr(open_paren + 1, close_paren - open_paren - 1);
-      if (!zds_is_valid_member_name(member))
-      {
-        err = "Invalid member name: " + member;
-        return RTNCD_FAILURE;
-      }
-    }
-
-    // RACDCERT EXPORT parity: PS/VB/LRECL(84)/BLKSIZE(27998). Used for PEM too: the
-    // 64-column Base64 lines fit, and VB keeps the text byte-exact (FB would blank-pad).
-    DS_ATTRIBUTES a{}; // zero-init: zds_create_dsn preserves 0, only negative means "unset"
-    a.dsorg = has_member ? "PO" : "PS";
-    a.recfm = "V,B"; // mandatory -- FB pads records with blanks, which would change the byte count
-    a.lrecl = 84;
-    a.blksize = 27998;
-    a.alcunit = "TRK";
-    a.primary = 5;
-    a.secondary = 5;
-    if (has_member)
-    {
-      a.dirblk = 5;
-      a.dsntype = ZDS_DSNTYPE_LIBRARY;
-    }
-
-    std::string response;
-    if (zds_create_dsn(nullptr, base_dsn, a, response) != RTNCD_SUCCESS)
-    {
-      err = "Could not create data set '" + base_dsn + "': " + response;
-      return RTNCD_FAILURE;
-    }
-    created_dsn = base_dsn;
-  }
-
-  ZDS zds{}; // eDataTypeText + empty codepage -> zds_use_codepage() is false -> no iconv for PEM
-  const int rc = is_binary
-                     ? zds_write_binary(ZDSWriteOpts{.zds = &zds, .dsname = dsn}, data)
-                     : zds_write(ZDSWriteOpts{.zds = &zds, .dsname = dsn}, data);
-  if (rc != RTNCD_SUCCESS)
-  {
-    err = zds.diag.e_msg;
-    if (!created_dsn.empty())
-    {
-      ZDS cleanup{};
-      if (zds_delete_dsn(&cleanup, created_dsn) != RTNCD_SUCCESS)
-        err += "; could not remove partially written data set '" + created_dsn + "'";
-    }
-    return RTNCD_FAILURE;
-  }
   return RTNCD_SUCCESS;
 }
 
@@ -369,7 +262,7 @@ int handle_cert_export(InvocationContext &context)
     // the file is created (or truncated) owner-read/write only, independent of
     // the process umask.
     std::string err;
-    if (zut_write_file_private(file, data, err) != RTNCD_SUCCESS)
+    if (zkrio_write_file(file, data, err) != RTNCD_SUCCESS)
     {
       context.error_stream() << "Error: could not write output file: " << file << " (" << err << ")" << std::endl;
       return RTNCD_FAILURE;
@@ -382,7 +275,7 @@ int handle_cert_export(InvocationContext &context)
   else if (!dsn.empty())
   {
     std::string err;
-    if (write_cert_dsn(dsn, data, is_p12, err) != RTNCD_SUCCESS)
+    if (zkrio_write_dsn(dsn, data, is_p12, err) != RTNCD_SUCCESS)
     {
       context.error_stream() << "Error: could not write output data set: " << dsn << " (" << err << ")" << std::endl;
       return RTNCD_FAILURE;
@@ -459,7 +352,7 @@ int handle_cert_import(InvocationContext &context)
   if (!dsn.empty())
   {
     std::string err;
-    if (read_cert_dsn(dsn, opts.p12_data, err) != RTNCD_SUCCESS)
+    if (zkrio_read_dsn(dsn, opts.p12_data, err) != RTNCD_SUCCESS)
     {
       context.error_stream() << "Error: could not read source data set: " << dsn << " (" << err << ")" << std::endl;
       return RTNCD_FAILURE;

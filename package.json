@@ -38,6 +38,7 @@
     "z:python:post": "tsx scripts/buildTools.ts python:post",
     "z:python:swig:install": "tsx scripts/buildTools.ts python:swig:install",
     "z:python:test": "tsx scripts/buildTools.ts python:test",
+    "z:python:wheel": "tsx scripts/buildTools.ts python:wheel",
     "z:rebuild": "tsx scripts/buildTools.ts rebuild",
     "z:test": "npm run z:make all tests && tsx scripts/buildTools.ts test",
     "z:upload": "tsx scripts/buildTools.ts upload",
