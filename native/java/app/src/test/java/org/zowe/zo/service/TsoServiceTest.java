@@ -123,4 +123,51 @@ class TsoServiceTest {
     void sessionsRequireAnAuthenticatedUser() {
         assertThrows(ZoRpcException.class, () -> service(Clock.systemUTC()).start());
     }
+
+    @Test
+    void quietCommandsAreChargedForCommandTextAndRecordOverhead() throws Exception {
+        when(rpc.call(eq("tsoCommand"), org.mockito.ArgumentMatchers.any())).thenReturn(json.readTree("{\"data\":\"\"}"));
+        var tso = new TsoService(rpc, Clock.systemUTC(), 2, Duration.ofMinutes(10), 2000);
+        as("user1");
+        var session = tso.start();
+        String longCommand = "LISTCAT ENT('" + "A".repeat(900) + "')";
+        tso.send(session.sessionId(), longCommand);
+        // 900+ chars of command text plus overhead fill most of the 2000-byte budget, so the
+        // next send is refused up front instead of retaining unbounded command text
+        tso.send(session.sessionId(), longCommand);
+        var e = assertThrows(ZoRpcException.class, () -> tso.send(session.sessionId(), longCommand));
+        assertEquals(ZoRpcException.CONFLICT, e.getCode());
+    }
+
+    @Test
+    void concurrentStartsCannotExceedThePerUserLimit() throws Exception {
+        var tso = new TsoService(rpc, Clock.systemUTC(), 5, Duration.ofMinutes(10), 1000);
+        as("user1");
+        for (int i = 0; i < 4; i++) tso.start();
+        int threads = 16;
+        var ready = new java.util.concurrent.CountDownLatch(threads);
+        var go = new java.util.concurrent.CountDownLatch(1);
+        var started = new java.util.concurrent.atomic.AtomicInteger();
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        for (int i = 0; i < threads; i++) {
+            pool.submit(() -> {
+                SecurityContextHolder.getContext().setAuthentication(auth);
+                ready.countDown();
+                try {
+                    go.await();
+                    tso.start();
+                    started.incrementAndGet();
+                } catch (Exception ignored) {
+                    // the losers get CONFLICT
+                }
+                return null;
+            });
+        }
+        ready.await();
+        go.countDown();
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals(1, started.get(), "exactly one start may take the last free slot");
+    }
 }

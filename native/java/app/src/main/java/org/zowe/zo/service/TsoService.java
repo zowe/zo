@@ -102,19 +102,25 @@ public class TsoService {
 
     public SessionInfo start() throws ZoRpcException {
         String owner = currentUser();
-        Instant now = clock.instant();
-        expireIdle(now);
-        long owned = sessions.values().stream().filter(s -> s.owner.equals(owner)).count();
-        if (owned >= maxSessionsPerUser) {
-            throw new ZoRpcException("tsoSession", ZoRpcException.CONFLICT,
-                    "Too many TSO sessions for this user (limit " + maxSessionsPerUser + "); end one first", null);
+        // Count-and-insert must be atomic, otherwise concurrent starts can exceed the limit
+        synchronized (sessions) {
+            Instant now = clock.instant();
+            expireIdle(now);
+            long owned = sessions.values().stream().filter(s -> s.owner.equals(owner)).count();
+            if (owned >= maxSessionsPerUser) {
+                throw new ZoRpcException("tsoSession", ZoRpcException.CONFLICT,
+                        "Too many TSO sessions for this user (limit " + maxSessionsPerUser + "); end one first", null);
+            }
+            Session session = new Session(UUID.randomUUID().toString(), owner, now);
+            sessions.put(session.id, session);
+            return info(session);
         }
-        Session session = new Session(UUID.randomUUID().toString(), owner, now);
-        sessions.put(session.id, session);
-        return info(session);
     }
 
     static final String TRUNCATED_MARKER = "\n[output truncated: session buffer full]";
+    /** Conservative per-record charge for list/object overhead, so empty outputs still count. */
+    static final int RECORD_OVERHEAD_BYTES = 256;
+    static final int MAX_PENDING_RECORDS = 1000;
 
     /**
      * Runs a command in the session, buffers its output for {@link #receive}, and returns it.
@@ -124,7 +130,7 @@ public class TsoService {
     public CommandResult send(String sessionId, String command) throws ZoRpcException {
         Session session = owned(sessionId);
         synchronized (session) {
-            if (session.pendingBytes >= maxBufferedBytes) {
+            if (session.pendingBytes >= maxBufferedBytes || session.pending.size() >= MAX_PENDING_RECORDS) {
                 throw new ZoRpcException("tsoSession", ZoRpcException.CONFLICT,
                         "Session output buffer is full; receive pending output first", null);
             }
@@ -132,11 +138,13 @@ public class TsoService {
         CommandResult result = issue(command);
         synchronized (session) {
             String output = result.output() == null ? "" : result.output();
-            int room = Math.max(0, maxBufferedBytes - session.pendingBytes);
+            // Retained state is charged in full: command text, output, marker and record overhead
+            int fixed = result.command().length() + RECORD_OVERHEAD_BYTES;
+            int room = Math.max(0, maxBufferedBytes - session.pendingBytes - fixed - TRUNCATED_MARKER.length());
             CommandResult buffered = output.length() <= room ? result
                     : new CommandResult(result.command(), result.rc(), output.substring(0, room) + TRUNCATED_MARKER);
             session.pending.add(buffered);
-            session.pendingBytes += Math.min(output.length(), room);
+            session.pendingBytes += fixed + buffered.output().length();
             session.lastUsed = clock.instant();
         }
         return result;
@@ -156,7 +164,9 @@ public class TsoService {
 
     public void end(String sessionId) throws ZoRpcException {
         owned(sessionId);
-        sessions.remove(sessionId);
+        synchronized (sessions) {
+            sessions.remove(sessionId);
+        }
     }
 
     public SessionInfo describe(String sessionId) throws ZoRpcException {
@@ -174,7 +184,9 @@ public class TsoService {
     }
 
     private void expireIdle(Instant now) {
-        sessions.values().removeIf(s -> s.lastUsed.plus(idleTimeout).isBefore(now));
+        synchronized (sessions) {
+            sessions.values().removeIf(s -> s.lastUsed.plus(idleTimeout).isBefore(now));
+        }
     }
 
     private SessionInfo info(Session s) {

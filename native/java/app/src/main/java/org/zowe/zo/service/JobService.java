@@ -150,7 +150,9 @@ public class JobService {
             try {
                 return contentIo.readSpool(InputValidator.jobRef(jobRef), spoolId, options).data();
             } catch (ZoRpcException e) {
-                if (e.getCode() == ZoRpcException.NOT_FOUND) throw InputValidator.notFound("readSpool", "Spool file was not found");
+                if (e.getCode() == ZoRpcException.NOT_FOUND) {
+                    throw InputValidator.notFound("readSpool", "Spool file was not found");
+                }
                 throw e;
             }
         }

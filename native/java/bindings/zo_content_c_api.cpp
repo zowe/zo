@@ -150,7 +150,12 @@ bool apply_etag(char (&target)[N], const ZoContentOptions_C *options, std::strin
 bool access_denied(const std::string &path, int flags)
 {
   struct stat st;
-  if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+  if (stat(path.c_str(), &st) != 0)
+  {
+    // Denied while resolving the path (e.g. a parent directory without search permission)
+    return errno == EACCES;
+  }
+  if (!S_ISREG(st.st_mode))
   {
     return false;
   }
@@ -427,7 +432,14 @@ extern "C"
       struct stat file_stats;
       if (stat(path.c_str(), &file_stats) == -1)
       {
-        fail(result, ZO_CONTENT_NOT_FOUND, "path not found");
+        if (errno == EACCES)
+        {
+          fail(result, ZO_CONTENT_FORBIDDEN, "not authorized to access path");
+        }
+        else
+        {
+          fail(result, ZO_CONTENT_NOT_FOUND, "path not found");
+        }
         return;
       }
 
@@ -505,7 +517,11 @@ extern "C"
       std::string content;
       if (zjb_read_job_content_by_key(&zjb, jobid, key, content) != RTNCD_SUCCESS)
       {
-        fail(result, ZO_CONTENT_NOT_FOUND, std::string("could not read spool file: ") + zjb.diag.e_msg);
+        // Only zjb's "missing job / missing key" diagnostics mean not found; allocation, OPEN and
+        // conversion failures are server errors and keep their diagnostic.
+        const char *msg = zjb.diag.e_msg;
+        const bool missing = std::strstr(msg, "Could not locate") != nullptr || std::strstr(msg, "not found in job") != nullptr;
+        fail(result, missing ? ZO_CONTENT_NOT_FOUND : ZO_CONTENT_FAILED, std::string("could not read spool file: ") + msg);
         return;
       }
 

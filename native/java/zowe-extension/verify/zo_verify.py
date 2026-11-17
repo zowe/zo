@@ -5,6 +5,7 @@ Credentials are passed to curl as netrc files and never read here.
 Usage: zo_verify.py <host> <service-port> <gateway-port> <netrc-user1> <netrc-user2> <expected-version>
 """
 import json
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,10 @@ import tempfile
 HOST, SVC, GW, N1, N2, VERSION = sys.argv[1:7]
 DIRECT = f"https://{HOST}:{SVC}"
 GATEWAY = f"https://{HOST}:{GW}/zo/api/v1"
-TMP_FILE = "/tmp/zo-verify-user1.txt"
+# Fixture: a directory unique to this run, created exclusively (mode 700) and owned by user 1.
+# Nothing outside it is written or deleted, so concurrent runs and pre-existing files are safe.
+FIXTURE_DIR = f"/tmp/zo-verify-{secrets.token_hex(8)}"
+TMP_FILE = f"{FIXTURE_DIR}/content.txt"
 results = []
 
 
@@ -110,6 +114,12 @@ for i in ids:
     curl(f"{DIRECT}/zo/api/v1/tso/sessions/{i}", "DELETE", N1)
 
 # --- C. content safety -----------------------------------------------------------
+code, _ = curl(f"{DIRECT}/zosmf/restfiles/fs{FIXTURE_DIR}", "POST", N1, json_body={"type": "dir", "mode": "rwx------"})
+if code != 201:
+    check("C0 create private fixture directory (exclusive)", False, f"{code}; refusing to continue")
+    print(f"\n{len([r for r in results if r[1]])}/{len(results)} passed")
+    sys.exit(1)
+check("C0 create private fixture directory (exclusive)", True)
 f = f"{DIRECT}/zosmf/restfiles/fs{TMP_FILE}"
 curl(f, "PUT", N1, body="original content\n", headers=("Content-Type: text/plain; charset=UTF-8",))
 code, _ = curl(f, "PUT", N1, body="replacement\n",
@@ -124,8 +134,8 @@ check("C3 charset-less upload uses ISO8859-1 (z/OSMF default)", data == "cafÃ©
 curl(f, "PUT", N1, json_body={"request": "chmod", "mode": "600"})
 code, _ = curl(f, "GET", N2)
 check("C4 other user denied private file -> 403", code == 403, f"{code}")
-code, _ = curl(f, "DELETE", N1)
-check("C5 cleanup delete -> 204", code == 204, f"{code}")
+code, _ = curl(f"{DIRECT}/zosmf/restfiles/fs{FIXTURE_DIR}", "DELETE", N1, headers=("X-IBM-Option: recursive",))
+check("C5 cleanup of this run's fixture directory -> 204", code == 204, f"{code}")
 
 failed = [r for r in results if not r[1]]
 print(f"\n{len(results) - len(failed)}/{len(results)} passed")

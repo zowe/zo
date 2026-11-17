@@ -35,6 +35,17 @@ public class ZoContentBindings implements ZoContentIo {
     private static final int INVALID = 4;
     private static final int FORBIDDEN = 5;
 
+    /** Largest content materialized on the Java heap; larger results are rejected before allocation. */
+    static final long MAX_CONTENT_BYTES = FfmUtils.MAX_DATA_STRING_LENGTH;
+
+    /** Rejects a native result length before any Java array is allocated for it. */
+    static void requireWithinLimit(String op, long length) throws ZoRpcException {
+        if (length < 0 || length > MAX_CONTENT_BYTES) {
+            throw new ZoRpcException(op, ZoRpcException.INVALID_PARAMS,
+                    "Content is too large to return (" + length + " bytes; limit " + MAX_CONTENT_BYTES + ")", null);
+        }
+    }
+
     @Override
     public Content readDataset(String dsname, Options options) throws ZoRpcException {
         requireLatin1(dsname);
@@ -71,6 +82,7 @@ public class ZoContentBindings implements ZoContentIo {
             org.zowe.zo.config.ServerTiming.recordCpu("native-cpu", c0);
             return withResult("readSpool", result, r -> {
                 long length = (long) Native.LENGTH.get(r, 0L);
+                requireWithinLimit("readSpool", length);
                 MemorySegment data = (MemorySegment) Native.DATA.get(r, 0L);
                 return new Content(length == 0 ? new byte[0] : data.reinterpret(length).toArray(ValueLayout.JAVA_BYTE), null);
             });
@@ -92,6 +104,7 @@ public class ZoContentBindings implements ZoContentIo {
             return withResult(op, result, r -> {
                 long t1 = System.nanoTime();
                 long length = (long) Native.LENGTH.get(r, 0L);
+                requireWithinLimit(op, length);
                 MemorySegment data = (MemorySegment) Native.DATA.get(r, 0L);
                 byte[] bytes = length == 0 ? new byte[0] : data.reinterpret(length).toArray(ValueLayout.JAVA_BYTE);
                 org.zowe.zo.config.ServerTiming.record("copy", t1);
@@ -126,7 +139,7 @@ public class ZoContentBindings implements ZoContentIo {
     }
 
     private interface ResultReader<T> {
-        T read(MemorySegment result);
+        T read(MemorySegment result) throws ZoRpcException;
     }
 
     private <T> T withResult(String op, MemorySegment raw, ResultReader<T> reader) throws Throwable {
