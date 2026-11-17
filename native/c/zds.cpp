@@ -2428,9 +2428,15 @@ int zds_delete_member_shared(ZDS *zds, const std::string &dsn)
   const auto member_start = member_dsn.find('(');
   const std::string member_name = member_dsn.substr(member_start + 1, member_dsn.find(')', member_start) - member_start - 1);
 
+  if (!zds_is_valid_member_name(member_name))
+  {
+    ZDIAG_SET_MSG(&zds->diag, "Invalid member name: %s", member_name.c_str());
+    return RTNCD_FAILURE;
+  }
+
   std::vector<ZDSMem> members;
   ZDS list_zds{};
-  int rc = zds_list_members(&list_zds, member_dsn.substr(0, member_start), members);
+  int rc = zds_list_members(&list_zds, member_dsn.substr(0, member_start), members, member_name);
   if (0 != rc)
   {
     memcpy(&zds->diag, &list_zds.diag, sizeof(zds->diag));
