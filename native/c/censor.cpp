@@ -60,28 +60,28 @@ std::string censor_raw_data(const std::string &data)
           break;
         }
       }
-      for (censor_end = censor_start; censor_end < result.length(); censor_end++)
+      censor_end = censor_start;
+      while (censor_end < result.length())
       {
         char &current_char = result[censor_end];
         if (censor_start_char == '\0' && current_char != ' ')
         {
           censor_start_char = current_char;
-          continue;
         }
-
-        if ((censor_start_char == '"' || censor_start_char == '\''))
+        else if ((censor_start_char == '"' || censor_start_char == '\''))
         {
           if (result[censor_end - 1] != '\\' && censor_start_char == current_char)
           {
-            censor_end++;
+            censor_end++; // censor the end quote
             break;
           }
         }
         else if (current_char == ' ')
         {
-          // the start of the censor string should be an unquoted character, so whitespace should end the censoring
+          // the start of the censor string isn't a quote character, so whitespace should end the censoring
           break;
         }
+        censor_end++;
       }
       censor_end = censor_end > result.length() ? result.length() : censor_end;
       if (censor_end - censor_start > 0)
