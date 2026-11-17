@@ -63,12 +63,12 @@ std::string censor_raw_data(const std::string &data)
       censor_end = censor_start;
       while (censor_end < result.length())
       {
-        char &current_char = result[censor_end];
+        const char &current_char = result[censor_end];
         if (censor_start_char == '\0' && current_char != ' ')
         {
           censor_start_char = current_char;
         }
-        else if ((censor_start_char == '"' || censor_start_char == '\''))
+        else if (censor_start_char == '"' || censor_start_char == '\'')
         {
           if (result[censor_end - 1] != '\\' && censor_start_char == current_char)
           {
