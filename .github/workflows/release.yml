@@ -127,6 +127,9 @@ jobs:
         run: |
           sha256sum --check --strict *.whl.sha256
           python -m twine check *.whl
+          # The PyPI plug-in uploads every file in its distribution directory.
+          mkdir wheels
+          mv *.whl wheels/
 
       - name: Run Octorelease
         if: ${{ env.TRAIN == 'Release' }}
@@ -140,6 +143,11 @@ jobs:
           NPM_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
           NPM_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
           NPM_EMAIL: ${{ secrets.ZOWE_ROBOT_EMAIL }}
+          PUBLISH_PYTHON: ${{ !inputs.dry-run }}
+          TWINE_NON_INTERACTIVE: "1"
+          TWINE_REPOSITORY_URL: https://zowe.jfrog.io/artifactory/api/pypi/pypi-release-local/
+          TWINE_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
         with:
           config-dir: .github
           dry-run: ${{ inputs.dry-run }}
@@ -162,12 +170,3 @@ jobs:
           jfrog rt u --detailed-summary dist/*cli*.tgz libs-release-local/org/zowe/zowex/$NEW_VERSION_SUFFIX/zowex-for-zowe-cli-$NEW_VERSION_SUFFIX.tgz
           jfrog rt u --detailed-summary dist/*sdk*.tgz libs-release-local/org/zowe/zowex/$NEW_VERSION_SUFFIX/zowe-zowex-for-zowe-sdk-$NEW_VERSION_SUFFIX.tgz
           jfrog rt u --detailed-summary dist/*.pax.Z libs-release-local/org/zowe/zowex/$NEW_VERSION_SUFFIX/zowe-server-$NEW_VERSION_SUFFIX.pax.Z
-
-      - name: Publish Python Wheel to Artifactory
-        if: ${{ !inputs.dry-run && env.TRAIN == 'Release' }}
-        run: python -m twine upload --non-interactive dist/python/*.whl
-        env:
-          # Twine uses the PyPI API endpoint for the pypi-release-local repository.
-          TWINE_REPOSITORY_URL: https://zowe.jfrog.io/artifactory/api/pypi/pypi-release-local/
-          TWINE_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
