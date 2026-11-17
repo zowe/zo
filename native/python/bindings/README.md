@@ -38,15 +38,21 @@ the server.
 
 When selected, the Python steps build the wheel after the binding tests pass.
 They archive the wheel and SHA-256 file in the `zowe-python-wheel` Actions artifact.
-The CI host must provide IBM Python 3.11, 3.13, and 3.14 under
-`/usr/lpp/IBM/cyp/`; set the `ZPY_PYTHON_ROOT` repository variable to use another
-installation root with the same `v3rXX/pyz/bin/python` layout.
+The CI host must provide IBM Python 3.11. PR, push, and manual builds include
+Python 3.13 and 3.14 when their configured interpreters exist. The build log lists
+the included runtimes. Versioned releases require all three runtimes.
+Set the `ZPY_PYTHON_ROOT` repository variable to change the default
+`/usr/lpp/IBM/cyp/` installation root with its `v3rXX/pyz/bin/python` layout.
+Set `ZPY_PYTHON_311`, `ZPY_PYTHON_313`, or `ZPY_PYTHON_314` repository variables
+to use individual interpreter paths.
 
 To publish, run the existing **Release** workflow with an explicit `version`.
 It passes that version to the combined build, downloads the wheel from the same
 workflow run, verifies its checksum and Twine metadata, and uploads it to
 Zowe's `pypi-release-local` repository. A `dry-run` still builds, archives, and
-checks the wheel but skips the upload. Nightly releases do not publish wheels.
+checks the wheel but skips the upload. Octorelease publishes the wheel and adds
+the wheel and checksum to the GitHub release assets. Nightly releases do not
+publish wheels.
 
 Publishing uses the existing `ARTIFACTORY_USERNAME` and `ARTIFACTORY_PASSWORD`
 GitHub secrets, available to the `release` environment. These credentials must
@@ -114,6 +120,16 @@ Use `~/python` for a home-directory installation, or override individual
 executables with the settings above. Local `ZPY_*` environment variables override
 `pythonEnv`. SSH target and deployment root come from the selected profile.
 The command uses the runtimes directly and does not change `fpm`.
+By default, all three runtimes are required. To build with Python 3.11 and any
+available additional runtimes, run:
+
+```sh
+npm run z:python:wheel -- --allow-missing-runtimes
+```
+
+This option skips missing Python 3.13 and 3.14 interpreters. An installed
+interpreter with the wrong version or a failed runtime probe still fails the build.
+
 If `PIP_INDEX_URL` is set locally, it is passed through SSH input to pip without
 putting its credentials in command arguments; otherwise the remote profile's
 index is used.

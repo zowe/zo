@@ -46,6 +46,25 @@ def decode_json(raw):
     return json.loads(raw.decode("utf-8" if raw.startswith(b"{") else "cp1047"))
 
 
+def probe_runtimes(config, env):
+    runtimes = {}
+    for minor in (11, 13, 14):
+        executable = Path(config["runtimes"][str(minor)]).resolve()
+        if not executable.is_file():
+            if minor != 11 and config.get("allowMissingRuntimes", False):
+                print(f"Skipping unavailable Python 3.{minor}: {executable}", flush=True)
+                continue
+            raise RuntimeError(f"Python 3.{minor} not found: {executable}")
+        result = subprocess.check_output([str(executable), str(Path(__file__).resolve()),
+                                          "--probe-runtime"], env=env)
+        runtime = decode_json(result)
+        if runtime["version"] != f"3.{minor}":
+            raise RuntimeError(f"Expected Python 3.{minor} at {executable}, got {runtime['version']}")
+        runtimes[minor] = runtime
+    print("Wheel runtimes: " + ", ".join(runtime["version"] for runtime in runtimes.values()), flush=True)
+    return runtimes
+
+
 def build_from_stdin():
     """Prepare an isolated build venv and invoke the normal Makefile wheel target."""
     config = decode_json(sys.stdin.buffer.read())
@@ -54,17 +73,7 @@ def build_from_stdin():
     env = os.environ.copy()
     if config.get("indexUrl"):
         env["PIP_INDEX_URL"] = config["indexUrl"]
-    runtimes = {}
-    for minor in (11, 13, 14):
-        executable = Path(config["runtimes"][str(minor)]).resolve()
-        if not executable.is_file():
-            raise RuntimeError(f"Python 3.{minor} not found: {executable}")
-        result = subprocess.check_output([str(executable), str(Path(__file__).resolve()),
-                                          "--probe-runtime"], env=env)
-        runtime = decode_json(result)
-        if runtime["version"] != f"3.{minor}":
-            raise RuntimeError(f"Expected Python 3.{minor} at {executable}, got {runtime['version']}")
-        runtimes[minor] = runtime
+    runtimes = probe_runtimes(config, env)
     venv = root / "build-venv"
     subprocess.run([sys.executable, "-m", "venv", str(venv)], env=env, check=True)
     python = str(venv / "bin/python")
@@ -76,8 +85,9 @@ def build_from_stdin():
     subprocess.run([python, "-m", "pip", "install", "--quiet", "-r", str(requirements)],
                    env=env, stdin=subprocess.DEVNULL, check=True)
     args = []
-    for minor in (13, 14):
-        args += ["--runtime", f"cp3{minor}={runtimes[minor]['deck']}"]
+    for minor, runtime in runtimes.items():
+        if minor != 11:
+            args += ["--runtime", f"cp3{minor}={runtime['deck']}"]
     subprocess.run(["make", "wheel", "PYTHON=" + python, "WHEEL_ARGS=" + shlex.join(args)],
                    cwd=bindings, env=env, stdin=subprocess.DEVNULL, check=True)
 

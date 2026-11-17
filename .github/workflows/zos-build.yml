@@ -3,6 +3,7 @@ name: z/OS Build
 on:
   pull_request:
     paths:
+      - ".github/release.config.js"
       - ".github/workflows/release.yml"
       - ".github/workflows/zos-build.yml"
       - "native/**"
@@ -247,9 +248,18 @@ jobs:
 
       - name: Build Python Wheel
         if: ${{ steps.python.outputs.build == 'true' }}
-        run: npm run z:python:wheel
+        run: |
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            npm run z:python:wheel
+          else
+            npm run z:python:wheel -- --allow-missing-runtimes
+          fi
         env:
+          RELEASE_VERSION: ${{ inputs.version }}
           ZPY_PYTHON_ROOT: ${{ vars.ZPY_PYTHON_ROOT || '/usr/lpp/IBM/cyp/' }}
+          ZPY_PYTHON_311: ${{ vars.ZPY_PYTHON_311 }}
+          ZPY_PYTHON_313: ${{ vars.ZPY_PYTHON_313 }}
+          ZPY_PYTHON_314: ${{ vars.ZPY_PYTHON_314 }}
 
       - name: Archive Python Wheel
         if: ${{ steps.python.outputs.build == 'true' }}

@@ -1196,7 +1196,7 @@ async function buildPythonWheel(connection: Client, config: IConfig): Promise<vo
     const root = path.resolve(__dirname, "..");
     const pythonEnv = { ...config.pythonEnv };
     for (const key of ["ZPY_PYTHON_ROOT", "ZPY_PYTHON_311", "ZPY_PYTHON_313", "ZPY_PYTHON_314"]) {
-        if (process.env[key] !== undefined) pythonEnv[key] = process.env[key];
+        if (process.env[key]) pythonEnv[key] = process.env[key];
     }
     const run = (command: string, input?: string): Promise<string> => {
         const profile = `/tmp/zbind-profile-${crypto.randomUUID()}`;
@@ -1302,11 +1302,20 @@ ${preBuildCmd || ":"}
         await run(
             `cp -R ${quoteWheelShell(`${remoteRoot}/c/chdsect`)} ${quoteWheelShell(`${stage}/native/c/chdsect`)}`,
         );
-        console.log("Building the wheel for IBM Python 3.11, 3.13 and 3.14...");
-        await run(
+        console.log("Building the wheel for the selected IBM Python runtimes...");
+        const buildOutput = await run(
             `${quoteWheelShell(python)} ${quoteWheelShell(`${stage}/${bindings}/package_wheel.py`)} --build-from-stdin`,
-            JSON.stringify({ runtimes, indexUrl: process.env.PIP_INDEX_URL }),
+            JSON.stringify({
+                runtimes,
+                allowMissingRuntimes: args.includes("--allow-missing-runtimes"),
+                indexUrl: process.env.PIP_INDEX_URL,
+            }),
         );
+        for (const line of buildOutput.split(/\r?\n/)) {
+            if (line.startsWith("Skipping unavailable Python ") || line.startsWith("Wheel runtimes: ")) {
+                console.log(line);
+            }
+        }
         const result = JSON.parse(
             await run(
                 `${pythonCommand(pythonWheelDownloadSource)} ${quoteWheelShell(`${stage}/native/python/bindings/dist`)}`,
