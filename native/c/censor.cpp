@@ -52,7 +52,6 @@ std::string censor_raw_data(const std::string &data)
   {
     for (auto &suffix : suffixes)
     {
-      censor_start = -1;
       std::string dash_form = search_arg.length() == 1 ? "-" + search_arg + suffix : "--" + search_arg + suffix;
       size_t arg_index = result.find(dash_form, 0);
       while (arg_index != std::string::npos)
