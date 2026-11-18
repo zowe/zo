@@ -59,11 +59,29 @@ void censor_tests()
         std::string censored = censor_raw_data("command -p \"bet you didn't \\\"think i could include a quote\" --normal socool");
         Expect(censored).ToBe("command -p **** --normal socool");
       });
+      it("censors options followed by tabs and newlines", []()
+      {
+        std::string censored = censor_raw_data("zillion -p\twhoatabcrazy --auth\nmyauthisonthenextline and-that-does-it");
+        Expect(censored).ToBe("zillion -p\t**** --auth\n**** and-that-does-it");
+      });
 
       it("censors options that occur at the end of the string", []()
       {
         std::string censored = censor_raw_data("command one two three --tokenValue thisisattheend!");
         Expect(censored).ToBe("command one two three --tokenValue ****");
+      });
+
+      it("censors options that appear multiple times", []()
+      {
+        std::string censored = censor_raw_data("idk my password --password firstValue --password secondValue --password thirdValue");
+        Expect(censored).ToBe("idk my password --password **** --password **** --password ****");
+      });
+
+      it("censor options that appear multiple times with different characters following the argument name",
+         []()
+      {
+        std::string censored = censor_raw_data("idk my password --password=firstValue --password secondValue");
+        Expect(censored).ToBe("idk my password --password=**** --password ****");
       });
     });
   });
