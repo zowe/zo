@@ -31,13 +31,12 @@
 #define PACKAGE_VERSION "unknown"
 #endif
 
-// Returns the executable's directory, or "" if argv[0] is not an absolute path
 static std::string get_executable_dir(const char *argv0)
 {
   const std::string full_path(argv0 != nullptr ? argv0 : "");
-  if (full_path.empty() || full_path[0] != '/')
-    return "";
   const size_t last_slash = full_path.find_last_of('/');
+  if (last_slash == std::string::npos)
+    return ".";
   return last_slash == 0 ? "/" : full_path.substr(0, last_slash);
 }
 
