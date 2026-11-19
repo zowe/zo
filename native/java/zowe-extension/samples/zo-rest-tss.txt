@@ -13,6 +13,9 @@
 *   ZWEINST  = ACID that runs 'zwe components install'
 *   ZOENDGRP = profile or ACID of end users for the optional grants
 *   ZOOWNER  = department ACID that owns the resources
+*   ZORSTUSR = ACID for the optional separate started task (section 7)
+*   ZORSTC   = started task proc name (samples/ZORSTC.jcl)
+*   ZWEADMIN = Zowe group; ZORSTUSR default group
 *----------------------------------------------------------------------
 
 * 1. Ownership. These resources are normally already owned (Zowe's own TSS
@@ -44,3 +47,48 @@ TSS PERMIT(ZOENDGRP) IBMFAC(IRR.DIGTCERT.LISTRING) ACCESS(READ)
 TSS LIST(ZWESVUSR) DATA(ALL)
 TSS WHOHAS IBMFAC(BPX.SERVER)
 TSS WHOHAS IBMFAC(BPX.FILEATTR.PROGCTL)
+
+*----------------------------------------------------------------------
+* 7. Running zo-rest as its own started task (optional)
+*    Replace <dept>, <uid> and <home> (for example /u/zorest).
+*----------------------------------------------------------------------
+* PROTECTED: no password, cannot sign on (PROTECTED and PASSWORD are
+* mutually exclusive).
+TSS CREATE(ZORSTUSR) TYPE(USER) NAME('ZO REST SERVER') +
+    DEPARTMENT(<dept>) FACILITY(STC) PROTECTED
+TSS ADD(ZORSTUSR) GROUP(ZWEADMIN) DFLTGRP(ZWEADMIN) UID(<uid>) +
+    HOME(<home>) OMVSPGM(/bin/sh)
+TSS ADD(STC) PROCNAME(ZORSTC) ACID(ZORSTUSR)
+
+* BPX.SERVER UPDATE (same warning as section 1) and BPX.JOBNAME READ.
+TSS PERMIT(ZORSTUSR) IBMFAC(BPX.SERVER) ACCESS(UPDATE)
+TSS PERMIT(ZORSTUSR) IBMFAC(BPX.JOBNAME) ACCESS(READ)
+
+* TCP/IP stack access: only if your site protects it (SERVAUTH).
+*    TSS PERMIT(ZORSTUSR) SERVAUTH(EZB.STACKACCESS.<sysname>.<stack>) +
+*        ACCESS(READ)
+
+* Certificate access, option (a): read the Zowe server's key ring
+* including the private key. Add ownership only if the resource is unowned
+* (check: TSS WHOOWNS RDATALIB(ZWESVUSR.ZOWEKRNG.LST)).
+*    TSS ADD(<dept>) RDATALIB(ZWESVUSR.ZOWEKRNG.LST)
+*    TSS PERMIT(ZORSTUSR) RDATALIB(ZWESVUSR.ZOWEKRNG.LST) ACCESS(CONTROL)
+* Option (b): give ZORSTUSR its own ring with a server certificate signed
+* by the Zowe CA (<zoweca> = the CA's DIGICERT id under CERTAUTH; the
+* Gateway then trusts zo-rest without changes). Ring ZORSTUSR/ZORSTRNG:
+*    TSS GENCERT(ZORSTUSR) DIGICERT(ZORSTSRV) +
+*        SUBJECTN('CN="<host>" O="<org>"') LABLCERT('ZORSTSRV') +
+*        KEYSIZE(2048) NADATE(<mm/dd/yy>) SIGNWITH(CERTAUTH,<zoweca>) +
+*        KEYUSAGE('HANDSHAKE') ALTNAME('DOMAIN=<host>')
+*    TSS ADD(ZORSTUSR) KEYRING(ZORSTRNG) LABLRING('ZORSTRNG')
+*    TSS ADD(ZORSTUSR) KEYRING(ZORSTRNG) RINGDATA(CERTAUTH,<zoweca>) +
+*        USAGE(CERTAUTH)
+*    TSS ADD(ZORSTUSR) KEYRING(ZORSTRNG) RINGDATA(ZORSTUSR,ZORSTSRV) +
+*        USAGE(PERSONAL) DEFAULT
+*    TSS PERMIT(ZORSTUSR) IBMFAC(IRR.DIGTCERT.LISTRING) ACCESS(READ)
+*    TSS PERMIT(ZORSTUSR) IBMFAC(IRR.DIGTCERT.LIST) ACCESS(READ)
+*    then: keystore/truststore safkeyring://ZORSTUSR/ZORSTRNG, alias ZORSTSRV
+* PKCS12 file installs: use group read via ZWEADMIN instead (chmod 640
+* server.p12 and truststore.p12, 750 on their directory and its parent).
+
+TSS LIST(ZORSTUSR) DATA(ALL)

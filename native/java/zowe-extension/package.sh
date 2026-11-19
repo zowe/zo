@@ -29,7 +29,7 @@ sed "s/^version: .*/version: ${version}/" "${here}/manifest.yaml" > "${stage}/ma
 # Build identity read by bin/start.sh (registration metadata, /zosmf/info)
 printf 'version=%s\ncommit=%s\nbuilt=%s\n' "${version}" "${commit}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${stage}/BUILD"
 cp "${here}"/bin/*.sh "${stage}/bin/"
-cp "${here}"/config/*.yml "${stage}/config/"
+cp "${here}"/config/*.yml "${here}"/config/*.example "${stage}/config/"
 cp "${here}"/schemas/*.json "${stage}/schemas/"
 # Hard links avoid duplicating the large binaries when staging on the same file system
 link_or_copy() { ln "$1" "$2" 2>/dev/null || cp "$1" "$2"; }

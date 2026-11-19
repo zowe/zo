@@ -22,7 +22,7 @@ for candidate in "${ZWE_zowe_extensionDirectory}/zo-rest" "${ZWE_zowe_runtimeDir
 done
 
 fail() {
-  echo "ZOREST001E $*" >&2
+  case "$1" in ZOREST[0-9][0-9][0-9]E) echo "$*" >&2 ;; *) echo "ZOREST001E $*" >&2 ;; esac
   exit 1
 }
 
@@ -73,6 +73,18 @@ esac
 export ZO_PORT="${ZWE_configs_port:-27610}"
 export ZO_HOSTNAME="${ZWE_haInstance_hostname:-${ZWE_zowe_externalDomains_0:-localhost}}"
 export ZO_LISTEN_ADDRESS="${ZWE_configs_zowe_network_server_listenAddresses_0:-${ZWE_zowe_network_server_listenAddresses_0:-0.0.0.0}}"
+ZO_SERVICE_ID="${ZO_SERVICE_ID:-${ZWE_configs_serviceId:-zo}}"
+case "${ZO_SERVICE_ID}" in
+  [a-z]*) ;;
+  *) fail "ZOREST005E Invalid service ID '${ZO_SERVICE_ID}': use 1-32 lowercase letters or digits, starting with a letter." ;;
+esac
+case "${ZO_SERVICE_ID}" in
+  *[!a-z0-9]*) fail "ZOREST005E Invalid service ID '${ZO_SERVICE_ID}': use 1-32 lowercase letters or digits, starting with a letter." ;;
+esac
+[ "${#ZO_SERVICE_ID}" -le 32 ] || fail "ZOREST005E Invalid service ID '${ZO_SERVICE_ID}': use 1-32 lowercase letters or digits, starting with a letter."
+export ZO_SERVICE_ID
+ZO_SERVICE_TITLE="${ZO_SERVICE_TITLE:-${ZWE_configs_serviceTitle}}"
+[ -z "${ZO_SERVICE_TITLE}" ] || export ZO_SERVICE_TITLE
 export ZO_GATEWAY_PORT="${ZWE_zowe_externalPort:-${ZWE_components_gateway_port:-7554}}"
 if [ -n "${ZWE_DISCOVERY_SERVICES_LIST}" ]; then
   export ZO_DISCOVERY_URLS="${ZWE_DISCOVERY_SERVICES_LIST}"
@@ -109,7 +121,7 @@ export LIBPATH="${LIB_DIR}:${LIBPATH}"
 
 echo "ZOREST000I Starting zo REST API on ${ZO_HOSTNAME}:${ZO_PORT} (java ${java_major}, discovery ${ZO_DISCOVERY_URLS})"
 
-export _BPX_JOBNAME="${ZWE_zowe_job_prefix:-ZWE}ZO"
+export _BPX_JOBNAME="${_BPX_JOBNAME:-${ZWE_zowe_job_prefix:-ZWE}ZO}"
 exec "${ZO_JAVA_HOME}/bin/java" \
   -Xms${ZWE_configs_heap_init:-64}m -Xmx${ZWE_configs_heap_max:-512}m \
   -XX:+ExitOnOutOfMemoryError \

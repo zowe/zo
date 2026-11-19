@@ -14,6 +14,10 @@
 //*             BPX.FILEATTR.PROGCTL to run 'extattr +p'
 //*   ZOENDGRP  RACF group of end users for the optional certificate and
 //*             APPL grants
+//*   ZORSTUSR  user for the optional separate started task (section 8)
+//*   ZORSTC    started task proc (samples/ZORSTC.jcl)
+//*   ZWEADMIN  Zowe group; ZORSTUSR default group
+//*   ZWESVUSR/ZOWEKRNG  the Zowe server's key ring
 //*--------------------------------------------------------------------
 //RACF     EXEC PGM=IKJEFT01,REGION=0M
 //SYSTSPRT DD SYSOUT=*
@@ -65,6 +69,54 @@
  RLIST FACILITY BPX.FILEATTR.PROGCTL AUTHUSER
  RLIST FACILITY IRR.DIGTCERT.LIST AUTHUSER
  RLIST FACILITY IRR.DIGTCERT.LISTRING AUTHUSER
+
+ /* ==== Running zo-rest as its own started task (optional) ==========
+         Everything below applies only if you run zo-rest from the
+         ZORSTC proc instead of (or next to) the Zowe launcher.
+         Edit the UID and HOME literals before submitting.            */
+
+ /* ---- 8. STC user: no password (protected), OMVS segment ----- */
+ ADDUSER ZORSTUSR NOPASSWORD DFLTGRP(ZWEADMIN) NAME('ZO REST SERVER') +
+   OMVS(UID(<uid>) HOME('/u/zorest') PROGRAM('/bin/sh'))
+
+ /* ---- 9. Map the proc to the user (STARTED class) ------- */
+ RDEFINE STARTED ZORSTC.* UACC(NONE) +
+   STDATA(USER(ZORSTUSR) GROUP(ZWEADMIN) TRUSTED(NO))
+ SETROPTS RACLIST(STARTED) REFRESH
+
+ /* ---- 10. BPX.SERVER UPDATE (same warning as section 2: do NOT
+         define BPX.SERVER if it does not exist) and BPX.JOBNAME
+         (lets the server set its own job name).                      */
+ PERMIT BPX.SERVER CLASS(FACILITY) ID(ZORSTUSR) ACCESS(UPDATE)
+ RDEFINE FACILITY BPX.JOBNAME UACC(NONE)
+ PERMIT BPX.JOBNAME CLASS(FACILITY) ID(ZORSTUSR) ACCESS(READ)
+ SETROPTS RACLIST(FACILITY) REFRESH
+
+ /* ---- 11. TCP/IP stack access: only if your site protects it with
+         SERVAUTH EZB.STACKACCESS.* profiles. Use your site's profile
+         name.
+ PERMIT EZB.STACKACCESS.<sysname>.<stack> CLASS(SERVAUTH) +
+   ID(ZORSTUSR) ACCESS(READ)
+ SETROPTS RACLIST(SERVAUTH) REFRESH
+                                                                      */
+
+ /* ---- 12. Certificate access, option (a): read the Zowe server's
+         key ring including the private key. RDATALIB must be active
+         and RACLISTed. WARNING: defining the ring profile changes how
+         access to that ring is checked (RDATALIB then governs it),
+         so confirm ZWESVUSR keeps access before refreshing.
+ RDEFINE RDATALIB ZWESVUSR.ZOWEKRNG.LST UACC(NONE)
+ PERMIT ZWESVUSR.ZOWEKRNG.LST CLASS(RDATALIB) ID(ZORSTUSR) +
+   ACCESS(CONTROL)
+ PERMIT ZWESVUSR.ZOWEKRNG.LST CLASS(RDATALIB) ID(ZWESVUSR) +
+   ACCESS(CONTROL)
+ SETROPTS RACLIST(RDATALIB) REFRESH
+         Option (b): create a separate ring for ZORSTUSR holding a
+         certificate signed by the Zowe CA (RACDCERT ... GENCERT /
+         ADDRING / CONNECT), and point the env file at it.
+         PKCS12 file installs: instead give ZORSTUSR group read via
+         ZWEADMIN (chmod 640 server.p12 and truststore.p12, 750 on
+         their directory).                                            */
 /*
 //*--------------------------------------------------------------------
 //* Removal (only for dedicated profiles):

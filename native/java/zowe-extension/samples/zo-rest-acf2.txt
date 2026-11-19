@@ -12,6 +12,9 @@
 *   ZWESVUSR = Zowe started task logonid (zowe.setup.security.users.zowe)
 *   ZWEINST  = logonid that runs 'zwe components install'
 *   ZOENDUID = UID string (or mask) of end users for the optional grants
+*   ZORSTUSR = logonid for the optional separate started task (section 6)
+*   ZORSTC   = started task proc name (samples/ZORSTC.jcl)
+*   ZWEADMIN = Zowe group; ZORSTUSR default group
 *----------------------------------------------------------------------
 
 * IMPORTANT: use RECKEY ... ADD(), which adds an entry to an existing rule
@@ -44,3 +47,40 @@ RECKEY IRR.DIGTCERT.LISTRING TYPE(FAC) ADD(UID(ZOENDUID) SERVICE(READ) ALLOW)
 *    F ACF2,REBUILD(FAC)
 SET RESOURCE(FAC)
 LIST LIKE(BPX.SERVER)
+
+*----------------------------------------------------------------------
+* 6. Running zo-rest as its own started task (optional). UNVERIFIED
+*    TRANSLATION like the rest of this file; confirm every command and
+*    field name with your ACF2 administrator. Replace <uid> and <home>.
+*----------------------------------------------------------------------
+* Logonid: STC, no password, with an OMVS (USS) record.
+ACF
+SET LID
+INSERT ZORSTUSR STC NAME(ZO REST SERVER) GROUP(ZWEADMIN)
+SET PROFILE(USER) DIV(OMVS)
+INSERT ZORSTUSR UID(<uid>) HOME(<home>) OMVSPGM(/bin/sh)
+
+* Map the proc to the logonid (GSO STC record, as Zowe's own setup does).
+SET CONTROL(GSO)
+INSERT STC.ZORSTC LOGONID(ZORSTUSR) GROUP(ZWEADMIN) STCID(ZORSTC)
+*    F ACF2,REFRESH(STC)
+
+* BPX.SERVER UPDATE (same warning as section 1) and BPX.JOBNAME READ.
+SET RESOURCE(FAC)
+RECKEY BPX.SERVER TYPE(FAC) ADD(UID(ZORSTUSR) SERVICE(UPDATE) ALLOW)
+RECKEY BPX.JOBNAME TYPE(FAC) ADD(UID(ZORSTUSR) SERVICE(READ) ALLOW)
+
+* TCP/IP stack access: only if your site protects it (SERVAUTH resource
+* class, EZB.STACKACCESS.<sysname>.<stack>); grant READ to ZORSTUSR.
+
+* Certificate access, option (a): read the Zowe server's key ring
+* including the private key, via the R_datalib resource rule for the ring
+* (resource class and rule key for R_datalib vary by site; verify).
+*    SET RESOURCE(RDL)
+*    RECKEY ZWESVUSR.ZOWEKRNG.LST TYPE(RDL) +
+*      ADD(UID(ZORSTUSR) SERVICE(CONTROL) ALLOW)
+* Option (b): give ZORSTUSR its own ring with a certificate signed by the
+* Zowe CA. PKCS12 file installs: use group read via ZWEADMIN instead
+* (chmod 640 server.p12 and truststore.p12, 750 on their directory).
+
+*    F ACF2,REBUILD(FAC)

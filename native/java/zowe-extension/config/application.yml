@@ -42,11 +42,12 @@ zo:
     version: ${ZO_VERSION:unknown}
 
 apiml:
-  enabled: true
+  # false = standalone (no Discovery registration); see bin/run-standalone.sh
+  enabled: ${ZO_APIML_ENABLED:true}
   service:
     preferIpAddress: false
-    serviceId: zo
-    title: zo REST API
+    serviceId: ${ZO_SERVICE_ID:zo}
+    title: ${ZO_SERVICE_TITLE:zo REST API}
     description: z/OSMF-compatible data set, USS and jobs REST API plus zo extensions
     discoveryServiceUrls: ${ZO_DISCOVERY_URLS}
     scheme: https
@@ -59,16 +60,16 @@ apiml:
     homePageRelativeUrl: /
     statusPageRelativeUrl: /application/info
     healthCheckRelativeUrl: /application/health
-    # Longest gateway URL wins in APIML, so:
-    #   <gateway>/zo/api/v1/zosmf/...  -> /zosmf/...      (Zowe z/OSMF profiles: basePath /zo/api/v1)
-    #   <gateway>/zo/api/v1/...        -> /zo/api/v1/...  (zo extensions)
+    # The gateway prefix is the service ID (default zo). Longest gateway URL wins in APIML, so:
+    #   <gateway>/<serviceId>/api/v1/zosmf/...  -> /zosmf/...      (Zowe z/OSMF profiles: basePath /<serviceId>/api/v1)
+    #   <gateway>/<serviceId>/api/v1/...        -> /zo/api/v1/...  (zo extensions)
     routes:
       - gateway-url: "api/v1/zosmf"
         service-url: /zosmf
       - gateway-url: "api/v1"
         service-url: /zo/api/v1
     apiInfo:
-      - apiId: zowe.apiml.zo
+      - apiId: zowe.apiml.${ZO_SERVICE_ID:zo}
         version: 1.0.0
         gatewayUrl: api/v1
         swaggerUrl: https://${ZO_HOSTNAME}:${ZO_PORT}/v3/api-docs
@@ -109,8 +110,8 @@ apiml:
         buildCommit: ${ZO_BUILD_COMMIT:unknown}
         buildTime: ${ZO_BUILD_TIME:unknown}
         zosmfCompatible: true
-        zosmfBasePath: /zo/api/v1
-        extensionsBasePath: /zo/api/v1
+        zosmfBasePath: /${ZO_SERVICE_ID:zo}/api/v1
+        extensionsBasePath: /${ZO_SERVICE_ID:zo}/api/v1
 
 # Registration is done by the APIML onboarding enabler (apiml.enabled), not Spring Cloud's
 # own Eureka client; enabling both makes Spring Cloud's auto-registration fail at startup.
@@ -127,6 +128,11 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    # zo stores nothing locally; Spring's default 10 MB free-space check on the working
+    # directory would mark the service DOWN (and out of the Gateway) on a nearly full zFS
+    diskspace:
+      enabled: false
 
 logging:
   level:

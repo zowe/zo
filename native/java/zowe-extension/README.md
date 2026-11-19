@@ -12,7 +12,7 @@ Related documents:
 - [`../APIML-REGISTRATION.md`](../APIML-REGISTRATION.md): how APIML identifies the service and
   tells whether it is running (registration metadata, liveness model).
 - [`../README.md`](../README.md): developer-oriented notes on the Java app and native libraries.
-- [`samples/`](samples/): ESM definitions (RACF, ACF2, Top Secret).
+- [`samples/`](samples/): ESM definitions (RACF, ACF2, Top Secret) and the `ZORSTC` started task proc.
 
 Conventions: `<ZOWE_DIR>` is the Zowe runtime directory, `<ZOWE_YAML>` the path to your
 `zowe.yaml`, `<EXT_DIR>` the value of `zowe.extensionDirectory`, `<HOST>` the z/OS host name,
@@ -325,6 +325,8 @@ Zowe exports `components.zo-rest.<key>` as `ZWE_configs_<key>` (dots become `_`)
 | --- | --- | --- |
 | `enabled` | `false` unless set | Zowe starts the component |
 | `port` | `27610` | `ZO_PORT` to `server.port` and the registered port |
+| `serviceId` | `zo` | `ZO_SERVICE_ID`: APIML service ID and Gateway URL prefix (lowercase letters/digits, starts with a letter, max 32, else `ZOREST005E`) |
+| `serviceTitle` | `zo REST API` | `ZO_SERVICE_TITLE`: APIML service title |
 | `javaHome` | empty (falls back to `JAVA_HOME`) | `ZO_JAVA_HOME`; its `bin/java` must be version 25 or later, else `ZOREST001E` |
 | `heap.init` | `64` | `-Xms<N>m` |
 | `heap.max` | `512` | `-Xmx<N>m` |
@@ -344,7 +346,7 @@ Derived from other Zowe settings (not `components.zo-rest`):
 | `zowe.externalPort` or `components.gateway.port` | `ZO_GATEWAY_PORT` (registration metadata) |
 | `ZWE_DISCOVERY_SERVICES_LIST` or `components.discovery.port` | `ZO_DISCOVERY_URLS` |
 | `zowe.network.server.listenAddresses[0]` | `ZO_LISTEN_ADDRESS` (default `0.0.0.0`) |
-| `zowe.job.prefix` | job name `<prefix>ZO` |
+| `zowe.job.prefix` | job name `<prefix>ZO` (unless `_BPX_JOBNAME` is already set) |
 
 ## 9. Troubleshooting
 
@@ -373,6 +375,82 @@ Derived from other Zowe settings (not `components.zo-rest`):
    grants, an installer `BPX.FILEATTR.PROGCTL` grant). **Never** remove `BPX.SERVER` access for
    `ZWESVUSR`: Zowe itself relies on it.
 5. Optionally remove the Java 25 install and its TCP/IP port reservation.
+
+## 11. Running as a separate started task
+
+Besides running under the Zowe launcher, zo-rest can run as its own started task (STC) outside the
+launcher. Use this when you need:
+
+- its own security identity (a dedicated ACID instead of the Zowe server ID),
+- a lifecycle independent of Zowe (`S`/`P` of its own proc), or
+- a second instance next to a launcher-run one. Give it its own APIML service ID (`ZO_SERVICE_ID`)
+  to address it separately; under the same ID it joins the existing service and the Gateway
+  load-balances requests between the two.
+
+**Layout.** Install the pax contents read-only in a runtime directory, and keep mutable,
+instance-specific files in a separate directory owned by the STC user:
+
+```text
+/u/zorest/runtime/            unpaxed component (bin/, lib/, config/, ...), read-only
+/u/zorest/instance/zo.env     settings, owned by ZORSTUSR, mode 600
+```
+
+Copy [`config/standalone.env.example`](config/standalone.env.example) to `zo.env`. The file is
+sourced by `/bin/sh`, so quote values that contain spaces or parentheses. The settings that
+matter:
+
+| Variable | Purpose |
+| --- | --- |
+| `ZWE_configs_port` | Listener port (default 27610). |
+| `ZWE_haInstance_hostname` | Host name registered with APIML. |
+| `ZWE_configs_javaHome` | Java 25+ home. |
+| `ZWE_zowe_certificate_*` | PKCS12 files or a SAF keyring (for example `safkeyring://ZWESVUSR/ZOWEKRNG`). |
+| `ZO_APIML_ENABLED=true` | Register with APIML (default in the example is `false`). |
+| `ZWE_DISCOVERY_SERVICES_LIST` | Discovery URL, for example `https://zos.example.com:7553/eureka/`. |
+| `ZWE_zowe_externalPort` | Gateway port, published in the registration metadata. |
+| `ZO_SERVICE_ID` | APIML service ID (default `zo`); for example `zostc` when `zo` is taken. |
+| `ZO_SERVICE_TITLE` | Optional APIML service title. |
+
+**Started task.** Put [`samples/ZORSTC.jcl`](samples/ZORSTC.jcl) in a PROCLIB and edit `INST`. It
+runs `bin/run-standalone.sh` through `BPXBATSL`. Define the STC user, the STARTED/STC mapping and
+the access to BPX.SERVER, BPX.JOBNAME and the certificates with the security samples
+([RACF](samples/zo-rest-racf.jcl), [Top Secret](samples/zo-rest-tss.txt),
+[ACF2](samples/zo-rest-acf2.txt)), section "Running zo-rest as its own started task".
+
+Notes:
+
+- `lib/*.so` need program control (`extattr +p`). `bin/install.sh` sets it when Zowe installs the
+  component; for a plain unpax, run it yourself (needs BPX.FILEATTR.PROGCTL).
+- `run-standalone.sh` refuses an env file that group or other can read, and adds `/bin` to the
+  minimal `PATH` a started task gets (zo runs `tsocmd` and other `/bin` tools).
+- BPX.SERVER UPDATE is required: without it every authenticated request returns 401.
+- The STC user's access to the Zowe certificate: group read on PKCS12 files, or CONTROL on the
+  key ring (RDATALIB `<owner>.<ring>.LST`), which is needed for the private key.
+- Top Secret assigns the ACID by proc name, so further instances can run from the same proc:
+  `S ZORSTC,JOBNAME=ZORST2,INST='/u/zorest2'`.
+- Startup can take several minutes on a busy system; the port opens only when Spring has started.
+
+**Start, stop, verify.**
+
+```text
+S ZORSTC
+D OMVS,U=ZORSTUSR             find the PID of the java process (CMD=.../bin/java)
+F BPXOINIT,TERM=<pid>         SIGTERM: graceful Spring shutdown, then the STC ends
+C ZORSTC                      only if it does not end (no graceful shutdown)
+```
+
+`P ZORSTC` has no effect: BPXBATSL does not pass the MVS STOP command to the JVM.
+
+```sh
+curl -k https://<HOST>:<PORT>/application/health
+# {"status":"UP"}
+
+curl -k -u <user>:<password> -H "X-CSRF-ZOSMF-HEADER: true" \
+  https://<HOST>:<GW_PORT>/<serviceId>/api/v1/system/info
+```
+
+When registered under a service ID other than `zo`, every Gateway URL uses that ID as its prefix
+(`https://<gateway>/<serviceId>/api/v1/...`), including the Zowe CLI `--base-path`.
 
 ## Appendix: CI package
 

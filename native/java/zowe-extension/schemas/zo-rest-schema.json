@@ -26,6 +26,16 @@
                       "maximum": 65535,
                       "default": 27610
                     },
+                    "serviceId": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]{0,31}$",
+                      "default": "zo",
+                      "description": "APIML service ID; also the gateway URL prefix (<gateway>/<serviceId>/api/v1)"
+                    },
+                    "serviceTitle": {
+                      "type": "string",
+                      "description": "APIML service title"
+                    },
                     "javaHome": {
                       "type": "string",
                       "description": "Java 25+ home for this service"
