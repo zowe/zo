@@ -837,6 +837,25 @@ void zo_uss_tests()
         rc = execute_command_with_output(simpleViewCmd, final_view_response);
         Expect(final_view_response).ToContain("Updated Content");
       });
+      it("should reject a stale etag after a same-length rewrite in the same second", [&]() -> void
+      {
+        rc = execute_command_with_output("echo 'MODE=0110' | " + zo_command + " uss write " + uss_path + " --ec UTF-8", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        rc = execute_command_with_output(zo_command + " uss view " + uss_path + " --return-etag --ec UTF-8", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        const std::string stale_etag = parse_etag_from_output(response);
+
+        // Same size and usually the same second, so (mtime, size) alone would not change
+        rc = execute_command_with_output("echo 'MODE=1001' | " + zo_command + " uss write " + uss_path + " --ec UTF-8", response);
+        ExpectWithContext(rc, response).ToBe(0);
+
+        rc = execute_command_with_output("echo 'MODE=1111' | " + zo_command + " uss write " + uss_path + " --ec UTF-8 --etag " + stale_etag, response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain("Etag mismatch");
+
+        rc = execute_command_with_output(zo_command + " uss view " + uss_path + " --ec UTF-8", response);
+        Expect(response).ToContain("MODE=1001");
+      });
       it("should fail to view a file that does not exist", [&]() -> void
       {
         std::string viewCommand = zo_command + " uss view /tmp/does/not/exist";

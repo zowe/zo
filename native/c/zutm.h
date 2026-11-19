@@ -199,6 +199,31 @@ extern "C"
    */
   int ZUTNOAUT();
 
+  /**
+   * @brief Operands of a CPACF message-digest instruction (KIMD/KLMD)
+   */
+  typedef struct
+  {
+    uint64_t function_code;      // GR0: function code (0 = query)
+    void *PTR64 parameter_block; // GR1: chaining value, followed by the message bit length for KLMD
+    const void *PTR64 data;      // second operand address
+    uint64_t data_len;           // second operand length
+  } ZUTM_DIGEST_REQ;
+
+  /**
+   * @brief Run KIMD (Compute Intermediate Message Digest); data_len must be a multiple of the block size
+   * @param req The instruction operands
+   * @return 0
+   */
+  int ZUTMKIMD(ZUTM_DIGEST_REQ *);
+
+  /**
+   * @brief Run KLMD (Compute Last Message Digest), which pads and digests the final data
+   * @param req The instruction operands
+   * @return 0
+   */
+  int ZUTMKLMD(ZUTM_DIGEST_REQ *);
+
 #if defined(__cplusplus)
 }
 #endif
