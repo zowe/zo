@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `c`: Fixed `createFile` ignoring a string `permissions` value (as JSON-RPC sends it) and always creating files as 644 and directories as 755. `uss create-file`, `create-dir` and `chmod` now share one octal mode parser, and new files are created owner-only before their mode is applied, so the umask no longer affects it. [#TBD](https://github.com/zowe/zowex/pulls)
 - `c`: Fixed the `getJobStatus` RPC returning the job correlator as `id` when a job is looked up by correlator; it now returns the resolved job ID. [#TBD](https://github.com/zowe/zowex/pulls)
 - `c`: Added `RpcServer::call()`, which runs a JSON-RPC request through the same parse, validation and dispatch path as `zo server` but returns the response instead of writing it to stdout, so the zo command handlers can be embedded in another process. The stdio server is unchanged. [#TBD](https://github.com/zowe/zowex/pulls)
 - `c`: Added a host-sink mode to the zo logger so an embedding multi-tenant process (the Java REST API) owns log output; the CLI and `zo server` keep writing per-user log files. [#TBD](https://github.com/zowe/zowex/pulls)

@@ -989,7 +989,9 @@ int zusf_create_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode
     return RTNCD_SUCCESS;
   }
 
-  const int fd = zut_open_for_write(file, mode, options.overwrite);
+  // Create owner-only, then apply the exact mode through the descriptor (not reduced by the umask), so
+  // the file is never more open than requested.
+  const int fd = zut_open_for_write(file, S_IRUSR | S_IWUSR, options.overwrite);
   if (fd == -1)
   {
     if (errno == ELOOP)
@@ -1003,7 +1005,12 @@ int zusf_create_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode
     return RTNCD_FAILURE;
   }
 
-  fchmod(fd, mode);
+  if (fchmod(fd, mode) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Failed to set mode on file '%s', errno: %d", file.c_str(), errno);
+    close(fd);
+    return RTNCD_FAILURE;
+  }
   close(fd);
   return RTNCD_SUCCESS;
 }
