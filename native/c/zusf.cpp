@@ -1852,7 +1852,7 @@ int zusf_write_to_uss_file(ZUSF *zusf, const std::string &file, std::string &dat
   }
 
   return zusf_set_written_etag(zusf, file, fd, [&temp]()
-                               { return zut_etag_digest(temp); });
+  { return zut_etag_digest(temp); });
 }
 
 /**
@@ -2037,7 +2037,7 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
   }
 
   return zusf_set_written_etag(zusf, file, fd, [&written]()
-                               { return written.hex_digest(); });
+  { return written.hex_digest(); });
 }
 
 namespace

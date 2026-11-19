@@ -647,25 +647,25 @@ int ZUTIDCAM(const char *sysinDdName, const char *sysprintDdName)
 
 // KIMD/KLMD take the function code in GR0, the parameter block in GR1, and the message in an even/odd
 // pair (R4/R5, since Metal C reserves GPR3). JO re-drives the instruction on CC3 (partial completion).
-#define ZUTM_DIGEST(op, req)                                                \
-  do                                                                        \
-  {                                                                         \
-    uint64_t fc = (req)->function_code;                                     \
-    void *PTR64 parm = (req)->parameter_block;                              \
-    const void *PTR64 data = (req)->data;                                   \
-    uint64_t len = (req)->data_len;                                         \
-    __asm(                                                                  \
-        "*                                                  \n"             \
-        " LG    0,%0      Function code                     \n"             \
-        " LG    1,%1      -> Parameter block                \n"             \
-        " LG    4,%2      -> Message                        \n"             \
-        " LG    5,%3      = Message length                  \n"             \
-        " " op "  0,4                                       \n"             \
-        " JO    *-4       Partial completion, resume        \n"             \
-        "*                                                    "             \
-        :                                                                   \
-        : "m"(fc), "m"(parm), "m"(data), "m"(len)                           \
-        : "r0", "r1", "r4", "r5");                                          \
+#define ZUTM_DIGEST(op, req)                                    \
+  do                                                            \
+  {                                                             \
+    uint64_t fc = (req)->function_code;                         \
+    void *PTR64 parm = (req)->parameter_block;                  \
+    const void *PTR64 data = (req)->data;                       \
+    uint64_t len = (req)->data_len;                             \
+    __asm(                                                      \
+        "*                                                  \n" \
+        " LG    0,%0      Function code                     \n" \
+        " LG    1,%1      -> Parameter block                \n" \
+        " LG    4,%2      -> Message                        \n" \
+        " LG    5,%3      = Message length                  \n" \
+        " " op "  0,4                                       \n" \
+        " JO    *-4       Partial completion, resume        \n" \
+        "*                                                    " \
+        :                                                       \
+        : "m"(fc), "m"(parm), "m"(data), "m"(len)               \
+        : "r0", "r1", "r4", "r5");                              \
   } while (0)
 
 #pragma prolog(ZUTMKIMD, " ZWEPROLG NEWDSA=(YES,1) ")
