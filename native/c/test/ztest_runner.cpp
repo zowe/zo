@@ -86,6 +86,7 @@ int main(int argc, char *argv[])
     zo_ds_server_tests();
     zo_cert_server_tests();
     zo_job_server_tests();
+    server_builder_tests();
     server_worker_tests();
     server_validator_tests();
     server_logger_tests();
