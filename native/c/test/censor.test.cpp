@@ -61,8 +61,8 @@ void censor_tests()
       });
       it("censors options followed by tabs and newlines", []()
       {
-        std::string censored = censor_raw_data("zillion -p\twhoatabcrazy --auth\nmyauthisonthenextline and-that-does-it");
-        Expect(censored).ToBe("zillion -p\t**** --auth\n**** and-that-does-it");
+        std::string censored = censor_raw_data("zillion -p\twhoatabcrazy --auth\nmyauthisonthenextline --credentials\r\t\r\n\tsecretpassword and-that-does-it");
+        Expect(censored).ToBe("zillion -p\t**** --auth\n**** --credentials\r\t\r\n\t**** and-that-does-it");
       });
 
       it("censors options that occur at the end of the string", []()

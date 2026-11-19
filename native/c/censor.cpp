@@ -9,6 +9,7 @@
  *
  */
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include "censor.hpp"
@@ -46,8 +47,8 @@ std::string censor_raw_data(const std::string &data)
   int censor_start = -1;
   int censor_end = -1;
   char censor_start_char = '\0';
-  const std::vector<std::string> suffixes = {" ", "=", "\t", "\n"};
-  const std::vector<char> whitespace_chars = {' ', '\t', '\n'};
+  const std::vector<std::string> suffixes = {" ", "=", "\t", "\n", "\r"};
+  const std::vector<char> whitespace_chars = {' ', '\t', '\n', '\r'};
   for (auto &search_arg : MAIN_CENSORED_OPTIONS)
   {
     for (auto &suffix : suffixes)
