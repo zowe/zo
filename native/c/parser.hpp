@@ -12,6 +12,7 @@
 #ifndef PARSER_HPP
 #define PARSER_HPP
 
+#include "censor.hpp"
 #include "extend/plugin.hpp"
 #include "json_output.hpp"
 #include "lexer.hpp"
@@ -2445,7 +2446,7 @@ private:
 
   ParseResult parse_impl(const std::string &command_line)
   {
-    ZLOG_TRACE("ArgumentParser::parse(string='%s') entry", command_line.c_str());
+    ZLOG_TRACE("ArgumentParser::parse(string='%s') entry", censor::censor_raw_data(command_line).c_str());
 
     if (!m_root_cmd)
     {
