@@ -42,6 +42,7 @@ std::vector<std::string> build_censored_options()
 
 static const std::vector<std::string> MAIN_CENSORED_OPTIONS = build_censored_options();
 static const std::string CENSOR_RESPONSE = "****";
+static const std::vector<std::string> ARG_SUFFIXES = {" ", "=", "\t", "\n", "\r"};
 
 static size_t sensitive_value_end(const std::string &value)
 {
@@ -70,11 +71,10 @@ std::string censor_raw_data(const std::string &data)
 {
   std::string result(data);
   int censor_start = -1;
-  const std::vector<std::string> suffixes = {" ", "=", "\t", "\n", "\r"};
 
   for (auto &search_arg : MAIN_CENSORED_OPTIONS)
   {
-    for (auto &suffix : suffixes)
+    for (auto &suffix : ARG_SUFFIXES)
     {
       std::string dash_form = search_arg.length() == 1 ? "-" + search_arg + suffix : "--" + search_arg + suffix;
       size_t arg_index = result.find(dash_form, 0);
