@@ -97,6 +97,11 @@ void censor_tests()
         std::string censored = censor_raw_data("not gonna terminate the quote --password \"hey seems like more --credentials are coming but");
         Expect(censored).ToBe("not gonna terminate the quote --password ****");
       });
+      it("redacts an unquoted value that starts with digits", []()
+      {
+        Expect(censor_raw_data("command --password 123abc --normal ok"))
+            .ToBe("command --password **** --normal ok");
+      });
     });
   });
 }

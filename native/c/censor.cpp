@@ -43,6 +43,29 @@ std::vector<std::string> build_censored_options()
 static const std::vector<std::string> MAIN_CENSORED_OPTIONS = build_censored_options();
 static const std::string CENSOR_RESPONSE = "****";
 
+static size_t sensitive_value_end(const std::string &value)
+{
+  const std::string_view whitespace = " \t\r\n";
+
+  if (!value.empty() && value.front() == '"')
+  {
+    try
+    {
+      const size_t end = lexer::Lexer::quoted_value_end(value);
+      if (end == value.size() || whitespace.find(value[end]) != std::string_view::npos)
+        return end;
+    }
+    catch (const lexer::LexError &)
+    {
+      // Malformed quote, don't risk logging rest of the value
+    }
+    return value.size();
+  }
+
+  const size_t end = value.find_first_of(" \t\r\n\"");
+  return end == std::string_view::npos || value[end] == '"' ? value.size() : end;
+}
+
 std::string censor_raw_data(const std::string &data)
 {
   std::string result(data);
@@ -61,11 +84,13 @@ std::string censor_raw_data(const std::string &data)
 
         try
         {
+          const std::string censor_search_str = result.substr(censor_start, result.length() - censor_start);
           lexer::Src arg_source = lexer::Src::from_string(
-              result.substr(censor_start, result.length() - censor_start), "<censor_raw_data>");
+              censor_search_str, "<censor_raw_data>");
           std::vector<lexer::Token> arg_tokens = lexer::Lexer::tokenize(arg_source);
 
-          result = result.replace(censor_start + arg_tokens[0].get_span().start, arg_tokens[0].get_span().end - arg_tokens[0].get_span().start, CENSOR_RESPONSE);
+          result = result.replace(censor_start + arg_tokens[0].get_span().start,
+                                  sensitive_value_end(censor_search_str.substr(arg_tokens[0].get_span().start)), CENSOR_RESPONSE);
           // search for repeated instances of this arg
           arg_index = result.find(dash_form, censor_start + arg_tokens[0].get_span().start + CENSOR_RESPONSE.length());
         }
