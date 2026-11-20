@@ -34,7 +34,7 @@ const ViewDefinition: ICommandDefinition = {
     passOn: [
         {
             property: "options",
-            value: [...SshSession.SSH_CONNECTION_OPTIONS, Constants.OPT_SERVER_PATH],
+            value: [...SshSession.SSH_CONNECTION_OPTIONS, ...Constants.ZSSH_EXTRA_OPTIONS],
             merge: true,
             ignoreNodes: [{ type: "group" }],
         },

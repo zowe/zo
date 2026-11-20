@@ -30,6 +30,11 @@ struct ZJob
   std::string type;
   std::string jobclass;
   int phase;
+  std::string exec_system;
+  std::string exec_member;
+  std::string exec_submitted;
+  std::string exec_started;
+  std::string exec_ended;
 };
 
 struct ZJobDD
@@ -44,6 +49,9 @@ struct ZJobDD
   bool is_asa = false;
 };
 
+// The convenience overloads are hidden from SWIG: C linkage cannot express an overload set, and
+// every symbol crossing the bindings boundary needs it. See the extern "C" block below.
+#ifndef SWIG
 /**
  * @brief Return a list of jobs from an input or default owner
  *
@@ -66,7 +74,15 @@ int zjb_list_by_owner(ZJB *zjb, const std::string &owner_name, std::vector<ZJob>
  * @return int 0 for success; non zero otherwise
  */
 int zjb_list_by_owner(ZJB *zjb, const std::string &owner_name, const std::string &prefix_name, std::vector<ZJob> &jobs);
+#endif
 
+// The bindings compile this header EBCDIC and their SWIG wrappers ASCII. libc++ uses a distinct
+// inline namespace per char mode (std::__1 vs std::__1_a), so a mangled name is unresolvable
+// across that boundary -- everything the bindings call needs C linkage.
+#ifdef SWIG
+extern "C"
+{
+#endif
 /**
  * @brief Return a list of jobs from an input or default owner
  *
@@ -80,25 +96,6 @@ int zjb_list_by_owner(ZJB *zjb, const std::string &owner_name, const std::string
  */
 int zjb_list_by_owner(ZJB *zjb, const std::string &owner_name, const std::string &prefix_name, const std::string &status_name, std::vector<ZJob> &jobs);
 
-#ifndef SWIG
-/**
- * @brief Return a list of jobs from an input or default owner
- *
- * @param zjb job returned attributes and error information
- * @param owner_name owner name of the job to query, defaults to current user if == "", may use wild cards, i.e.
- * "IBMUS*"
- * @param prefix_name job prefix, defaults to "*" if == "", may use wild cards, i.e. "IBMUS*"
- * @param jobs populated list returned containing job information array
- * @return int 0 for success; non zero otherwise
- */
-int zjb_list_by_owner(ZJB *zjb, const std::string &owner_name, const std::string &prefix_name, std::vector<ZJob> &jobs);
-#endif
-
-// Exclude status implementation for SWIG
-#ifdef SWIG
-extern "C"
-{
-#endif
 /**
  * @brief Return a list of proclib for a job
  *

@@ -73,6 +73,19 @@ void MiddlewareContext::set_content_len(size_t content_length)
   }
 }
 
+void MiddlewareContext::set_heartbeat_callback(std::function<void()> callback)
+{
+  m_heartbeat_callback = std::move(callback);
+}
+
+void MiddlewareContext::update_heartbeat()
+{
+  if (m_heartbeat_callback)
+  {
+    m_heartbeat_callback();
+  }
+}
+
 void MiddlewareContext::set_pending_notification(const RpcNotification &notification)
 {
   m_pending_notification.reset(new RpcNotification(notification));

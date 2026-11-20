@@ -17,7 +17,7 @@ ZRS is a full-stack solution used to interface with z/OS mainframe resources usi
 - `packages/cli/` – Zowe CLI plug-in to enable ZRS mainframe interaction.
 - `packages/sdk/` – Node.js SDK used by the CLI and VSCE components to communicate w/ ZRS server-side.
 - `native/c/` – Metal C and LE C/C++ code deployed and built on z/OS systems. Handles commands, interprets requests, builds responses.
-  - `native/c/zowex/` – C++ binary using native APIs. Provides mainframe resource access and automation capabilities (conceptually similar to ZOAU, but operates as an independent tool). Contains `zowex server` which initializes a JSON-RPC server instance to communicate with client SDK through stdin/stdout.
+  - `native/c/zo/` – C++ binary using native APIs. Provides mainframe resource access and automation capabilities (conceptually similar to ZOAU, but operates as an independent tool). Contains `zo server` which initializes a JSON-RPC server instance to communicate with client SDK through stdin/stdout.
 - `native/python/` – Python SWIG bindings wrapping `.cpp` APIs.
 
 ## Commands you can use

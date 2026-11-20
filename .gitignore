@@ -22,12 +22,10 @@ config.yaml
 tsconfig.tsbuildinfo
 zowe.config.json
 zowe.schema.json
-native/python/app/config/service-configuration.yml
-native/python/app/keystore/*
-!native/python/app/keystore/*.sh
 native/python/bindings/test/fixtures/env.yml
 test.py
 test-results.xml
+pybi_results.xml
 packages/sdk/logs/imperative.log
 packages/sdk/logs/test.log
 .jscpd-report/jscpd-report.json
@@ -36,3 +34,8 @@ native/java/app/.gradle/*
 native/java/app/build
 *.env
 application.yml
+.idea/
+native/java/dist/
+# zo-rest Zowe extension sources are tracked despite the generic bin/ and application.yml rules
+!native/java/zowe-extension/bin/
+!native/java/zowe-extension/config/application.yml

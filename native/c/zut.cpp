@@ -9,6 +9,10 @@
  *
  */
 
+// O_NOFOLLOW is only defined under _XPLATFORM_SOURCE, which must precede the first system header.
+#ifndef _XPLATFORM_SOURCE
+#define _XPLATFORM_SOURCE
+#endif
 #ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE
 #include "ztype.h"
@@ -20,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <csignal>
+
 #include <fcntl.h>
 #include <iostream>
 #include <string>
@@ -264,7 +269,7 @@ static void zut_private_drain_pipes(std::array<struct pollfd, 2> &fds,
  * when _BPX_SHAREAS=YES (shared address space). See e.g. IBM doc for newgrp.
  * When the user runs one of these, we must not pass _BPX_SHAREAS=YES to the child.
  */
-static constexpr std::array<const char *, 4> ZUT_NOSHAREAS_COMMANDS = {"newgrp", "su", "sg", "zoweax"};
+static constexpr std::array<const char *, 4> ZUT_NOSHAREAS_COMMANDS = {"newgrp", "su", "sg", "zoa"};
 
 static bool zut_private_command_requires_noshareas(const std::string &command)
 {
@@ -1142,19 +1147,6 @@ std::string zut_format_as_csv(std::vector<std::string> &fields)
   return formatted;
 }
 
-int zut_alloc_debug()
-{
-  int rc = 0;
-  unsigned int code = 0;
-  std::string response;
-  std::string zowexdbg = "/tmp/zowex_debug_" + std::to_string(getpid()) + ".txt";
-
-  std::string alloc = "alloc fi(zowexdbg) path('" + zowexdbg + "') pathopts(owronly,ocreat) pathmode(sirusr,siwusr,sirgrp) filedata(text) msg(2)";
-  rc = zut_bpxwdyn(alloc, &code, response);
-
-  return rc;
-}
-
 bool zut_string_compare_c(const std::string &a, const std::string &b)
 {
   return strcmp(a.c_str(), b.c_str()) < 0;
@@ -1259,21 +1251,69 @@ std::string zut_read_input(std::istream &input_stream)
   return data;
 }
 
+int zut_open_for_write(const std::string &path, mode_t mode, bool truncate)
+{
+  // One open() binds the existence check, creation, and truncation to the same object.
+  // O_NOFOLLOW refuses a symbolic link as the last component, dangling or not.
+  const int flags = O_WRONLY | O_CREAT | O_NOFOLLOW | (truncate ? O_TRUNC : O_EXCL);
+  const int fd = open(path.c_str(), flags, mode);
+  if (fd == -1 && errno == EEXIST)
+  {
+    // O_EXCL may report a symbolic link as EEXIST before O_NOFOLLOW reports ELOOP.
+    struct stat link_stats;
+    const bool is_link = lstat(path.c_str(), &link_stats) == 0 && S_ISLNK(link_stats.st_mode);
+    errno = is_link ? ELOOP : EEXIST;
+  }
+  return fd;
+}
+
 int zut_write_file_private(const std::string &path, const std::string &data, std::string &error)
 {
-  int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-  if (fd == -1)
+  struct stat file_stats;
+  if (lstat(path.c_str(), &file_stats) == 0)
   {
-    error = "could not open '" + path + "': " + strerror(errno);
+    if (S_ISLNK(file_stats.st_mode))
+    {
+      error = "could not open '" + path + "': path is a symbolic link";
+      return RTNCD_FAILURE;
+    }
+  }
+  else if (errno != ENOENT)
+  {
+    error = "could not stat '" + path + "': " + strerror(errno);
     return RTNCD_FAILURE;
   }
 
-  // O_CREAT's mode only applies when the file is newly created, so an existing
-  // file with looser permissions needs to be tightened explicitly.
-  if (fchmod(fd, S_IRUSR | S_IWUSR) == -1)
+  // Publish a complete private file without truncating the old output or its hard links.
+  std::string temp_path = path + ".XXXXXX";
+  const int temp_fd = mkstemp(temp_path.data());
+  if (temp_fd == -1)
   {
-    error = "could not set permissions on '" + path + "': " + strerror(errno);
-    close(fd);
+    error = "could not open '" + temp_path + "': " + strerror(errno);
+    return RTNCD_FAILURE;
+  }
+
+  // Restore owner read/write permissions even under a restrictive umask.
+  if (fchmod(temp_fd, S_IRUSR | S_IWUSR) == -1)
+  {
+    error = "could not set permissions on '" + temp_path + "': " + strerror(errno);
+    close(temp_fd);
+    unlink(temp_path.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (fstat(temp_fd, &file_stats) == -1)
+  {
+    error = "could not stat '" + temp_path + "': " + strerror(errno);
+    close(temp_fd);
+    unlink(temp_path.c_str());
+    return RTNCD_FAILURE;
+  }
+
+  if (!S_ISREG(file_stats.st_mode) || file_stats.st_nlink != 1 || file_stats.st_uid != geteuid())
+  {
+    error = "Failed to create '" + temp_path + "' with the expected permissions.";
+    close(temp_fd);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
 
@@ -1281,24 +1321,32 @@ int zut_write_file_private(const std::string &path, const std::string &data, std
   size_t remaining = data.size();
   while (remaining > 0)
   {
-    ssize_t written = write(fd, buf, remaining);
+    ssize_t written = write(temp_fd, buf, remaining);
     if (written == -1)
     {
       if (errno == EINTR)
       {
         continue;
       }
-      error = "could not write to '" + path + "': " + strerror(errno);
-      close(fd);
+      error = "could not write to '" + temp_path + "': " + strerror(errno);
+      close(temp_fd);
+      unlink(temp_path.c_str());
       return RTNCD_FAILURE;
     }
     buf += written;
     remaining -= static_cast<size_t>(written);
   }
 
-  if (close(fd) == -1)
+  if (close(temp_fd) == -1)
   {
-    error = "could not close '" + path + "': " + strerror(errno);
+    error = "could not close '" + temp_path + "': " + strerror(errno);
+    unlink(temp_path.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (rename(temp_path.c_str(), path.c_str()) != 0)
+  {
+    error = "Unable to move temporary path '" + temp_path + "' to '" + path + "': " + strerror(errno);
+    unlink(temp_path.c_str());
     return RTNCD_FAILURE;
   }
 

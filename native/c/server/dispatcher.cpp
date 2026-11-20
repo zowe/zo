@@ -10,7 +10,7 @@
  */
 
 #include "dispatcher.hpp"
-#include "logger.hpp"
+#include "../zlogger.hpp"
 #include "rpcio.hpp"
 #include "rpc_server.hpp"
 #include <algorithm>

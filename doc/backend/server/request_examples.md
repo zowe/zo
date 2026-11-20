@@ -70,7 +70,7 @@
 
 **Notes:**
 
-- All commands use JSON-RPC 2.0 format with `zowex server`
+- All commands use JSON-RPC 2.0 format with `zo server`
 - The `id` field should be unique for each request to match responses
 - Data content is Base64 encoded in the `data` field
-- Use `zowex --help` for CLI command reference and examples
+- Use `zo --help` for CLI command reference and examples

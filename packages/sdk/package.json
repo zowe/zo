@@ -1,6 +1,6 @@
 {
   "name": "@zowe/zowex-for-zowe-sdk",
-  "version": "0.9.0",
+  "version": "1.1.0",
   "main": "lib/index.js",
   "scripts": {
     "generate-constants": "tsx generateConstants.ts",
@@ -16,6 +16,14 @@
   "keywords": [],
   "author": "Zowe",
   "license": "EPL-2.0",
+  "homepage": "https://github.com/zowe/zowex/tree/main/packages/sdk#README",
+  "bugs": {
+    "url": "https://github.com/zowe/zowex/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zowe/zowex"
+  },
   "description": "Zowe Remote SSH APIs for Zowe SDK",
   "files": [
     "bin",
@@ -45,7 +53,7 @@
     "russh": "0.1.37"
   },
   "peerDependencies": {
-    "@zowe/imperative": "^8.11.0",
-    "@zowe/zos-uss-for-zowe-sdk": "^8.11.0"
+    "@zowe/imperative": "^8.39.0",
+    "@zowe/zos-uss-for-zowe-sdk": "^8.42.0"
   }
 }

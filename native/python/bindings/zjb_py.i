@@ -42,6 +42,11 @@ struct ZJob {
     std::string full_status;
     std::string retcode;
     std::string correlator;
+    std::string exec_system;
+    std::string exec_member;
+    std::string exec_submitted;
+    std::string exec_started;
+    std::string exec_ended;
 };
 
 struct ZJobDD

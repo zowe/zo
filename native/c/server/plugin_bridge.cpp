@@ -12,7 +12,7 @@
 #include "plugin_bridge.hpp"
 #include "dispatcher.hpp"
 #include "builder.hpp"
-#include "logger.hpp"
+#include "../zlogger.hpp"
 #include <string>
 #include <cctype>
 #include <algorithm>
@@ -97,9 +97,10 @@ static void traverse_and_register_impl(parser::Command *cmd, std::string &path_p
       // We dynamically infer renames from the command's declared arguments.
       for (const auto &arg : cmd->get_args())
       {
-        // Help flags and automatically generated 'no-' flags are CLI-specific
-        // and shouldn't be exposed as separate JSON-RPC parameters.
-        if (arg.is_help_flag || arg.name.rfind("no-", 0) == 0)
+        // Help flags, the JSON output flag, and automatically generated 'no-'
+        // flags are CLI-specific and shouldn't be exposed as separate
+        // JSON-RPC parameters.
+        if (arg.is_help_flag || arg.is_json_flag || arg.name.rfind("no-", 0) == 0)
           continue;
 
         // If the arg name has hyphens, map its camelCase equivalent

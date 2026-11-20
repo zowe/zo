@@ -1,0 +1,7 @@
+# zo server bundle that `zx deploy` downloads and verifies (read by zx and zx.ps1).
+# The bundle is fetched from https://github.com/zowe/zowex/releases/download/<tag>/<asset>
+# and nothing is deployed unless its SHA-256 matches. To deploy a different build
+# (including a local one via ZX_PAX), update these values.
+tag=v1.0.1
+asset=zowe-server-1.0.1.pax.Z
+sha256=e391c03f1ae1a66ed2c32ae509d1ff82e7303be30bccb89308c35e8339fa05b4

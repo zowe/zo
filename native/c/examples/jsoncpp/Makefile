@@ -74,6 +74,7 @@ $(OUT_DIR)/zutm31.o: $(OUT_DIR)/zutm31.s
 	@echo 'Building $(OUT_DIR)/zutm31.o'
 	$(ASM) $(ASM_FLAGS) -a=$*.s.lst $(MACLIBS) -o $@ $^
 
+.IF $(BuildType) == DEBUG
 $(OUT_DIR)/zlogger_metal.s: zlogger_metal.c
 	@echo 'Building $(OUT_DIR)/zlogger_metal.s'
 	$(CC) $(MTL_FLAGS64) -qlist=$*.mtl.lst $(MTL_HEADERS) -o $@ $^
@@ -81,12 +82,13 @@ $(OUT_DIR)/zlogger_metal.s: zlogger_metal.c
 $(OUT_DIR)/zlogger_metal.o: $(OUT_DIR)/zlogger_metal.s
 	@echo 'Building $(OUT_DIR)/zlogger_metal.o'
 	$(ASM) $(ASM_FLAGS) -a=$*.s.lst $(MACLIBS) -o $@ $^
+.END
 
 $(OUT_DIR)/json.o: json.cpp
 	@echo 'Building $(OUT_DIR)/json.o'
 	$(CXX) $(CPP_FLAGS) -c $^ -o $@
 
-$(OUT_DIR)/json: $(OUT_DIR)/zjsonm.o $(OUT_DIR)/zam.o $(OUT_DIR)/zam24.o $(OUT_DIR)/zutm.o $(OUT_DIR)/zutm31.o $(OUT_DIR)/zlogger_metal.o $(OUT_DIR)/json.o
+$(OUT_DIR)/json: $(OUT_DIR)/zjsonm.o $(OUT_DIR)/zam.o $(OUT_DIR)/zam24.o $(OUT_DIR)/zutm.o $(OUT_DIR)/zutm31.o $(METAL_LOGGER_OBJ) $(OUT_DIR)/json.o
 	@echo 'Building json'
 	$(CXX) $(CPP_BND_FLAGS) -o $@ $^ > $*.bind.lst
 

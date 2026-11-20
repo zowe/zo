@@ -521,17 +521,6 @@ unsigned char ZUTMGKEY()
   return get_key();
 }
 
-void ZUTDBGMG(const char *msg)
-{
-  IO_CTRL *sysprintIoc = open_output_assert("ZOWEXDBG", 132, 132, dcbrecf + dcbrecbr);
-  char writeBuf[132] = {0};
-  memset(writeBuf, ' ', sizeof(writeBuf));
-  sprintf(writeBuf, "%.131s", msg);
-
-  write_sync(sysprintIoc, writeBuf);
-  close_assert(sysprintIoc);
-}
-
 #pragma prolog(ZUTSSIQ, " ZWEPROLG NEWDSA=(YES,4) ")
 #pragma epilog(ZUTSSIQ, " ZWEEPILG ")
 int ZUTSSIQ(ZDIAG *diag, JQRY_HEADER **area, const char *filter)

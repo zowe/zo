@@ -24,7 +24,7 @@ void register_sample_commands(CommandDispatcher &dispatcher)
 {
   dispatcher.register_command("ping", CommandBuilder(sample::handle_ping)
                                           .validate<PingRequest, PingResponse>()
-                                          .set_default("message", "hello from zowex server"));
+                                          .set_default("message", "hello from zo server"));
 }
 
 void register_all_commands(CommandDispatcher &dispatcher)

@@ -28,6 +28,9 @@ typedef struct stat STAT;
 typedef struct statjq STATJQ;
 typedef struct statjqhd STATJQHD;
 typedef struct statjqtr STATJQTR;
+typedef struct statve STATVE;
+typedef struct statjvhd STATJVHD;
+typedef struct statjqvb STATJQVB;
 
 typedef struct statse STATSE;
 typedef struct statsehd STATSEHD;

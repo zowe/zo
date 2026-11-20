@@ -1,9 +1,9 @@
-# Zowex Java REST API
+# zo Java REST API
 
 A Spring Boot REST API that exposes z/OSMF-compatible endpoints (data sets, USS files, and
-jobs) backed directly by the native `zowex` C++/Metal C libraries in `native/c`. It calls into
+jobs) backed directly by the native `zo` C++/Metal C libraries in `native/c`. It calls into
 those libraries via the Java 25 Foreign Function & Memory (FFM/Panama) API instead of shelling
-out to the `zowex` CLI, and authenticates/authorizes requests against SAF (RACF) through a small
+out to the `zo` CLI, and authenticates/authorizes requests against SAF (RACF) through a small
 JNI bridge or against Zowe API Mediation Layer over HTTPS. The service registers with the Zowe API Mediation Layer 
 (Discovery/Eureka) so it can be reached through the API Gateway alongside other Zowe services.
 
@@ -12,7 +12,7 @@ JNI bridge or against Zowe API Mediation Layer over HTTPS. The service registers
 | Path          | Description |
 | ------------- | ----------- |
 | `app/`        | The Spring Boot application (Gradle project) — controllers, FFM bindings, SAF security integration. |
-| `bindings/`   | C++ glue library (`libzowex_java.so`) that adapts `native/c`'s `libzds`, `libzjb`, `libzusf`, `libzut` static libraries into a shared object the JVM can call via FFM. |
+| `bindings/`   | C++ glue library (`libzo_java.so`) that adapts `native/c`'s `libzds`, `libzjb`, `libzusf`, `libzut` static libraries into a shared object the JVM can call via FFM. |
 | `secur/`      | JNI library (`libzowe-commons-secur.so`) wrapping SAF calls (`createSecurityEnvironment`, thread-level security, etc.) used for HTTP Basic authentication. |
 | `jaas-poc/`   | Standalone proof-of-concept (`OS390Tester.java`) exercising IBM's `OS390ThreadSubject`/JAAS APIs; not part of the app build. |
 
@@ -42,7 +42,7 @@ at the repo root as described in the [top-level README](../../README.md#setup) (
 | Script | What it does |
 | ------ | ------------ |
 | `npm run z:build:java_secur` | Uploads `native/java/secur` to the remote deploy dir and runs `make` there, producing `libzowe-commons-secur.so`. |
-| `npm run z:build:java_bindings` | Uploads `native/java/bindings` and runs `make` there, producing `libzowex_java.so`. Requires `native/c`'s static libraries (`libzds.a`, `libzjb.a`, `libzusf.a`, `libzut.a`) already built in the same remote deploy dir (`npm run z:build`). |
+| `npm run z:build:java_bindings` | Uploads `native/java/bindings` and runs `make` there, producing `libzo_java.so`. Requires `native/c`'s static libraries (`libzds.a`, `libzjb.a`, `libzusf.a`, `libzut.a`) already built in the same remote deploy dir (`npm run z:build`). |
 | `npm run z:build:java_app` | Builds the Spring Boot app **locally** with `./gradlew clean build -x test`, then uploads the resulting jar to `<deployDir>/java/app/build/libs/` over SFTP. |
 | `npm run z:build:java_full` | Runs all three of the above in order (secur → bindings → app) — use this for a full rebuild. |
 
@@ -65,7 +65,7 @@ cd app
 
 ```bash
 cd app
-java --enable-native-access=ALL-UNNAMED -Djava.library.path="../bindings/build-out:../secur" -Djava.protocol.handler.pkgs=com.ibm.crypto.provider -jar build/libs/zowex-java-app.jar --spring.config.additional-location=file:./src/main/resources/application.yml --spring.profiles.active=zos 
+java --enable-native-access=ALL-UNNAMED -Djava.library.path="../bindings/build-out:../secur" -Djava.protocol.handler.pkgs=com.ibm.crypto.provider -jar build/libs/zo-java-app.jar --spring.config.additional-location=file:./src/main/resources/application.yml --spring.profiles.active=zos 
 ```
 
 The app expects the following to be reachable/configured (see `app/src/main/resources/application.yml`):
@@ -102,8 +102,8 @@ Running `npm run z:build:java_full` (or the individual scripts, in order) alread
 everything in place on the remote host under `<deployDir>/java/`:
 
 - `java/secur/libzowe-commons-secur.so`
-- `java/bindings/build-out/libzowex_java.so`
-- `java/app/build/libs/zowex-java-app-<version>.jar`
+- `java/bindings/build-out/libzo_java.so`
+- `java/app/build/libs/zo-java-app-<version>.jar`
 
 From there, to actually run the service:
 
@@ -112,21 +112,21 @@ From there, to actually run the service:
    `ls -E` if you move/copy them elsewhere, since program control is required for the SAF calls
    they make to succeed.
 2. Set `LIBPATH` (or `java.library.path`) to include both `.so` directories, so
-   `NativeLoader`'s `System.loadLibrary("zowex_java")` fallback and `Secur`'s
+   `NativeLoader`'s `System.loadLibrary("zo_java")` fallback and `Secur`'s
    `System.loadLibrary("zowe-commons-secur")` can find them. (`NativeLoader` also tries a
-   relative dev path first, `../bindings/build-out/libzowex_java.so`, which resolves correctly if
+   relative dev path first, `../bindings/build-out/libzo_java.so`, which resolves correctly if
    you run the jar from `<deployDir>/java/app`.)
 3. Ensure a TLS keystore is present on the classpath/filesystem per [Running](#running).
-4. Start the service — `java -jar zowex-java-app-<version>.jar` from `<deployDir>/java/app/build/libs` —
+4. Start the service — `java -jar zo-java-app-<version>.jar` from `<deployDir>/java/app/build/libs` —
    with a JCL job, started task, or shell wrapper as appropriate for your environment.
 
 ## Native bindings
 
 The app talks to native code through two independent mechanisms:
 
-- **FFM (Project Panama)** — `ffm/NativeLoader` loads `libzowex_java.so` (first trying a
-  relative dev path, `../bindings/build-out/libzowex_java.so`, then falling back to
-  `System.loadLibrary("zowex_java")` via `java.library.path`/`LIBPATH`). `ffm/*Bindings` classes
+- **FFM (Project Panama)** — `ffm/NativeLoader` loads `libzo_java.so` (first trying a
+  relative dev path, `../bindings/build-out/libzo_java.so`, then falling back to
+  `System.loadLibrary("zo_java")` via `java.library.path`/`LIBPATH`). `ffm/*Bindings` classes
   (`ZdsBindings`, `ZjbBindings`, `ZusfBindings`) use `java.lang.foreign` to call into it; the
   `ffm/generated/*_C.java` classes are `jextract`-style struct/layout descriptors generated from
   the C headers in `bindings/*.h`, mirroring the C structs used by `native/c`.

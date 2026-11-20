@@ -1,6 +1,6 @@
 # Server Design
 
-The `zowex server` subcommand acts as the middleware between the client and backend. It is written in modern C++ and leverages an input channel to support asynchronous request processing. The server is embedded within the `zowex` binary and invoked via `zowex server`.
+The `zo server` subcommand acts as the middleware between the client and backend. It is written in modern C++ and leverages an input channel to support asynchronous request processing. The server is embedded within the `zo` binary and invoked via `zo server`.
 
 ## Architectural overview
 
@@ -8,11 +8,11 @@ The server mediates all requests and dispatches them to appropriate command hand
 
 ## Configuration
 
-The `ZOWEX_NUM_WORKERS` environment variable, if set, overrides the `--num-workers` argument for `zowex server`. This is useful for system administrators who want to control server concurrency at the environment level without modifying client configurations.
+The `--num-workers` argument (or `-w`) for `zo server` takes precedence over the `ZO_NUM_WORKERS` environment variable. If the argument is omitted, the server uses `ZO_NUM_WORKERS` when set, otherwise it defaults to 10 workers. This lets system administrators set default server concurrency at the environment level while allowing client configurations to override it.
 
 ## Request and response processing
 
-The server process is instantiated by the client through SSH (via `zowex server`), which opens a communication channel over stdio. When a request is received from the client over stdin, the server attempts to parse the input as JSON. If the JSON response is valid, the server looks for the `command` property of the JSON object and attempts to identify a matching command handler. If a command handler is found for the given command, the handler is executed and given the JSON object for further processing.
+The server process is instantiated by the client through SSH (via `zo server`), which opens a communication channel over stdio. When a request is received from the client over stdin, the server attempts to parse the input as JSON. If the JSON response is valid, the server looks for the `command` property of the JSON object and attempts to identify a matching command handler. If a command handler is found for the given command, the handler is executed and given the JSON object for further processing.
 
 The command handlers can expect a stronger request type than what is expected during initial command processing. Appropriate request and response types can be exposed for use with these handlers. In the event of a JSON deserialization error, the command handler stops execution and returns early, returning an error response with any additional context. Once the JSON is successfully deserialized into the desired type, command processing continues and the handler can perform any actions necessary to create, receive, update or delete data.
 

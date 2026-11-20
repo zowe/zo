@@ -104,7 +104,14 @@ public:
     }
 
     parser::ArgValue defaultArg = convert_default(default_value);
-    record->get().add_keyword_arg(std::string(name), alias_vector, std::string(help ? help : ""), convert_type(type), required != 0, defaultArg);
+    try
+    {
+      record->get().add_keyword_arg(std::string(name), alias_vector, std::string(help ? help : ""), convert_type(type), required != 0, defaultArg);
+    }
+    catch (const std::invalid_argument &e)
+    {
+      ZLOG_ERROR("Rejected plug-in keyword argument '%s': %s", name, e.what());
+    }
   }
 
   void add_positional_arg(CommandHandle command,
@@ -120,10 +127,17 @@ public:
 
     parser::ArgValue default_arg = convert_default(default_value);
 
-    record->get().add_positional_arg(std::string(name),
-                                     help ? std::string(help) : std::string(),
-                                     parser::ArgType_Single, required != 0,
-                                     default_arg);
+    try
+    {
+      record->get().add_positional_arg(std::string(name),
+                                       help ? std::string(help) : std::string(),
+                                       parser::ArgType_Single, required != 0,
+                                       default_arg);
+    }
+    catch (const std::invalid_argument &e)
+    {
+      ZLOG_ERROR("Rejected plug-in positional argument '%s': %s", name, e.what());
+    }
   }
 
   void set_handler(CommandHandle command, CommandHandler handler)
@@ -152,7 +166,7 @@ public:
     else
     {
       // Nested subcommands can't shadow a built-in verb, but guard against a
-      // malformed plug-in registering duplicate siblings so it can't abort zowex.
+      // malformed plug-in registering duplicate siblings so it can't abort zo.
       try
       {
         parent_record->get().add_command(child_record->get_command_ptr());
@@ -254,7 +268,7 @@ private:
   {
     if (collision.shadows_builtin)
     {
-      ZLOG_ERROR("Rejected plug-in command '%s': token '%s' would shadow a built-in zowex command",
+      ZLOG_ERROR("Rejected plug-in command '%s': token '%s' would shadow a built-in zo command",
                  command->get_name().c_str(), collision.token.c_str());
     }
     else
@@ -444,16 +458,16 @@ void PluginManager::load_plugin_file(const std::string &plugin_path, const std::
   // Check the ABI contract before calling into the plug-in: a plug-in built against a different
   // layout of the types that cross this boundary would otherwise corrupt memory silently.
   unsigned int (*abi_version)() = nullptr;
-  *(void **)(&abi_version) = dlsym(plugin, "zowex_plugin_abi_version");
+  *(void **)(&abi_version) = dlsym(plugin, "zo_plugin_abi_version");
   const unsigned int reported_abi = abi_version != nullptr ? abi_version() : 0u;
-  if (reported_abi != ZOWEX_PLUGIN_ABI_VERSION)
+  if (reported_abi != ZO_PLUGIN_ABI_VERSION)
   {
     ZLOG_ERROR("Rejected plugin %s: reports plug-in ABI version %u, zowex requires %u. "
                "Rebuild the plug-in against the matching extend/plugin.hpp and expand "
-               "ZOWEX_PLUGIN_DECLARE_ABI() alongside register_plugin().",
+               "ZO_PLUGIN_DECLARE_ABI() alongside register_plugin().",
                plugin_path.c_str(),
                reported_abi,
-               ZOWEX_PLUGIN_ABI_VERSION);
+               ZO_PLUGIN_ABI_VERSION);
     dlclose(plugin);
     return;
   }

@@ -25,7 +25,7 @@
 #include "../server/rpc_server.hpp"
 #include "../server/rpc_commands.hpp"
 #include "../server/dispatcher.hpp"
-#include "../server/logger.hpp"
+#include "../zlogger.hpp"
 #include "../server/worker.hpp"
 #include "../server/plugin_bridge.hpp"
 
@@ -118,7 +118,7 @@ void ZServer::print_ready_message()
 
   StatusMessage status_msg{
       .status = "ready",
-      .message = "zowex server is ready to accept input",
+      .message = "zo server is ready to accept input",
       .data = std::optional<zjson::Value>(data),
   };
 
@@ -128,7 +128,7 @@ void ZServer::print_ready_message()
 
 void ZServer::log_worker_count()
 {
-  if (!server::Logger::is_verbose_logging())
+  if (!ZLogger::get_instance().is_verbose_logging())
     return;
 
   worker_count_thread = std::thread([this]()
@@ -150,8 +150,8 @@ void ZServer::run(const server::Options &opts)
 {
   options = opts;
 
-  server::Logger::init_logger(options.verbose);
-  LOG_INFO("Starting zowex server with %lld workers and %lld seconds until request timeout (verbose=%s)", options.num_workers, options.request_timeout, options.verbose ? "true" : "false");
+  ZLogger::get_instance().initialize_server(options.verbose);
+  LOG_INFO("Starting zo server with %lld workers and %lld seconds until request timeout (verbose=%s)", options.num_workers, options.request_timeout, options.verbose ? "true" : "false");
 
   setup_signal_handlers();
 
@@ -192,7 +192,7 @@ void ZServer::run(const server::Options &opts)
   }
   request_shutdown();
 
-  server::Logger::shutdown();
+  ZLogger::get_instance().shutdown();
 }
 
 // server namespace implementation
@@ -203,35 +203,32 @@ namespace server
 static int handle_server(plugin::InvocationContext &context)
 {
   server::Options opts;
-  opts.num_workers = context.get<long long>("num-workers", opts.num_workers);
   opts.verbose = context.get<bool>("verbose", opts.verbose);
   opts.request_timeout = context.get<long long>("request-timeout", opts.request_timeout);
   opts.exec_dir = ZServer::get_instance().get_exec_dir();
 
-  const auto *num_workers_env = getenv("ZOWEX_NUM_WORKERS");
-  if (num_workers_env != nullptr)
+  const auto *num_workers_env = getenv("ZO_NUM_WORKERS");
+  const auto num_workers = context.get<std::string>("num-workers", num_workers_env != nullptr ? num_workers_env : std::to_string(opts.num_workers));
+  try
   {
-    try
+    std::size_t pos{};
+    auto value = std::stoll(num_workers, &pos);
+    if (pos != num_workers.size())
     {
-      std::size_t pos{};
-      auto value = std::stoll(num_workers_env, &pos);
-      if (pos != std::string(num_workers_env).size())
-      {
-        context.error_stream() << "Invalid value for num workers: '" << num_workers_env << "'" << std::endl;
-        return 1;
-      }
-      opts.num_workers = value;
-    }
-    catch (const std::invalid_argument &)
-    {
-      context.error_stream() << "Invalid value for num workers: '" << num_workers_env << "'" << std::endl;
+      context.error_stream() << "Invalid value for num workers: '" << num_workers << "'" << std::endl;
       return 1;
     }
-    catch (const std::out_of_range &)
-    {
-      context.error_stream() << "Value out of range for num workers: '" << num_workers_env << "'" << std::endl;
-      return 1;
-    }
+    opts.num_workers = value;
+  }
+  catch (const std::invalid_argument &)
+  {
+    context.error_stream() << "Invalid value for num workers: '" << num_workers << "'" << std::endl;
+    return 1;
+  }
+  catch (const std::out_of_range &)
+  {
+    context.error_stream() << "Value out of range for num workers: '" << num_workers << "'" << std::endl;
+    return 1;
   }
 
   if (opts.num_workers <= 0)
@@ -263,14 +260,15 @@ static int handle_server(plugin::InvocationContext &context)
 void register_commands(Command &root_command)
 {
   auto server_cmd = std::make_shared<Command>("server", "start the Zowe Remote SSH I/O server");
+  server_cmd->disable_json_capture();
   server_cmd->add_keyword_arg("num-workers",
                               make_aliases("-w", "--num-workers"),
-                              "number of worker threads",
+                              "number of worker threads (default: ZO_NUM_WORKERS or 10)",
                               ArgType_Single, false,
-                              ArgValue(10LL));
+                              ArgValue(), true);
   server_cmd->add_keyword_arg("verbose",
                               make_aliases("-v", "--verbose"),
-                              "enable verbose logging",
+                              "enable INFO and DEBUG logging (default: WARN and above)",
                               ArgType_Flag, false,
                               ArgValue(false));
   server_cmd->add_keyword_arg("request-timeout",

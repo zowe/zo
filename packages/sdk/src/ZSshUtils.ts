@@ -14,10 +14,11 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { ImperativeError, type IProfile, Logger } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
-import { NodeSSH, type Config as NodeSSHConfig } from "node-ssh";
+import type { NodeSSH, SSHExecCommandResponse } from "node-ssh";
 import * as semver from "semver";
 import type { ConnectConfig, SFTPWrapper } from "ssh2";
 import { matchLeRuntimeFailure, PrivateKeyFailurePatterns, SshErrors } from "./SshErrors";
+import { SessionContext } from "./utils";
 import { ZSshClient } from "./ZSshClient";
 import { BUNDLED_SSH_SERVER_VERSION } from "./ZSshConstants";
 
@@ -38,7 +39,7 @@ export interface ISshCallbacks {
 
 export interface IServerOnPathDetails {
     /**
-     * The absolute path of the zowex instance on the user's path, if any was detected.
+     * The absolute path of the zo instance on the user's path, if any was detected.
      */
     serverPath?: string;
     /**
@@ -108,7 +109,7 @@ export class ZSshUtils {
      * From the MIT-licensed node-shlex.
      * https://github.com/rgov/node-shlex
      */
-    private static quotePath(path: string): string {
+    public static quotePath(path: string): string {
         if (path === "") {
             return "''";
         }
@@ -186,21 +187,28 @@ export class ZSshUtils {
             keyPassphrase: args.privateKey ? args.keyPassphrase : undefined,
             password: args.privateKey ? undefined : args.password,
             handshakeTimeout: args.handshakeTimeout,
+            identityAgent: args.identityAgent,
         };
         return new SshSession(sshSessCfg);
     }
 
     public static buildSshConfig(session: SshSession, configProps?: ConnectConfig): ConnectConfig {
+        const resolvedAgent =
+            session.ISshSession.identityAgent === "SSH_AUTH_SOCK"
+                ? process.env.SSH_AUTH_SOCK
+                : session.ISshSession.identityAgent;
         return {
             host: session.ISshSession.hostname,
             port: session.ISshSession.port,
             username: session.ISshSession.user,
-            password: session.ISshSession.password,
-            privateKey: session.ISshSession.privateKey
-                ? fs.readFileSync(session.ISshSession.privateKey, "utf-8")
-                : undefined,
-            passphrase: session.ISshSession.keyPassphrase,
+            password: resolvedAgent ? undefined : session.ISshSession.password,
+            privateKey:
+                !resolvedAgent && session.ISshSession.privateKey
+                    ? fs.readFileSync(session.ISshSession.privateKey, "utf-8")
+                    : undefined,
+            passphrase: resolvedAgent ? undefined : session.ISshSession.keyPassphrase,
             readyTimeout: session.ISshSession.handshakeTimeout,
+            agent: resolvedAgent,
             // ssh2 debug messages are extremely verbose so log at TRACE level
             debug: (msg) => Logger.getAppLogger().trace(msg),
             ...configProps,
@@ -228,9 +236,9 @@ export class ZSshUtils {
     /**
      * Check the user's $PATH for our server binary.
      * @param session Pre-established SSH session
-     * @returns object describing the details of any located zowex program
+     * @returns object describing the details of any located zo program
      */
-    public static async detectServerOnPath(session: SshSession): Promise<IServerOnPathDetails> {
+    public static async detectServerOnPath(session: SshSession | SessionContext): Promise<IServerOnPathDetails> {
         Logger.getAppLogger().debug(`[ZSshUtils] enter detectServerOnPath()`);
         return ZSshUtils.withSsh(session, async (ssh) => {
             const details: IServerOnPathDetails = {
@@ -302,7 +310,7 @@ export class ZSshUtils {
             const foundBin = findBinInOutput();
             if (foundBin) {
                 details.serverPath = foundBin;
-                Logger.getAppLogger().info(`[ZSshUtils] Found zowex executable at ${details.serverPath}`);
+                Logger.getAppLogger().info(`[ZSshUtils] Found zo executable at ${details.serverPath}`);
                 // should not need to use quotePath here since this is not based on user input
                 const testExecuteCmd = await ssh.execCommand(`${details.serverPath} -v`);
                 details.hasExecutePermission = testExecuteCmd.code === 0;
@@ -324,20 +332,23 @@ export class ZSshUtils {
      * @returns A promise resolving to true if the user is denied write access.
      *          If the path does not exist, false will be returned.
      */
-    public static async lacksWriteAccess(session: SshSession, testPath: string): Promise<boolean> {
+    public static async lacksWriteAccess(session: SshSession | SessionContext, testPath: string): Promise<boolean> {
         return ZSshUtils.withSsh(session, async (ssh) => {
             Logger.getAppLogger().info(`[ZSshUtils] Testing lacksWriteAccess to path '%s'`, testPath);
 
             // See: https://www.man7.org/linux/man-pages/man1/test.1.html
             const pathExistsCheck = await ZSshUtils.pathExists(ssh, testPath);
-            const testWriteCmd = await ssh.execCommand(`test -w ${ZSshUtils.quotePath(testPath)}`);
-            Logger.getAppLogger().debug(
-                `[ZSshUtils] test -w %s, code %d, stdout: '%s', stderr: '%s'`,
-                testPath,
-                testWriteCmd.code,
-                testWriteCmd.stdout,
-                testWriteCmd.stderr,
-            );
+            let testWriteCmd: SSHExecCommandResponse;
+            if (pathExistsCheck.exists) {
+                testWriteCmd = await ssh.execCommand(`test -w ${ZSshUtils.quotePath(testPath)}`);
+                Logger.getAppLogger().debug(
+                    `[ZSshUtils] test -w %s, code %d, stdout: '%s', stderr: '%s'`,
+                    testPath,
+                    testWriteCmd.code,
+                    testWriteCmd.stdout,
+                    testWriteCmd.stderr,
+                );
+            }
 
             return pathExistsCheck.exists && testWriteCmd.code !== 0; // testWriteCmd non-zero: lacks write access
         });
@@ -360,7 +371,7 @@ export class ZSshUtils {
         }
 
         const statsLine = dfCommand.stdout.substring(dfCommand.stdout.indexOf("\n"));
-        Logger.getAppLogger().info(`[ZSshUtils] getAvailableMB: df -m ${dir} output:\n${dfCommand.stdout} `);
+        Logger.getAppLogger().info(`[ZSshUtils] getAvailableMB: df -m ${dir} output:\n${dfCommand.stdout}`);
         // example output:
         // Mounted on     Filesystem                Avail/Total    Files      Status
         // /u/users       (EXAMPLE.USER.ZFS)        826934/8120160 4294919164 Available
@@ -396,7 +407,7 @@ export class ZSshUtils {
      * @returns true if the deployment was completed successfully
      */
     public static async installServer(
-        session: SshSession,
+        session: SshSession | SessionContext,
         serverPath: string,
         options?: ISshCallbacks,
     ): Promise<boolean> {
@@ -405,6 +416,7 @@ export class ZSshUtils {
         );
         const localDir = ZSshUtils.getBinDir(__dirname);
         const remoteDir = serverPath.replace(/^~/, ".");
+        let extractionStarted = false;
 
         return ZSshUtils.sftp(session, async (sftp, ssh) => {
             Logger.getAppLogger().info(`[ZSshUtils] Step 1/5: Creating remote directory ${remoteDir}`);
@@ -444,7 +456,7 @@ export class ZSshUtils {
                         !(await options.onInsufficientSpaceWarning(availableMb.mb, ZSshClient.REQUIRED_DEPLOY_SIZE_MB))
                     ) {
                         Logger.getAppLogger().info(
-                            `[ZSshUtils] User declined to deploy to '${remoteDir}' due to lack of available space `,
+                            `[ZSshUtils] User declined to deploy to '${remoteDir}' due to lack of available space`,
                         );
                         return false;
                     } else {
@@ -499,6 +511,7 @@ export class ZSshUtils {
                 }
 
                 Logger.getAppLogger().info(`[ZSshUtils] Step 3/5: Extracting PAX archive in ${remoteDir}`);
+                extractionStarted = true;
                 const result = await ssh.execCommand(`pax -rzf ${ZSshUtils.SERVER_PAX_FILE}`, { cwd: remoteDir });
                 if (await ZSshUtils.routeExpiredPasswordError(result.stderr ?? "", "extract", options)) {
                     return false;
@@ -545,6 +558,14 @@ export class ZSshUtils {
                         await promisify(sftp.unlink.bind(sftp))(remotePaxPath);
                     }
 
+                    const remoteProgramPath = path.posix.join(remoteDir, ZSshClient.BIN_NAME);
+
+                    if (extractionStarted && (await ZSshUtils.pathExists(ssh, remoteProgramPath)).exists) {
+                        Logger.getAppLogger().debug(
+                            `Deployment failed, but extraction was started. Attempting to delete ${ZSshClient.BIN_NAME} program at '${remoteProgramPath}'`,
+                        );
+                        await promisify(sftp.unlink.bind(sftp))(remoteProgramPath);
+                    }
                     if (!initialRemoteDirExistCheck.exists) {
                         Logger.getAppLogger().debug(
                             `Post-failure cleanup: deleting remote dir ${remoteDir} which we created`,
@@ -553,7 +574,7 @@ export class ZSshUtils {
                     }
                 } catch (failureCleanupErr) {
                     Logger.getAppLogger().error(
-                        `Error was thrown during post-failure cleanup: ${failureCleanupErr.message} `,
+                        `Error was thrown during post-failure cleanup: ${failureCleanupErr.message}`,
                     );
                 }
 
@@ -595,7 +616,7 @@ export class ZSshUtils {
     }
 
     public static async uninstallServer(
-        session: SshSession,
+        session: SshSession | SessionContext,
         serverPath: string,
         options?: Omit<ISshCallbacks, "onProgress">,
     ): Promise<void> {
@@ -655,25 +676,20 @@ export class ZSshUtils {
     }
 
     private static async sftp<T>(
-        session: SshSession,
+        session: SshSession | SessionContext,
         callback: (sftp: SFTPWrapper, ssh: NodeSSH) => Promise<T>,
     ): Promise<T> {
-        const ssh = new NodeSSH();
-        await ssh.connect(ZSshUtils.buildSshConfig(session) as NodeSSHConfig);
-        try {
-            return await ssh.requestSFTP().then((sftp) => callback(sftp, ssh));
-        } finally {
-            ssh.dispose();
-        }
+        return ZSshUtils.withSsh(session, async (ssh) => callback(await ssh.requestSFTP(), ssh));
     }
 
-    private static async withSsh<T>(session: SshSession, callback: (ssh: NodeSSH) => Promise<T>): Promise<T> {
-        const ssh = new NodeSSH();
-        await ssh.connect(ZSshUtils.buildSshConfig(session) as NodeSSHConfig);
-        try {
-            return await callback(ssh);
-        } finally {
-            ssh.dispose();
+    private static async withSsh<T>(
+        session: SshSession | SessionContext,
+        callback: (ssh: NodeSSH) => Promise<T>,
+    ): Promise<T> {
+        if (session instanceof SessionContext) {
+            return callback(await session.getSsh());
         }
+        using context = new SessionContext(session);
+        return await callback(await context.getSsh());
     }
 }

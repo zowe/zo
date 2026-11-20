@@ -16,6 +16,7 @@
 #include <mutex>
 #include <deque>
 #include <set>
+#include <functional>
 #include "../extend/plugin.hpp"
 #include "../singleton.hpp"
 
@@ -75,6 +76,13 @@ private:
   plugin::ArgumentMap convert_json_params_to_argument_map(const zjson::Value &params);
   zjson::Value convert_output_to_json(const std::string &output);
   zjson::Value convert_ast_to_json(const ast::Node &ast_node);
+  typedef std::function<void(const RpcResponse &, MiddlewareContext *)> ResponseSink;
+
+  void process_request_impl(const std::string &request_data, std::function<void()> heartbeat_callback,
+                            const ResponseSink &emit);
+  std::string render_response(const RpcResponse &response, MiddlewareContext *context);
+  RpcResponse make_error(int request_id, int code, const std::string &message, const std::string *data = nullptr);
+  RpcResponse make_error(int request_id, int code, const std::string &message, const zjson::Value &data);
   void print_response(const RpcResponse &response, MiddlewareContext *context = nullptr);
   void print_error(int request_id, int code, const std::string &message, const std::string *data = nullptr);
   void print_error(int request_id, int code, const std::string &message, const zjson::Value &data);
@@ -93,8 +101,23 @@ public:
    * This method is thread-safe and handles all JSON parsing, command execution,
    * and response serialization
    * @param request_data The raw JSON-RPC request string
+   * @param heartbeat_callback Callback a streaming command handler can invoke per chunk
+   *        (e.g. during a large file upload/download) to signal that the request is
+   *        still making progress. Set on the MiddlewareContext built for this request.
    */
-  void process_request(const std::string &request_data);
+  void process_request(const std::string &request_data, std::function<void()> heartbeat_callback = nullptr);
+
+  /**
+   * Process a JSON-RPC request in-process and return the serialized response
+   *
+   * Same parsing, validation and dispatch as process_request, but nothing is
+   * written to stdout/stderr. Intended for embedding hosts (e.g. the Java REST
+   * API); commands that stream through FIFOs or send notifications are not
+   * supported on this path.
+   * @param request_data The raw JSON-RPC request string
+   * @return The serialized JSON-RPC response (success or error)
+   */
+  std::string call(const std::string &request_data);
 
   /**
    * Utility function to serialize JSON with error handling

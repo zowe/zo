@@ -29,6 +29,10 @@ export const ListJobsDefinition: ICommandDefinition = {
             description: 'List Alice\'s jobs with names beginning beginning with "ibmu"',
             options: '--prefix "ibmu*" --owner "alice"',
         },
+        {
+            description: "List Alice's jobs and include execution data (system, member, submitted/started/ended times)",
+            options: '--owner "alice" --exec-data',
+        },
     ],
     options: [
         {
@@ -57,6 +61,15 @@ export const ListJobsDefinition: ICommandDefinition = {
                 "Specify the status of the jobs you want to list. The status is " +
                 "one of the following: INPUT, ACTIVE and OUTPUT. \n ",
             type: "string",
+            required: false,
+        },
+        {
+            name: "exec-data",
+            aliases: ["ed"],
+            description:
+                "Include execution data for each job (execSystem, execMember, execSubmitted, execStarted, execEnded) " +
+                "in addition to the default information.",
+            type: "boolean",
             required: false,
         },
     ],

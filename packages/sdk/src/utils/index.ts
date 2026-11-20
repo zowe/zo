@@ -9,4 +9,5 @@
  *
  */
 
+export * from "./SessionContext";
 export * from "./tools/SearchParser";

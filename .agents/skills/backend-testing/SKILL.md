@@ -105,7 +105,7 @@ TestLog("Debug message");  // Only shows if ZNP_TEST_LOG=ON
 **Command testing:**
 ```cpp
 int rc; std::string output;
-rc = execute_command_with_output("zowex version", output);
+rc = execute_command_with_output("zo version", output);
 ExpectWithContext(rc, output).ToBe(0);
 ```
 

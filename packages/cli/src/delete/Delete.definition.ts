@@ -15,6 +15,7 @@ import { Constants } from "../Constants";
 import { DataSetDefinition } from "./data-set/DataSet.definition";
 import { JobDefinition } from "./job/Job.definition";
 import { ItemDefinition as UssDefinition } from "./uss/Item.definition";
+import { VsamDefinition } from "./vsam/Vsam.definition";
 
 const DeleteDefinition: ICommandDefinition = {
     name: "delete",
@@ -22,11 +23,11 @@ const DeleteDefinition: ICommandDefinition = {
     description: "Delete data sets and/or data set members",
     type: "group",
     aliases: ["del"],
-    children: [DataSetDefinition, UssDefinition, JobDefinition],
+    children: [DataSetDefinition, VsamDefinition, UssDefinition, JobDefinition],
     passOn: [
         {
             property: "options",
-            value: [...SshSession.SSH_CONNECTION_OPTIONS, Constants.OPT_SERVER_PATH],
+            value: [...SshSession.SSH_CONNECTION_OPTIONS, ...Constants.ZSSH_EXTRA_OPTIONS],
             merge: true,
             ignoreNodes: [{ type: "group" }],
         },

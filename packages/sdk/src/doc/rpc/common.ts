@@ -358,6 +358,26 @@ export interface Job {
      * Job phase name
      */
     phaseName: string;
+    /**
+     * z/OS system on which the job ran (undefined if execution data is unavailable)
+     */
+    execSystem?: string;
+    /**
+     * JES2 member on which the job ran (undefined if execution data is unavailable)
+     */
+    execMember?: string;
+    /**
+     * Submission time (JES input end time) in UTC, formatted as YYYY-MM-DDTHH:mm:ss.SSSZ
+     */
+    execSubmitted?: string;
+    /**
+     * Execution start time in UTC, formatted as YYYY-MM-DDTHH:mm:ss.SSSZ (undefined before execution)
+     */
+    execStarted?: string;
+    /**
+     * Execution end time in UTC, formatted as YYYY-MM-DDTHH:mm:ss.SSSZ (undefined before completion)
+     */
+    execEnded?: string;
 }
 
 export interface Spool {

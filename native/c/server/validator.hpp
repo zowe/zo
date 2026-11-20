@@ -12,9 +12,9 @@
 #ifndef VALIDATOR_HPP
 #define VALIDATOR_HPP
 
+#include <cstddef>
 #include <string>
 #include <string_view>
-#include <functional>
 
 /**
  * Schema-based validation for JSON-RPC messages.
@@ -116,11 +116,11 @@ struct ValidationResult
   }
 };
 
-/**
- * Validator function type - validates JSON parameters
- * Can be null to indicate no validation is required
- */
-using ValidatorFn = std::function<ValidationResult(const zjson::Value &)>;
+struct SchemaView
+{
+  const FieldDescriptor *fields;
+  size_t field_count;
+};
 
 /**
  * Validate a JSON value against a schema

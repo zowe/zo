@@ -20,7 +20,7 @@
 
 void create_data_set(std::string dsn, const DS_ATTRIBUTES &attributes);
 
-std::vector<ZDSEntry> list_data_sets(std::string dsn);
+std::vector<ZDSEntry> list_data_sets(std::string dsn, bool show_attributes = false);
 
 std::string read_data_set(std::string dsn, std::string codepage = "");
 

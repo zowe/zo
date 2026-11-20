@@ -24,15 +24,15 @@ printf "\n"
 
 # Create ADATA data set, ignore errors if it fails
 echo "Creating ADATA data set: $data_set_adata"
-if ! zowex data-set create-adata "$data_set_adata" >/dev/null 2>&1; then
-    echo "Warning: Failed to create ADATA data set (may already exist)"
+if ! zo data-set create-adata "$data_set_adata" >/dev/null 2>&1; then
+	echo "Warning: Failed to create ADATA data set (may already exist)"
 fi
 printf "\n"
 
 # Create CHDR data set, ignore errors if it fails
 echo "Creating CHDR data set: $data_set_chdr"
-if ! zowex data-set create-vb "$data_set_chdr" >/dev/null 2>&1; then
-    echo "Warning: Failed to create CHDR data set (may already exist)"
+if ! zo data-set create-vb "$data_set_chdr" >/dev/null 2>&1; then
+	echo "Warning: Failed to create CHDR data set (may already exist)"
 fi
 printf "\n"
 
@@ -45,7 +45,7 @@ as -madata --gadata="//'$data_set_adata($filename_no_ext)'" $1
 echo "Assembler command completed."
 printf "\n"
 
-zowex tool ccnedsct --ad "$data_set_adata($filename_no_ext)" --cd "$data_set_chdr($filename_no_ext)"
+zo tool ccnedsct --ad "$data_set_adata($filename_no_ext)" --cd "$data_set_chdr($filename_no_ext)"
 printf "\n"
 
 echo "Copying generated header file to build-out..."
@@ -79,7 +79,7 @@ awk '{
     print $0
   }
 }' build-out/$filename_no_ext.h > build-out/$filename_no_ext.h.tmp && \
-  mv build-out/$filename_no_ext.h.tmp build-out/$filename_no_ext.h
+	mv build-out/$filename_no_ext.h.tmp build-out/$filename_no_ext.h
 echo "Pragma ifdef replacement completed."
 printf "\n"
 

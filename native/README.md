@@ -6,11 +6,13 @@ The following sections relate to code in the `native/c` folder.
 
 ### Logging
 
-The C++ application includes a ZLogger singleton class for centralized logging. When `ZLOG_ENABLE` is defined during compilation, the logger automatically creates a `.zowex/logs/` directory in the current user's home directory and writes log output to `~/.zowex/logs/zowex.log`. Logs are written per-user (rather than to a location shared by all users of the binary, such as next to the executable) so that concurrent users of a shared zowex installation don't contend for the same log file. The `zowex server` daemon similarly writes its logs to `~/.zowex/logs/zowex_server.log`.
+The C++ application uses `ZLogger` for command and server logging in every build, without requiring Metal C. Both `LOG_*` and `ZLOG_*` macros are available from `zlogger.hpp`, including in shared command handlers. Ordinary commands write to `~/.zowex/logs/zowex.log`; `ZServer::run` selects server mode before starting workers, so server and handler messages share `~/.zowex/logs/zowex_server.log`. Logs remain per-user, with newly created directories restricted to `0700` and files to `0600`.
 
-`ZLOG_ENABLE` is defined when building in debug mode with `make -DBuildType=DEBUG`. You can exclusively enable logging by passing it directly to the make command: `make -DZLOG_ENABLE=1`
+Only Debug builds (`make -DBuildType=DEBUG`) define `ZLOG_ENABLE`, enabling the Metal C instrumentation macros and linking their logger. Metal C records use a separate `zowex_metal.log` file so BSAM cannot overwrite C++ logs. C++ messages always use standard file I/O, even in Debug builds. The former `make -DZLOG_ENABLE=1` option is no longer needed for C++ logging and does not enable Metal C instrumentation outside Debug builds.
 
-Once enabled, you can insert log statements into your source code by making calls to the logger class:
+When switching build types, force a rebuild with `make -u -DBuildType=DEBUG` or `make -u -DBuildType=RELEASE`; object files share an output directory.
+
+You can call the logger directly:
 
 ```cpp
 int main() {
@@ -21,7 +23,8 @@ int main() {
 Or, you can use the macros:
 
 ```cpp
-ZLOG_TRACE("This is also a trace message");
+LOG_INFO("Command progress: %d records processed", count);
+ZLOG_TRACE("Detailed command diagnostics");
 ```
 
 Metal C has a similar set of macros in the format `ZLOGXMSG`:
@@ -38,31 +41,60 @@ The logger supports the following log levels (in order of verbosity):
 
 - `TRACE` (T) - Most verbose, includes all debugging information
 - `DEBUG` (D) - Debugging information
-- `INFO` (I) - General informational messages (default)
-- `WARN` (W) - Warning messages
+- `INFO` (I) - General informational messages
+- `WARN` (W) - Warning messages (default)
 - `ERROR` (E) - Error messages
 - `FATAL` (F) - Fatal errors that may cause program termination
 - `OFF` - Disable all logging
 
 #### Configuration
 
-Set the log level for zowex using the `ZOWEX_LOG_LEVEL` environment variable:
+Set the log level for `zo` using the `ZO_LOG_LEVEL` environment variable:
 
 ```bash
-# Start zowex in interactive mode with log level "TRACE"
-ZOWEX_LOG_LEVEL=TRACE ./zowex --it
+# Start zo in interactive mode with log level "TRACE"
+ZO_LOG_LEVEL=TRACE ./zo --it
 ```
 
-To modify the log level programmatically in C++ code, use the `ZLogger::set_log_level` function. To change the log level in Metal C code, use the `ZLGSTLVL` function defined in `zlogger_metal.h`. Both functions take an integer from the enum `zlog_level_t` (also redefined as `LogLevel` in the C++ header file).
+`ZO_LOG_LEVEL` applies to both command and server mode. Both default to `WARN` without an explicit level. `zo server --verbose` selects `DEBUG`, overriding `ZO_LOG_LEVEL`. Level names are case-insensitive; `WARNING` is accepted as an alias for `WARN`. `OFF` disables file messages unless `--verbose` is passed. To change the level programmatically, use `ZLogger::set_log_level(LogLevel)`. In Debug builds this also updates the Metal C level; `ZLGSTLVL` changes only the Metal C level. `ZLOG_FATAL` writes a fatal diagnostic without exiting; `LOG_FATAL` also prints to stderr and exits with status 1.
 
-Override where log files are written using the `ZOWEX_LOGS_DIR` environment variable. This is useful for shared installations where users may not have write access to the default location, or for redirecting logs elsewhere for troubleshooting:
+Override where log files are written using the `ZO_LOGS_DIR` environment variable. This is useful for shared installations where users may not have write access to the default location, or for redirecting logs elsewhere for troubleshooting:
 
 ```bash
 # Write logs to a custom directory instead of ~/.zowex/logs
-ZOWEX_LOGS_DIR=/tmp/my-zowex-logs ./zowex --it
+ZO_LOGS_DIR=/tmp/my-zowex-logs ./zo --it
 ```
 
-The `zowex server` daemon rolls its log file over once it exceeds 100KB, keeping up to 10 generations (`zowex_server.log`, `zowex_server.log.1`, ..., `zowex_server.log.9`) in FIFO order — the oldest generation is dropped to make room for the newest, bounding total disk usage per user to roughly 1MB.
+Relative log directories are resolved against the current working directory. Paths containing `..` components or control characters are rejected before creating directories. The canonical log directory must belong to the effective user and must not be group- or world-writable; invalid locations disable logging rather than falling back to another directory. C++ log files must be regular, singly linked files owned by that user. Their open descriptors are checked before any truncation or output, so symbolic or hard links cannot redirect log writes.
+
+Both C++ logs append by default and roll over after exceeding 100 KiB, keeping one active file and nine backups (`.1` through `.9`) in FIFO order, roughly 1 MiB per log. If archiving the active file fails, logging continues through the existing append stream rather than reopening or truncating it; data preservation takes precedence over the size limit. A persistent rotation failure warns once after the active file exceeds twice the limit. Formatted C++ messages are bounded to 4095 bytes. The `fatal(message, exit_code)` overload treats its message as literal text, including percent sequences, and exits with the requested status.
+
+`ZLogger::initialize()` selects command mode and appends. `initialize_server(verbose, truncate)` selects server mode; `truncate` defaults to `false`, and explicitly setting it to `true` clears only the active server log, not its backups. `shutdown()` closes logging until either initialization method is called again. The Debug-only Metal C logger retains its BSAM record formatting and truncation behavior; it does not participate in C++ log rotation.
+
+### PKCS#12 certificate export
+
+`zo system cert export --format p12` protects the private key and certificates with
+PBES2/AES-256-CBC, PBKDF2-HMAC-SHA-256, and a SHA-256 integrity MAC. It does not
+fall back to RC4 or 3DES when AES export fails.
+
+Prerequisites for PKCS#12 export:
+
+- System SSL with [APAR OA64899](https://www.ibm.com/support/pages/apar/OA64899) support.
+  IBM introduced this support on z/OS 2.5 and 3.1 through the applicable PTFs.
+  Build hosts also need the updated System SSL headers.
+- Active ICSF. Where CSFSERV profiles protect the callable services, the exporting
+  user needs READ access to `CSF1GSK`, `CSF1GAV`, and `CSF1TRD`.
+- An 8–128-character passphrase representable in 7-bit ASCII, supplied through
+  `--password`.
+- An importing application that supports PBES2/AES-256 PKCS#12 bundles. System SSL
+  importers need the corresponding OA64899 support and active ICSF as well.
+
+System SSL controls the KDF work factor; `zo` does not expose an iteration-count
+option. Exported USS files remain owner-read/write only (`0600`).
+
+PEM export contains no private key and does not require these PBES2/ICSF prerequisites.
+See IBM's [`gsk_export_key()` reference](https://www.ibm.com/docs/en/zos/3.2.0?topic=reference-gsk-export-key)
+for the algorithm and passphrase requirements.
 
 ### Testing
 
@@ -140,6 +172,30 @@ Tests are built via a `makefile` in `c/test` and are also a default build target
 #### Executing
 
 Tests may be run from the `c/test` folder via `make test` or from client project using `npm run z:test`.
+
+#### Migrated data set write regression tests
+
+The `migrated data set writes` tests require an active migration service and authority to migrate test data sets.
+The tests are skipped unless `ZNP_TEST_MIGRATION` is set to `HSM` or `CADISK`.
+
+Run the tests from `native/c/test` on z/OS:
+
+```sh
+ZNP_TEST_MIGRATION=HSM ./build-out/ztest_runner 'migrated data set writes'
+# For CA Disk:
+ZNP_TEST_MIGRATION=CADISK ./build-out/ztest_runner 'migrated data set writes'
+```
+
+Each test creates a unique sequential data set under the test user's `ZNP#TEST` qualifier and writes initial content.
+The test submits `HMIGRATE` or `DARCHIVE` and polls the catalog until the volume is `MIGRAT` or `ARCIVE`.
+The test then calls `zds_write` or `zds_write_streamed` without an earlier OPEN or explicit restore.
+Both tests expect success and verify the replacement content.
+The suite registers each created data set for cleanup, including when a write fails.
+
+DFSMShsm migration has a two-minute wait limit.
+CA Disk migration has a 46-minute wait limit per test because archive requests are deferred.
+A migration command error or timeout indicates a setup failure, not reproduction of the write regression.
+The tests detect the regression when a write returns `Writing to RECFM=U data sets is not supported` instead of succeeding.
 
 #### Results
 
@@ -260,11 +316,15 @@ OR:
 
 - create a `.s` file in `asmchdr` folder, e.g. `asasymbp.s`
 - upload, e.g. `npm run z:upload asmchdr/asasymbp.s`
-- allocate output adata data set if none exists, e.g. `zowex data-set create-adata <hlq>.adata`
-- allocate output chdr data set if none exists, e.g. `zowex data-set create-vb <hlq>.chdr`
+- allocate output adata data set if none exists, e.g. `zo data-set create-adata <hlq>.adata`
+- allocate output chdr data set if none exists, e.g. `zo data-set create-vb <hlq>.chdr`
 - build `.s` file, e.g. `as -madata --gadata="//'<hlq>.USER(ASASYMBP)'" asasymbp.s`
-- convert the file via `ccnedsct`, e.g. `zowex tool ccnedsct --ad "<hlq>.adata(asasymbp)" --cd "<hlq>.chdr(asasymbp)"`
+- convert the file via `ccnedsct`, e.g. `zo tool ccnedsct --ad "<hlq>.adata(asasymbp)" --cd "<hlq>.chdr(asasymbp)"`
 - copy, download the `.h` file where needed, e.g. `zowe files download ds "<hlq>.chdr(asasymbp)" --file native/c/chdsect/asasymbp.h`
+
+By default, the `zo tool ccnedsct` command retains its SYSPRINT and SYSOUT listings in unique files under the directory path `~/.zowex/ccnedsct` and prints their paths. The `.zowex` and `ccnedsct` directories and the generated files are owned by the current user with mode `0700`.
+Existing output directories must already meet these requirements and must not be symlinks; the command fails rather than changing their permissions. The home directory must be user-owned, with trusted, non-group/world-writable parent directories.
+Use the `--sysprint` and `--sysout` command-line arguments to choose explicit output paths; these overrides retain their existing create/truncate behavior. Remove retained listings when no longer needed.
 
 ### Recovery
 
@@ -277,7 +337,7 @@ abend scenario and bypass any established `ESTAEX`.
 ### Debugging Metal C
 
 You can add temporary debugging messages within Metal C code which will issue `WTO` messages with a message prefix of `ZWEX0001I`. These messages may be used in development only
-and must not appear in distributed versions of `zowex`.
+and must not appear in distributed versions of `zo`.
 
 To see these debugging messages within z/OS UNIX, set the environment variable `export _BPXK_JOBLOG=STDERR`. Then add debug messages via `zwto_debug(...)` found within `zwto.h` in the same format as C `printf` format strings, e.g. `zwto_debug("return code was %d", rc);`.
 
@@ -300,15 +360,15 @@ To dump storage in LE, use:
 
 ### Metal C
 
-You must ensure `zut_alloc_debug()` is called to allocate an output DD for log messages. Then in Metal C, use
+In Metal C, use:
 
 ```c
 #include "zdbg.h"
 
   ZJB zjb = {0};
 
-  zut_dump_storage("ZJB", zjb, sizeof(ZJB), ZUTDBGMG);
+  zut_dump_storage("ZJB", &zjb, sizeof(ZJB));
 
 ```
 
-By default, output is printed to `/tmp/zowex_debug_<PID>.txt` (where PID is the current `zowex` process ID) when using `ZUTDBGMG()`; however, you may provide a Metal C compatible alternative.
+Output is printed as a WTO.

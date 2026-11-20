@@ -9,7 +9,7 @@ The three external security managers are not interchangeable: command syntax,
 where the z/OS UNIX identity lives, and how a change is made effective all
 differ. Identify the active ESM first, then follow only that product's section.
 
-Commands below are issued through TSO. With the `zowex-ssh` skill that is
+Commands below are issued through TSO. With the `zo-ssh` skill that is
 `zx tso '<command>'`; ACF2 is the exception and needs batch TSO (see below).
 
 Consult the product's own documentation for anything beyond these paths:

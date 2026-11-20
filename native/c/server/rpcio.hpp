@@ -14,10 +14,16 @@
 
 #include "../extend/plugin.hpp"
 #include "../zjson.hpp"
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
 #include <sstream>
+
+namespace ztemp
+{
+class FileGuard;
+}
 
 // JSON-RPC 2.0 Standard Error Codes
 namespace RpcErrorCode
@@ -40,13 +46,11 @@ struct RpcNotification
   std::string method;
   std::optional<zjson::Value> params;
 };
-ZJSON_DERIVE(RpcNotification, jsonrpc, method, params);
 
 struct RpcRequest : RpcNotification
 {
   int id;
 };
-ZJSON_DERIVE(RpcRequest, jsonrpc, method, params, id);
 
 struct ErrorDetails
 {
@@ -54,7 +58,6 @@ struct ErrorDetails
   std::string message;
   std::optional<zjson::Value> data;
 };
-ZJSON_DERIVE(ErrorDetails, code, message, data);
 
 struct RpcResponse
 {
@@ -63,11 +66,6 @@ struct RpcResponse
   std::optional<ErrorDetails> error;
   std::optional<int> id;
 };
-ZJSON_SERIALIZABLE(RpcResponse,
-                   ZJSON_FIELD(RpcResponse, jsonrpc),
-                   ZJSON_FIELD(RpcResponse, result).skip_serializing_if_none(),
-                   ZJSON_FIELD(RpcResponse, error).skip_serializing_if_none(),
-                   ZJSON_FIELD(RpcResponse, id));
 
 static constexpr size_t LARGE_DATA_THRESHOLD = 16 * 1024 * 1024; // 16MB
 
@@ -93,10 +91,30 @@ public:
   }
 
   // Set content length and send pending notification if present
-  void set_content_len(size_t content_length);
+  void set_content_len(size_t content_length) override;
+
+  // Set the callback invoked by update_heartbeat(). Passed in by RpcServer::process_request()
+  // for this one request, which got it from the worker thread servicing the request (see
+  // Worker::process_request) - not stored per-thread, since a fresh MiddlewareContext is
+  // constructed for every request.
+  void set_heartbeat_callback(std::function<void()> callback);
+
+  // Invoke the callback set via set_heartbeat_callback(), if any
+  void update_heartbeat() override;
 
   // Store pending notification for delayed sending
   void set_pending_notification(const RpcNotification &notification);
+
+  // Retain the pipe through handler execution; context destruction also cleans up on errors.
+  void set_temp_file(std::shared_ptr<ztemp::FileGuard> file)
+  {
+    m_temp_file = std::move(file);
+  }
+
+  void cleanup_temp_file()
+  {
+    m_temp_file.reset();
+  }
 
   // Get large data map
   std::map<std::string, std::string> &get_large_data()
@@ -104,7 +122,8 @@ public:
     return m_large_data;
   }
 
-  // Store large data to optimize JSON serialization
+  // Data is spliced verbatim between quotes into the serialized response, so it must
+  // already be safe as JSON string content (base64 or zjson-escaped).
   void store_large_data(const std::string &field_name, const std::string &data);
 
 private:
@@ -113,6 +132,8 @@ private:
   std::stringstream m_error_stream;
   std::unique_ptr<RpcNotification> m_pending_notification;
   std::map<std::string, std::string> m_large_data;
+  std::function<void()> m_heartbeat_callback;
+  std::shared_ptr<ztemp::FileGuard> m_temp_file;
 };
 
 #endif

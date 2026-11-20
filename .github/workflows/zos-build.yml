@@ -10,6 +10,9 @@ on:
       - main
   workflow_call:
     inputs:
+      debug:
+        required: false
+        type: boolean
       version:
         required: false
         type: string
@@ -20,9 +23,12 @@ on:
         required: true
       SSH_MARIST_ZNP_ID:
         required: true
+      SSH_MARIST_HOST_KEY:
+        required: true
   workflow_dispatch:
 
 permissions:
+  actions: read
   checks: write
   pull-requests: write
 
@@ -31,12 +37,15 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: "zos-build"
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || 20 }}
+    timeout-minutes: 20
+    env:
+      # Build and tests share native objects, so they must use the same build type.
+      ZOWE_NATIVE_DEBUG: ${{ inputs.debug && '1' || '0' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
 
@@ -53,6 +62,7 @@ jobs:
                 user: "${{ secrets.SSH_MARIST_ZNP_ID }}"
                 password: "${{ secrets.SSH_MARIST_ZNP_PASS }}"
               deployDir: "/ZOWE/tmp/zowex"
+              hostFingerprint: "${{ secrets.SSH_MARIST_HOST_KEY }}"
               # Open XL C/C++ 2.1 is the newest compiler IBM supports on z/OS 2.5, our minimum
               # supported release. Open XL 2.2 requires z/OS 3.1+, and its newer libc++ raises the
               # Language Environment runtime level every consumer of this artifact must carry.
@@ -68,7 +78,9 @@ jobs:
 
       - name: Set Build Version
         if: ${{ inputs.version }}
-        run: npm pkg set version=${{ inputs.version }}
+        run: npm pkg set version="$VERSION"
+        env:
+          VERSION: ${{ inputs.version }}
 
       - name: Build on z/OS
         run: npm run z:rebuild
@@ -78,57 +90,71 @@ jobs:
       - name: List runtime imports
         run: npm run z:imports
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
-          name: zowex-runtime-imports
+          name: zo-runtime-imports
           path: listings/*
 
       - name: Package server artifacts
+        # Don't produce artifacts for debug builds; we want release artifacts available from last successful build
+        if: ${{ !inputs.debug }}
         run: npm run z:package
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: zowe-server-bin
           path: packages/sdk/bin/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: pax-artifact-upload
         with:
           name: zowe-server-release
           path: dist/server.pax.Z
 
+      - name: Compare PAX size with main
+        id: compare-pax-size
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          read -r RUN_ID MAIN_SHA <<< "$(gh run list --workflow=zos-build.yml --branch=main --event=push --status=success --limit=1 --json=databaseId,headSha --jq='.[0] | [.databaseId, .headSha] | @tsv' 2>/dev/null || true)"
+          [[ -n "$RUN_ID" ]] && gh run download "$RUN_ID" --name zowe-server-release --dir /tmp/main 2>/dev/null || true
+          MAIN_SHA="$MAIN_SHA" node -e '
+            const childProcess = require("child_process");
+            const fs = require("fs");
+            const paxSize = (pax) => parseInt(childProcess.execSync(`zcat ${pax} | tar -tvf - | awk \x27{sum += $3} END {print sum}\x27`));
+            const pr = paxSize("dist/server.pax.Z");
+            const main = fs.existsSync("/tmp/main/server.pax.Z") ? paxSize("/tmp/main/server.pax.Z") : 0;
+            const pct = main ? ((pr - main) / main * 100).toFixed(2) : 0;
+            const sha = process.env.MAIN_SHA;
+            const baseline = `[\`${sha.slice(0, 7)}\`](${process.env.REPO_URL}/commit/${sha})`;
+            const change = !main ? "" : !Number(pct) ? " (no change)" : ` (${pct > 0 ? "+" : ""}${pct}% from ${baseline})`;
+            console.log(`line=- Extracted size: ${(pr / 1048576).toFixed(2)} MB${change}`);
+          ' >> "$GITHUB_OUTPUT"
+
       - name: Comment on PR
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v2
         with:
           header: Server artifacts
           number: ${{ github.event.pull_request.number }}
           message: |
             Server artifacts:
              - PAX: ${{ steps.pax-artifact-upload.outputs.artifact-url }}
+               ${{ steps.compare-pax-size.outputs.line }}
 
       - name: Test on z/OS
         run: npm run z:test
 
       - name: Test Report
-        uses: dorny/test-reporter@v2
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a # v3.2.0
         if: ${{ !cancelled() }}
         with:
           name: Test results
           path: native/c/test/test-results.xml
           reporter: java-junit
-
-      # Debug builds run only for PRs; main/release/nightly builds stay in release mode
-      - name: Clean native build artifacts
-        if: github.event_name == 'pull_request'
-        run: npm run z:clean
-
-      - name: Debug build on z/OS
-        if: github.event_name == 'pull_request'
-        env:
-          ZOWE_NATIVE_DEBUG: "1"
-        run: npm run z:build
 
       - name: Clean up on z/OS
         if: always()

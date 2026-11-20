@@ -10,7 +10,7 @@
  */
 
 import { EventEmitter, Readable } from "node:stream";
-import { Logger } from "@zowe/imperative";
+import { Censor, Logger } from "@zowe/imperative";
 import { type ISshSession, SshSession } from "@zowe/zos-uss-for-zowe-sdk";
 import { Client, type ClientCallback, type ConnectConfig } from "ssh2";
 import type { ReadableStreamRpc } from "../lib";
@@ -214,6 +214,30 @@ describe("ZSshClient", () => {
             expect(endSpy).toHaveBeenCalledTimes(1);
         });
 
+        it("should time out when startup output arrives but the failure is never confirmed", async () => {
+            // Unrecognized output with no exit code and no channel close: execAsync keeps waiting,
+            // so the startup timeout has to be what ends it.
+            const sshStream = { stderr: new EventEmitter(), stdout: new EventEmitter() };
+            setupMockSshClient({ sshStream, mockExecAsync: false });
+            vi.spyOn(Client.prototype, "exec").mockImplementation(function (
+                _command: string,
+                callback: ClientCallback,
+            ) {
+                callback(undefined, sshStream as any);
+                sshStream.stderr.emit("data", "some unexpected warning\n");
+                return this;
+            });
+            vi.spyOn(Client.prototype, "end").mockImplementation(() => {});
+            const promise = ZSshClient.create(new SshSession(fakeSession), { serverStartupTimeout: 5 });
+            // The collected output is the only clue as to why startup never completed.
+            const assertion = expect(promise).rejects.toMatchObject({
+                errorCode: "ESERVERSTARTUPTIMEOUT",
+                mDetails: expect.objectContaining({ additionalDetails: "some unexpected warning" }),
+            });
+            await vi.advanceTimersByTimeAsync(5e3);
+            await assertion;
+        });
+
         it("should time out after 60 seconds by default when the server never becomes ready", async () => {
             const { execAsyncSpy } = setupMockSshClient();
             execAsyncSpy.mockReturnValue(new Promise(() => {}));
@@ -333,6 +357,80 @@ describe("ZSshClient", () => {
             expect(sshStream.stdin.write).not.toHaveBeenCalled();
         });
 
+        it("should censor sensitive information when trace logging a request", async () => {
+            interface MySensitiveInfo extends CommandRequest {
+                password: string;
+                tokenValue: string;
+                passphrase: string;
+                aNonSensitiveArg: string;
+            }
+            const logTraceMock = vi.fn();
+            vi.spyOn(Logger, "getAppLogger").mockReturnValue({
+                debug: () => {},
+                trace: logTraceMock,
+            } as any);
+            const request: MySensitiveInfo = {
+                command: "test",
+                password: "hunter2",
+                tokenValue: "omgsecret0454654",
+                passphrase: "letmein",
+                aNonSensitiveArg: "do not censor me",
+            };
+            const sshStream = {
+                stdin: { write: vi.fn(), writable: true },
+                stdout: new EventEmitter(),
+                stderr: new EventEmitter(),
+            };
+
+            setupMockSshClient({ sshStream });
+            const client = await ZSshClient.create(new SshSession(fakeSession));
+            const response = client.request(request);
+
+            const responseUncensored: RpcResponse = {
+                jsonrpc: "2.0",
+                result: {
+                    password: "secretlyAPassword",
+                    tokenValue: "2898293839",
+                    passphrase: "post-it",
+                    okField: "puppy",
+                },
+                id: 1,
+            };
+            (client as any).processResponses(`${JSON.stringify(responseUncensored)}\n`);
+            expect(await response).toEqual(responseUncensored.result);
+            expect(sshStream.stdin.write).toHaveBeenCalled();
+            const { command, ...rest } = request;
+
+            const rpcRequest: RpcRequest = {
+                jsonrpc: "2.0",
+                method: command,
+                params: rest,
+                id: 1,
+            };
+            expect(logTraceMock).toHaveBeenCalledWith(
+                `Sending request: ${JSON.stringify({
+                    ...rpcRequest,
+                    params: {
+                        ...rpcRequest.params,
+                        tokenValue: Censor.CENSOR_RESPONSE,
+                        password: Censor.CENSOR_RESPONSE,
+                        passphrase: Censor.CENSOR_RESPONSE,
+                    },
+                })}`,
+            );
+            expect(logTraceMock).toHaveBeenCalledWith(
+                `Received response: ${JSON.stringify({
+                    ...responseUncensored,
+                    result: {
+                        ...responseUncensored.result,
+                        tokenValue: Censor.CENSOR_RESPONSE,
+                        password: Censor.CENSOR_RESPONSE,
+                        passphrase: Censor.CENSOR_RESPONSE,
+                    },
+                })}`,
+            );
+        });
+
         it("should respect numWorkers option", async () => {
             const { execAsyncSpy } = setupMockSshClient();
             await ZSshClient.create(new SshSession(fakeSession), {
@@ -374,7 +472,7 @@ describe("ZSshClient", () => {
                 serverPath: "/tmp/zowe-server",
             });
             expect(execAsyncSpy).toHaveBeenCalledTimes(1);
-            expect(execAsyncSpy!.mock.calls[0][0]).toBe("/tmp/zowe-server/zowex");
+            expect(execAsyncSpy!.mock.calls[0][0]).toBe("/tmp/zowe-server/zo");
         });
 
         it("should respect useNativeSsh option", async () => {
@@ -382,6 +480,30 @@ describe("ZSshClient", () => {
             const createClientMock = vi.spyOn(sshRs, "createClient").mockReturnValue(new Client() as any);
             await ZSshClient.create(new SshSession(fakeSession), { useNativeSsh: true });
             expect(createClientMock).toHaveBeenCalledWith(true);
+        });
+
+        it("should use the session agent without loading a private key or sending a password", async () => {
+            const { connectSpy } = setupMockSshClient();
+            vi.spyOn(ZSshUtils, "buildSshConfig").mockRestore();
+            const session = ZSshUtils.buildSession({
+                host: "example.com",
+                user: "admin",
+                identityAgent: "/tmp/ssh-agent.sock",
+                privateKey: "/path/to/key",
+                keyPassphrase: "key-passphrase",
+                password: "saved-password",
+            });
+
+            await ZSshClient.create(session);
+
+            expect(connectSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    agent: "/tmp/ssh-agent.sock",
+                    privateKey: undefined,
+                    passphrase: undefined,
+                    password: undefined,
+                }),
+            );
         });
     });
 
@@ -426,6 +548,14 @@ describe("ZSshClient", () => {
             expect(writeMock.mock.calls[0]).toEqual([`${JSON.stringify(rpcRequest)}\n`]);
         });
 
+        it("should censor a JSON response that fails to parse in logging", async () => {
+            const client: ZSshClient = new (ZSshClient as any)();
+            (client as any).mErrHandler = vi.fn();
+            const censorRawDataMock = vi.spyOn(Censor, "censorRawData");
+            const badJsonResponse = "This is not JSON password:ilovedogs";
+            (client as any).processResponses(`${badJsonResponse}\n`);
+            expect(censorRawDataMock).toHaveBeenCalledWith(badJsonResponse);
+        });
         it("should surface a structured error payload via causeErrors and additionalDetails", async () => {
             const errorData = { success: false, safReturns: { safReturnCode: 8 } };
             const rpcResponseStructuredError: RpcResponse = {
@@ -482,7 +612,7 @@ describe("ZSshClient", () => {
             const sshStream = { stdin: { write: vi.fn() }, stdout: fakeStdout, stderr: { on: vi.fn() } };
             const client: ZSshClient = new (ZSshClient as any)();
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
 
             const response = client.request(request);
             // Send response with empty lines
@@ -524,7 +654,7 @@ describe("ZSshClient", () => {
                     return this;
                 },
             };
-            await expect((client as any).execAsync("zowex", "server")).rejects.toMatchObject({
+            await expect((client as any).execAsync("zo", "server")).rejects.toMatchObject({
                 errorCode: "ESERVEREXIT",
             });
         });
@@ -532,14 +662,16 @@ describe("ZSshClient", () => {
         it("should handle not found error from Zowe server", async () => {
             const sshStream = { stderr: new EventEmitter(), stdout: new EventEmitter() };
             const client: ZSshClient = new (ZSshClient as any)();
-            (client as any).mSshClient = {
-                exec: function (_command: string, callback: ClientCallback) {
-                    callback(undefined, sshStream as any);
-                    sshStream.stderr.emit("data", "FSUM7351 not found");
-                    return this;
-                },
-            };
-            await expect((client as any).execAsync()).rejects.toMatchObject({ errorCode: "ENOTFOUND" });
+            const execMock = vi.fn(function (command: string, callback: ClientCallback) {
+                callback(undefined, sshStream as any);
+                expect(command).toBe(`zo server || echo "${(ZSshClient as any).EXIT_CODE_MARKER}$?" >&2`);
+                sshStream.stderr.emit("data", "sh: zo: not found\n");
+                sshStream.stderr.emit("data", `${(ZSshClient as any).EXIT_CODE_MARKER}127\n`);
+                return this;
+            });
+            (client as any).mSshClient = { exec: execMock };
+            await expect((client as any).execAsync("zo", "server")).rejects.toMatchObject({ errorCode: "ENOTFOUND" });
+            expect(execMock).toHaveBeenCalledTimes(1);
         });
 
         it("should handle startup error from Zowe server", async () => {
@@ -548,11 +680,53 @@ describe("ZSshClient", () => {
             (client as any).mSshClient = {
                 exec: function (_command: string, callback: ClientCallback) {
                     callback(undefined, sshStream as any);
+                    // The exit code is echoed in a later chunk than the error text, so the
+                    // failure is only definitive once it arrives.
                     sshStream.stderr.emit("data", "bad json");
+                    sshStream.stderr.emit("data", `${(ZSshClient as any).EXIT_CODE_MARKER}1\n`);
                     return this;
                 },
             };
             await expect((client as any).execAsync()).rejects.toThrow("Error starting Zowe server");
+        });
+
+        it("should collect a multi-line startup error before aborting", async () => {
+            const sshStream = { stderr: new EventEmitter(), stdout: new EventEmitter() };
+            const client: ZSshClient = new (ZSshClient as any)();
+            (client as any).mSshClient = {
+                exec: function (_command: string, callback: ClientCallback) {
+                    callback(undefined, sshStream as any);
+                    sshStream.stderr.emit("data", "first line of trouble\n");
+                    sshStream.stderr.emit("data", "second line of trouble\n");
+                    sshStream.stderr.emit("data", `${(ZSshClient as any).EXIT_CODE_MARKER}8\n`);
+                    return this;
+                },
+            };
+            // Every line is reported, and the marker itself is stripped from the details.
+            await expect((client as any).execAsync("zo", "server")).rejects.toMatchObject({
+                mDetails: expect.objectContaining({
+                    additionalDetails: "first line of trouble\nsecond line of trouble",
+                    msg: expect.stringContaining("(exit code 8)"),
+                }),
+            });
+        });
+
+        it("should not abort startup on unrecognized output that precedes the ready message", async () => {
+            const sshStream = { stderr: new EventEmitter(), stdout: new EventEmitter() };
+            const client: ZSshClient = new (ZSshClient as any)();
+            (client as any).mErrHandler = vi.fn();
+            (client as any).mSshClient = {
+                exec: function (_command: string, callback: ClientCallback) {
+                    callback(undefined, sshStream as any);
+                    // A warning with no exit code means the server is still running, so startup
+                    // must keep waiting rather than giving up on the first odd line.
+                    sshStream.stderr.emit("data", "some unexpected warning\n");
+                    sshStream.stdout.emit("data", readyMessage);
+                    return this;
+                },
+            };
+            await (client as any).execAsync();
+            expect(client.serverVersion).not.toBeNull();
         });
 
         it("should handle a Language Environment load failure from Zowe server", async () => {
@@ -593,7 +767,7 @@ describe("ZSshClient", () => {
             const sshStream = { stdin: { write: vi.fn() }, stdout: { on: vi.fn() }, stderr: fakeStderr };
             const client: ZSshClient = new (ZSshClient as any)();
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
             const response = client.request(request);
             fakeStderr.emit("data", `${JSON.stringify(rpcResponseBad)}\n`);
             await expect(response).rejects.toMatchObject({ message: rpcResponseBad.error?.message });
@@ -605,7 +779,7 @@ describe("ZSshClient", () => {
             const sshStream = { stdin: { write: vi.fn() }, stdout: fakeStdout, stderr: { on: vi.fn() } };
             const client: ZSshClient = new (ZSshClient as any)();
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
             const response = client.request(request);
             fakeStdout.emit("data", `${JSON.stringify(rpcResponseGood)}\n`);
             expect(await response).toEqual({ success: true });
@@ -640,7 +814,7 @@ describe("ZSshClient", () => {
                 if (!err.toString().includes("Request timed out")) throw err; // we're expecting a request timed out error for the handler
             };
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
             const response = client.request(request);
             expect(() => fakeStdout.emit("data", "bad json\n")).toThrow("Invalid JSON response");
             vi.runAllTimers();
@@ -656,7 +830,7 @@ describe("ZSshClient", () => {
                 if (!err.toString().includes("Request timed out")) throw err; // we're expecting a request timed out error for the handler
             };
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
             const response = client.request(request);
             expect(() => fakeStdout.emit("data", `${JSON.stringify({ ...rpcResponseGood, id: -1 })}\n`)).toThrow(
                 "Missing promise for response ID",
@@ -675,7 +849,7 @@ describe("ZSshClient", () => {
                 linkStreamToPromise: linkStreamMock,
             };
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
 
             const responsePromise = client.request(request);
 
@@ -724,7 +898,7 @@ describe("ZSshClient", () => {
                 registerStream: registerStreamMock,
             };
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
 
             const progressCallback = vi.fn();
             const responsePromise = client.request(request, progressCallback);
@@ -750,7 +924,7 @@ describe("ZSshClient", () => {
                 registerStream: registerStreamMock,
             };
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
 
             const progressCallback = vi.fn();
             const responsePromise = client.request(request, progressCallback);
@@ -777,6 +951,38 @@ describe("ZSshClient", () => {
             expect(logErrorMock.mock.calls[0][0]).toBe(`Error: ${testError.message}`);
             expect(consoleErrorMock).toHaveBeenCalledTimes(1);
             consoleErrorMock.mockRestore();
+        });
+    });
+
+    describe("quoteRemotePath function", () => {
+        const quoteRemotePath = (path: string): string => (ZSshClient as any).quoteRemotePath(path);
+
+        it("should leave a lone tilde unquoted so the shell expands it", () => {
+            expect(quoteRemotePath("~")).toBe(`~''`);
+        });
+
+        it("should leave a leading tilde unquoted and quote the rest of the path", () => {
+            expect(quoteRemotePath("~/some/path")).toBe("~/some/path");
+        });
+
+        it("should leave a leading tilde unquoted and quote a path containing spaces", () => {
+            expect(quoteRemotePath("~/some path/with spaces")).toBe(`~'/some path/with spaces'`);
+        });
+
+        it("should not expand a tilde that is not at the start of the path", () => {
+            expect(quoteRemotePath("/some/~user/path")).toBe(`'/some/~user/path'`);
+        });
+
+        it("should not expand a tilde used for a named user home directory", () => {
+            expect(quoteRemotePath("~user/path")).toBe(`'~user/path'`);
+        });
+
+        it("should quote an absolute path containing spaces", () => {
+            expect(quoteRemotePath("/u/users/some user/path")).toBe(`'/u/users/some user/path'`);
+        });
+
+        it("should not quote a path that does not require quoting", () => {
+            expect(quoteRemotePath("/u/users/testuser/zowe-server")).toBe("/u/users/testuser/zowe-server");
         });
     });
 
@@ -845,7 +1051,7 @@ describe("ZSshClient", () => {
             const linkStreamToPromiseMock = vi.fn();
             (client as any).mStreamMgr = { linkStreamToPromise: linkStreamToPromiseMock };
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
 
             (client as any).mRequestMap.set(1, {
                 rpc: { resolve: vi.fn(), reject: vi.fn() },
@@ -871,7 +1077,7 @@ describe("ZSshClient", () => {
             const client: ZSshClient = new (ZSshClient as any)();
             (client as any).mErrHandler = onErrorMock;
             (client as any).mSshStream = sshStream;
-            (client as any).getServerStatus(sshStream, readyMessage, "zowex server");
+            (client as any).getServerStatus(sshStream, readyMessage, "zo server");
 
             (client as any).mRequestMap.set(1, {
                 rpc: { resolve: vi.fn(), reject: vi.fn() },
