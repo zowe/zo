@@ -83,6 +83,13 @@ void censor_tests()
         std::string censored = censor_raw_data("idk my password --password=firstValue --password secondValue");
         Expect(censored).ToBe("idk my password --password=**** --password ****");
       });
+
+      it("censor options that include an escaped slash character",
+         []()
+      {
+        std::string censored = censor_raw_data("very slashful --password \"a quoted value with slash \\\\\" somethingelse");
+        Expect(censored).ToBe("very slashful --password **** somethingelse");
+      });
     });
   });
 }
