@@ -202,6 +202,31 @@ void zo_server_tests()
 
       Expect(response).ToContain("\"message\":\"zo server is ready to accept input\"");
       Expect(response).ToContain("\"status\":\"ready\"");
+    });
+    it("should print ready message with version", []() -> void
+    {
+      ServerHandle server = start_server(zo_server_command);
+      std::string response = read_line_from_server(server);
+      stop_server(server);
+
+      static const std::regex re(R"("version"\s*:\s*\"([^"]*)\")");
+      std::smatch m;
+
+      Expect(std::regex_search(response, m, re)).ToBe(true);
+      const std::string version = m[1].str();
+
+      Expect(version.length()).ToBeGreaterThanOrEqualTo(5); // X.X.X at minimum
+      Expect(response).ToContain("\"message\":\"zo server is ready to accept input\"");
+      Expect(response).ToContain("\"status\":\"ready\"");
+    });
+    it("should print ready message with serverPathWritable when launched with an absolute path", []() -> void
+    {
+      ServerHandle server = start_server("\"$(pwd)/" + zo_dir + "/zo\" server");
+      std::string response = read_line_from_server(server);
+      stop_server(server);
+
+      Expect(response).ToContain("\"message\":\"zo server is ready to accept input\"");
+      Expect(response).ToContain("\"status\":\"ready\"");
       const std::string writable = access(zo_dir.c_str(), W_OK) == 0 ? "true" : "false";
       Expect(response).ToContain("\"serverPathWritable\":" + writable);
     });
@@ -261,22 +286,6 @@ void zo_server_tests()
 
       ExpectWithContext(rc, response).ToBe(1);
       Expect(response).ToContain("Invalid value for num workers: 'invalid'");
-    });
-    it("should print ready message with version", []() -> void
-    {
-      ServerHandle server = start_server(zo_server_command);
-      std::string response = read_line_from_server(server);
-      stop_server(server);
-
-      static const std::regex re(R"("version"\s*:\s*\"([^"]*)\")");
-      std::smatch m;
-
-      Expect(std::regex_search(response, m, re)).ToBe(true);
-      const std::string version = m[1].str();
-
-      Expect(version.length()).ToBeGreaterThanOrEqualTo(5); // X.X.X at minimum
-      Expect(response).ToContain("\"message\":\"zo server is ready to accept input\"");
-      Expect(response).ToContain("\"status\":\"ready\"");
     });
     it("should return error message for invalid JSON input", []() -> void
     {
