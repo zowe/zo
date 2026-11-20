@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `c`: Fixed `createFile` ignoring a string `permissions` value (as JSON-RPC sends it) and always creating files as 644 and directories as 755. `uss create-file`, `create-dir` and `chmod` now share one octal mode parser, and new files are created owner-only before their mode is applied, so the umask no longer affects it. [#1236](https://github.com/zowe/zowex/pull/1236)
 - `c`: Updated the `zjb_read_job_dynamic_allocation` function to validate that data set names do not exceed the maximum length. [#1231](https://github.com/zowe/zo/pull/1231)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
