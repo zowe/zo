@@ -10,6 +10,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Fixed the `parseSearchOutput` method splitting a member into several entries when SuperC search output spans page breaks. [#1182](https://github.com/zowe/zo/issues/1182)
 - Added prompt for user to confirm saving a password or key passphrase as plaintext in the configuration file when secure credential storage is not available. [#1218](https://github.com/zowe/zo/pull/1218)
 - Fixed RPC streaming operations failing for FIFO pipes located in a directory path containing special characters. [#1228](https://github.com/zowe/zo/pull/1228)
+- Added `ZSshClient.serverInfo` property to store object containing the `zo` server version and optional `serverPathWritable` metadata. [#1233](https://github.com/zowe/zo/pull/1233)
+  - Deprecated the `serverVersion` property in favor of `serverInfo.version`.
 
 ## `1.1.0`
 
