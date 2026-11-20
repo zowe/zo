@@ -25,6 +25,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Made explicit `zo server --num-workers` and `-w` values override the `ZO_NUM_WORKERS` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
 - `c`: Improved error handling for RPC commands when input transforms fail, preventing invalid base64 or FIFO setup errors from reaching write handlers and truncating data sets or USS files. [#1228](https://github.com/zowe/zo/pull/1228)
 - `c`: Changed destination of FIFO pipes used for streaming to be inside the `~/.zowex/temp` directory, with automatic cleanup when requests finish, including after exceptions. [#1228](https://github.com/zowe/zo/pull/1228)
+- `c`: Added `serverPathWritable` property to the ready message returned by the `zo` RPC server to report if the server's parent directory has write access. [#1233](https://github.com/zowe/zo/pull/1233)
 
 ## `1.1.0`
 
