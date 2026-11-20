@@ -837,6 +837,25 @@ void zo_uss_tests()
         rc = execute_command_with_output(simpleViewCmd, final_view_response);
         Expect(final_view_response).ToContain("Updated Content");
       });
+      it("should reject a stale etag after a same-length rewrite in the same second", [&]() -> void
+      {
+        rc = execute_command_with_output("echo 'MODE=0110' | " + zo_command + " uss write " + uss_path + " --ec UTF-8", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        rc = execute_command_with_output(zo_command + " uss view " + uss_path + " --return-etag --ec UTF-8", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        const std::string stale_etag = parse_etag_from_output(response);
+
+        // Same size and usually the same second, so (mtime, size) alone would not change
+        rc = execute_command_with_output("echo 'MODE=1001' | " + zo_command + " uss write " + uss_path + " --ec UTF-8", response);
+        ExpectWithContext(rc, response).ToBe(0);
+
+        rc = execute_command_with_output("echo 'MODE=1111' | " + zo_command + " uss write " + uss_path + " --ec UTF-8 --etag " + stale_etag, response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain("Etag mismatch");
+
+        rc = execute_command_with_output(zo_command + " uss view " + uss_path + " --ec UTF-8", response);
+        Expect(response).ToContain("MODE=1001");
+      });
       it("should fail to view a file that does not exist", [&]() -> void
       {
         std::string viewCommand = zo_command + " uss view /tmp/does/not/exist";
@@ -925,6 +944,30 @@ void zo_uss_tests()
 
         Expect(view_response).ToContain("Hello World!");
         unlink(symPath.c_str());
+      });
+      it("should create a dangling symlink target without bypassing etag checks on later writes", [&]() -> void
+      {
+        const std::string link = uss_path + "_link";
+        const std::string intermediate = uss_path + "_intermediate";
+        const std::string target = uss_path + "_target";
+        Expect(symlink(intermediate.substr(intermediate.find_last_of('/') + 1).c_str(), link.c_str())).ToBe(0);
+        Expect(symlink(target.c_str(), intermediate.c_str())).ToBe(0);
+
+        const std::string write = zo_command + " uss write " + link + " --ec binary --etag stale-etag";
+        rc = execute_command_with_output("echo 'Initial content' | " + write, response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain("(created new file)");
+
+        rc = execute_command_with_output("echo 'Overwrite' | " + write, response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain("Etag mismatch");
+
+        struct stat st{};
+        Expect(lstat(link.c_str(), &st)).ToBe(0);
+        Expect(S_ISLNK(st.st_mode) != 0).ToBe(true);
+        rc = execute_command_with_output(zo_command + " uss view " + target + " --ec binary", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain("Initial content");
       });
     });
 
