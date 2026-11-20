@@ -21,8 +21,13 @@ export default defineConfig({
         globals: true,
         environment: "node",
         projects: ["packages/*"],
+        reporters: ["default", "junit"],
+        outputFile: {
+            junit: "results/unit/junit.xml",
+        },
         coverage: {
             provider: "v8",
+            reportsDirectory: "results/unit/coverage",
             reporter: ["text", "lcov", "html", "json"],
             exclude: [
                 "benchmarks/**",
