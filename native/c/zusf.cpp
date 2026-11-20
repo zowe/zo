@@ -44,6 +44,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <memory>
 #include <iconv.h>
 #include <grp.h>
@@ -1415,7 +1416,7 @@ static int zusf_digest_file(ZUSF *zusf, const std::string &file, const struct st
  * Checks the caller's etag against `st`, the file open for writing. Metadata decides unless the etag
  * carries a digest (ctime had no microseconds when it was issued); then the current content is hashed.
  */
-static int zusf_validate_etag(ZUSF *zusf, const std::string &file, const struct stat &st)
+static int zusf_validate_etag(ZUSF *zusf, const std::string &file, int fd, const struct stat &st)
 {
   const std::string expected(zusf->etag);
   std::string actual = zusf_etag_metadata(st);
@@ -1424,6 +1425,17 @@ static int zusf_validate_etag(ZUSF *zusf, const std::string &file, const struct 
     std::string digest;
     if (zusf_digest_file(zusf, file, st, digest) != RTNCD_SUCCESS)
     {
+      return RTNCD_FAILURE;
+    }
+    struct stat after;
+    if (fstat(fd, &after) != 0)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Could not stat '%s' after hashing", file.c_str());
+      return RTNCD_FAILURE;
+    }
+    if (st.st_ctime != after.st_ctime || st.st_ctimemsec != after.st_ctimemsec || st.st_size != after.st_size)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Etag mismatch: '%s' changed while its etag was being verified", file.c_str());
       return RTNCD_FAILURE;
     }
     actual += "-" + digest;
@@ -1435,6 +1447,52 @@ static int zusf_validate_etag(ZUSF *zusf, const std::string &file, const struct 
     return RTNCD_FAILURE;
   }
   return RTNCD_SUCCESS;
+}
+
+static int zusf_create_for_write(ZUSF *zusf, const std::string &file)
+{
+  std::string path = file;
+  for (int links = 0; links <= POSIX_SYMLOOP; ++links)
+  {
+    // Only skip e-tag validation when exclusive creation proves the target is new.
+    const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (fd != -1)
+    {
+      zusf->created = true;
+      return fd;
+    }
+    if (errno != EEXIST)
+      break;
+
+    const int existing_fd = open(file.c_str(), O_WRONLY);
+    if (existing_fd != -1)
+      return existing_fd;
+    if (errno != ENOENT || links == POSIX_SYMLOOP)
+      break;
+
+    // O_EXCL does not follow the final symlink. Resolve a dangling link and try its target.
+    char target[PATH_MAX + 1];
+    const ssize_t length = readlink(path.c_str(), target, sizeof(target));
+    if (length <= 0 || static_cast<size_t>(length) == sizeof(target))
+      break;
+
+    const std::string_view link(target, length);
+    for (std::string_view prefix : {"$VERSION", "$SYSNAME", "$SYSSYMA/", "$SYSSYMR/", "$SYSSECA/", "$SYSSECR/"})
+    {
+      if (link.compare(0, prefix.size(), prefix) == 0)
+      {
+        ZDIAG_SET_MSG(&zusf->diag, "Could not create the target of '%s': dangling symbolic link uses a z/OS substitution",
+                      file.c_str());
+        return -1;
+      }
+    }
+
+    const auto slash = path.find_last_of('/');
+    const auto parent_length = link.front() == '/' || slash == std::string::npos ? 0 : slash + 1;
+    path.replace(parent_length, std::string::npos, link);
+  }
+  ZDIAG_SET_MSG(&zusf->diag, "Could not create '%s' for writing", file.c_str());
+  return -1;
 }
 
 /**
@@ -1449,13 +1507,7 @@ static int zusf_open_for_write(ZUSF *zusf, const std::string &file)
   int fd = open(file.c_str(), O_WRONLY);
   if (fd == -1 && errno == ENOENT)
   {
-    // Same permissions fopen(..., "w") gives new files, before the umask
-    fd = open(file.c_str(), O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-    zusf->created = fd != -1;
-    if (fd == -1 && errno == EEXIST)
-    {
-      fd = open(file.c_str(), O_WRONLY);
-    }
+    return zusf_create_for_write(zusf, file);
   }
 
   if (fd == -1)
@@ -1477,7 +1529,7 @@ static int zusf_prepare_overwrite(ZUSF *zusf, const std::string &file, int fd)
     ZDIAG_SET_MSG(&zusf->diag, "Could not stat '%s'", file.c_str());
     return RTNCD_FAILURE;
   }
-  if (!zusf->created && std::strlen(zusf->etag) > 0 && zusf_validate_etag(zusf, file, st) != RTNCD_SUCCESS)
+  if (!zusf->created && zusf->etag[0] != '\0' && zusf_validate_etag(zusf, file, fd, st) != RTNCD_SUCCESS)
   {
     return RTNCD_FAILURE;
   }

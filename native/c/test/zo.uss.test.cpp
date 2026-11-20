@@ -945,6 +945,30 @@ void zo_uss_tests()
         Expect(view_response).ToContain("Hello World!");
         unlink(symPath.c_str());
       });
+      it("should create a dangling symlink target without bypassing etag checks on later writes", [&]() -> void
+      {
+        const std::string link = uss_path + "_link";
+        const std::string intermediate = uss_path + "_intermediate";
+        const std::string target = uss_path + "_target";
+        Expect(symlink(intermediate.substr(intermediate.find_last_of('/') + 1).c_str(), link.c_str())).ToBe(0);
+        Expect(symlink(target.c_str(), intermediate.c_str())).ToBe(0);
+
+        const std::string write = zo_command + " uss write " + link + " --ec binary --etag stale-etag";
+        rc = execute_command_with_output("echo 'Initial content' | " + write, response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain("(created new file)");
+
+        rc = execute_command_with_output("echo 'Overwrite' | " + write, response);
+        ExpectWithContext(rc, response).Not().ToBe(0);
+        Expect(response).ToContain("Etag mismatch");
+
+        struct stat st{};
+        Expect(lstat(link.c_str(), &st)).ToBe(0);
+        Expect(S_ISLNK(st.st_mode) != 0).ToBe(true);
+        rc = execute_command_with_output(zo_command + " uss view " + target + " --ec binary", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain("Initial content");
+      });
     });
 
     describe("list (ls)", [&]() -> void
