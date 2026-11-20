@@ -90,6 +90,13 @@ void censor_tests()
         std::string censored = censor_raw_data("very slashful --password \"a quoted value with slash \\\\\" somethingelse");
         Expect(censored).ToBe("very slashful --password **** somethingelse");
       });
+
+      it("strings that cause a lexer error aggressively censor the remaining string",
+         []()
+      {
+        std::string censored = censor_raw_data("not gonna terminate the quote --password \"hey seems like more --credentials are coming but");
+        Expect(censored).ToBe("not gonna terminate the quote --password ****");
+      });
     });
   });
 }

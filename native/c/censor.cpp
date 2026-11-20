@@ -47,9 +47,7 @@ std::string censor_raw_data(const std::string &data)
 {
   std::string result(data);
   int censor_start = -1;
-  char censor_start_char = '\0';
   const std::vector<std::string> suffixes = {" ", "=", "\t", "\n", "\r"};
-  const std::vector<char> whitespace_chars = {' ', '\t', '\n', '\r'};
 
   for (auto &search_arg : MAIN_CENSORED_OPTIONS)
   {
@@ -61,13 +59,21 @@ std::string censor_raw_data(const std::string &data)
       {
         censor_start = arg_index + dash_form.length();
 
-        lexer::Src arg_source = lexer::Src::from_string(
-            result.substr(censor_start, result.length() - censor_start), "<args>");
-        std::vector<lexer::Token> arg_tokens = lexer::Lexer::tokenize(arg_source);
+        try
+        {
+          lexer::Src arg_source = lexer::Src::from_string(
+              result.substr(censor_start, result.length() - censor_start), "<censor_raw_data>");
+          std::vector<lexer::Token> arg_tokens = lexer::Lexer::tokenize(arg_source);
 
-        result = result.replace(censor_start + arg_tokens[0].get_span().start, arg_tokens[0].get_span().end - arg_tokens[0].get_span().start, CENSOR_RESPONSE);
-        // search for repeated instances of this arg
-        arg_index = result.find(dash_form, censor_start + arg_tokens[0].get_span().start + CENSOR_RESPONSE.length());
+          result = result.replace(censor_start + arg_tokens[0].get_span().start, arg_tokens[0].get_span().end - arg_tokens[0].get_span().start, CENSOR_RESPONSE);
+          // search for repeated instances of this arg
+          arg_index = result.find(dash_form, censor_start + arg_tokens[0].get_span().start + CENSOR_RESPONSE.length());
+        }
+        catch (const lexer::LexError &le)
+        {
+          ZLOG_ERROR("Lexer error while trying to censor command line: %s", le.what());
+          return result.substr(0, censor_start) + CENSOR_RESPONSE;
+        }
       }
     }
   }
