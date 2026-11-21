@@ -8,20 +8,26 @@ can be rebuilt for a different target.
 
 ## Python wheel
 
-`make wheel` builds a pip-installable ABI3 wheel using IBM Python 3.11. It contains
-one native extension per binding module, shared by compatible GIL-enabled IBM
-CPython versions from 3.11 onward. Imports remain `zds_py`, `zjb_py`, `zusf_py`,
-and `zkr_py`. Newer Python installations and side decks are not needed to build it.
+`make wheel` builds a pip-installable ABI3 wheel targeting the configured minimum
+Python version and later compatible GIL-enabled IBM CPython
+versions. It contains one native extension per binding module. Imports remain
+`zds_py`, `zjb_py`, `zusf_py`, and `zkr_py`. Newer Python installations and side
+decks are not needed to build it.
 
 The Python distribution is named `zo`. Its version comes from the root
 `package.json`, the same release version used by the native `zo` binary, so
-`npm run version:bump` also updates subsequent Python builds. The default filename
+`npm run version:bump` also updates subsequent Python builds. A Python 3.11 build
 uses `cp311-abi3` tags, for example
 `zo-1.0.2-cp311-abi3-os390_29_00_3932.zos.whl`. The combined platform tag advertises
 the build host's older `os390` convention and the newer `zos` convention without
 claiming that these native binaries are platform-independent.
 
-The wrappers use Python's Limited API with a 3.11 baseline. The binder still records
+The wrappers use Python's Limited API. The shared baseline is defined once as
+`PYTHON_MIN_VERSION` in [`package_metadata.py`](package_metadata.py). The bindings
+require a build interpreter with that exact major/minor version. The compiler's
+`Py_LIMITED_API`, wheel tags, `Requires-Python`, and loader's minimum version follow
+that baseline. To raise it, update the shared tuple and select the matching SDK
+with `ZPY_PYTHON_ROOT`. Choosing another SDK alone fails validation. The binder still records
 a version-specific Python DLL name, so the wheel records that name in its loader.
 At import, the loader finds the running interpreter's library using `sys.base_prefix`
 and `sysconfig`, creates a private temporary alias, and changes `LIBPATH` only while
@@ -52,9 +58,10 @@ the server.
 
 When selected, the Python steps build the wheel after the binding tests pass.
 They archive the wheel and SHA-256 file in the `zowe-python-wheel` Actions artifact.
-The CI host only needs IBM Python 3.11. Set the single `ZPY_PYTHON_ROOT` repository
+The CI host only needs the selected IBM Python build runtime. Set the single `ZPY_PYTHON_ROOT` repository
 variable to its installation directory containing `bin/python` and `lib/`; the
-default is `/usr/lpp/IBM/cyp/v3r11/pyz`. Releases use the same single build runtime.
+default in `scripts/buildTools.ts` is `/usr/lpp/IBM/cyp/v3r11/pyz`. The selected SDK
+must match the shared baseline. Releases use the same single build runtime.
 
 To publish, run the existing **Release** workflow with an explicit `version`.
 It passes that version to the combined build, downloads the wheel from the same
@@ -121,7 +128,7 @@ pythonEnv:
   ZPY_PYTHON_ROOT: /usr/lpp/IBM/cyp/v3r11/pyz
 ```
 
-`ZPY_PYTHON_ROOT` is the selected Python 3.11 installation itself, rather than a
+`ZPY_PYTHON_ROOT` is the selected build Python installation itself, rather than a
 directory containing multiple versioned installations. The command derives
 `bin/python` from it. For example, a home-directory installation might use
 `~/python/v3r11/pyz`. Local `ZPY_PYTHON_ROOT` overrides `pythonEnv`. SSH target and
@@ -129,11 +136,11 @@ deployment root come from the selected profile. The command does not change `fpm
 You can also select the installation for one invocation:
 
 ```sh
-ZPY_PYTHON_ROOT=/path/to/python3.11/installation npm run z:python:wheel
+ZPY_PYTHON_ROOT=/path/to/build-python/installation npm run z:python:wheel
 ```
 
 The former `--allow-missing-runtimes` flag is unnecessary: other Python versions
-are never required for the build. A missing baseline interpreter, wrong version,
+are never required for the build. A missing baseline interpreter, unsupported Python,
 or failed runtime probe still fails the build.
 
 If `PIP_INDEX_URL` is set locally, it is passed through SSH input to pip without
@@ -142,7 +149,8 @@ index is used.
 
 ### Build manually on z/OS
 
-Use a dedicated IBM Python 3.11 build venv and install `requirements-build.txt`.
+Use a dedicated build venv from the IBM Python matching the baseline in
+`package_metadata.py` and install `requirements-build.txt`.
 Uploaded EBCDIC requirements files must first be converted to UTF-8 for pip:
 
 ```sh
