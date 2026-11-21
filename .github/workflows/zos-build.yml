@@ -134,6 +134,15 @@ jobs:
       - name: Install Dependencies
         run: npm ci --workspaces=false
 
+      - name: Test Python Wheel Helpers
+        if: ${{ steps.python.outputs.build == 'true' }}
+        run: |
+          wheel_unit_venv="$RUNNER_TEMP/zo-wheel-unit"
+          python3 -m venv "$wheel_unit_venv"
+          "$wheel_unit_venv/bin/python" -m pip install -r native/python/bindings/requirements-build.txt
+          "$wheel_unit_venv/bin/python" -m unittest discover -s native/python/bindings/test -p test_package_wheel.py
+          "$wheel_unit_venv/bin/python" -m unittest discover -s native/python/bindings/test -p test_zbind_loader.py
+
       - name: Set Build Version
         if: ${{ inputs.version }}
         run: npm pkg set version="$VERSION"
@@ -258,18 +267,9 @@ jobs:
 
       - name: Build Python Wheel
         if: ${{ steps.python.outputs.build == 'true' }}
-        run: |
-          if [[ -n "$RELEASE_VERSION" ]]; then
-            npm run z:python:wheel
-          else
-            npm run z:python:wheel -- --allow-missing-runtimes
-          fi
+        run: npm run z:python:wheel
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
-          ZPY_PYTHON_ROOT: ${{ vars.ZPY_PYTHON_ROOT || '/usr/lpp/IBM/cyp/' }}
-          ZPY_PYTHON_311: ${{ vars.ZPY_PYTHON_311 }}
-          ZPY_PYTHON_313: ${{ vars.ZPY_PYTHON_313 }}
-          ZPY_PYTHON_314: ${{ vars.ZPY_PYTHON_314 }}
+          ZPY_PYTHON_ROOT: ${{ vars.ZPY_PYTHON_ROOT || '/usr/lpp/IBM/cyp/v3r11/pyz' }}
 
       - name: Archive Python Wheel
         if: ${{ steps.python.outputs.build == 'true' }}

@@ -1195,9 +1195,7 @@ function quoteWheelShell(value: string): string {
 async function buildPythonWheel(connection: Client, config: IConfig): Promise<void> {
     const root = path.resolve(__dirname, "..");
     const pythonEnv = { ...config.pythonEnv };
-    for (const key of ["ZPY_PYTHON_ROOT", "ZPY_PYTHON_311", "ZPY_PYTHON_313", "ZPY_PYTHON_314"]) {
-        if (process.env[key]) pythonEnv[key] = process.env[key];
-    }
+    if (process.env.ZPY_PYTHON_ROOT) pythonEnv.ZPY_PYTHON_ROOT = process.env.ZPY_PYTHON_ROOT;
     const run = (command: string, input?: string): Promise<string> => {
         const profile = `/tmp/zbind-profile-${crypto.randomUUID()}`;
         const initialize = `umask 077
@@ -1242,18 +1240,12 @@ ${preBuildCmd || ":"}
     const remoteRoot = (await run(`cd ${quoteWheelShell(config.deployDir)} && pwd -P`)).trim();
     const home = (await run('printf "%s" "$HOME"')).trim();
     const expandHome = (value: string) => value.replace(/^~(?=\/|$)/, home);
-    const pythonRoot = expandHome(pythonEnv.ZPY_PYTHON_ROOT ?? "/usr/lpp/IBM/cyp/").replace(/\/$/, "");
-    const runtimes = Object.fromEntries(
-        [11, 13, 14].map((minor) => [
-            minor,
-            expandHome(pythonEnv[`ZPY_PYTHON_3${minor}`] ?? `${pythonRoot}/v3r${minor}/pyz/bin/python`),
-        ]),
-    );
-    if (!remoteRoot.startsWith("/") || !Object.values(runtimes).every((value) => value.startsWith("/"))) {
+    const pythonRoot = expandHome(pythonEnv.ZPY_PYTHON_ROOT ?? "/usr/lpp/IBM/cyp/v3r11/pyz").replace(/\/$/, "");
+    const python = `${pythonRoot}/bin/python`;
+    if (!remoteRoot.startsWith("/") || !python.startsWith("/")) {
         throw new Error("Wheel deployment and Python paths must resolve to absolute USS paths");
     }
     const stage = `${remoteRoot}/.python-wheel-${crypto.randomUUID()}`;
-    const python = runtimes[11];
     const pythonCommand = (source: string) => `${quoteWheelShell(python)} -c ${quoteWheelShell(source)}`;
     const tracked = childProcess
         .execFileSync("git", ["ls-files", "-z", "--", "native/c", "native/asmmac"], { cwd: root, encoding: "utf8" })
@@ -1302,17 +1294,16 @@ ${preBuildCmd || ":"}
         await run(
             `cp -R ${quoteWheelShell(`${remoteRoot}/c/chdsect`)} ${quoteWheelShell(`${stage}/native/c/chdsect`)}`,
         );
-        console.log("Building the wheel for the selected IBM Python runtimes...");
+        console.log("Building the ABI3 wheel with IBM Python 3.11...");
         const buildOutput = await run(
             `${quoteWheelShell(python)} ${quoteWheelShell(`${stage}/${bindings}/package_wheel.py`)} --build-from-stdin`,
             JSON.stringify({
-                runtimes,
-                allowMissingRuntimes: args.includes("--allow-missing-runtimes"),
+                python,
                 indexUrl: process.env.PIP_INDEX_URL,
             }),
         );
         for (const line of buildOutput.split(/\r?\n/)) {
-            if (line.startsWith("Skipping unavailable Python ") || line.startsWith("Wheel runtimes: ")) {
+            if (line.startsWith("Wheel build runtime: ")) {
                 console.log(line);
             }
         }

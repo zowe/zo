@@ -8,7 +8,6 @@ from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
 import os
-import json
 import subprocess
 import sys
 
@@ -62,7 +61,6 @@ class BuildExtMixedCharMode(build_ext):
             return
 
         base_compile = compiler._compile
-        base_spawn = compiler.spawn
 
         def _compile(obj, src, src_ext, cc_args, extra_postargs, pp_opts):
             if os.path.abspath(src).startswith(ztype + os.sep):
@@ -71,20 +69,10 @@ class BuildExtMixedCharMode(build_ext):
 
         compiler._compile = _compile
 
-        def spawn(command, **kwargs):
-            result = base_spawn(command, **kwargs)
-            record = os.environ.get("ZBIND_LINK_COMMANDS")
-            if record and "-o" in command and command[command.index("-o") + 1].endswith(".abi3.so"):
-                with open(record, "a", encoding="utf-8") as output:
-                    output.write(json.dumps(command) + "\n")
-            return result
-
-        compiler.spawn = spawn
         try:
             super().build_extension(ext)
         finally:
             compiler._compile = base_compile
-            compiler.spawn = base_spawn
 
 zusf_py_module = Extension("_zusf_py",
                            sources=["zusf_py_wrap.cxx", "zusf_py.cpp",

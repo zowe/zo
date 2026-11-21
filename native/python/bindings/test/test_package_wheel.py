@@ -1,11 +1,13 @@
-"""Test wheel runtime selection without a z/OS installation."""
+"""Test baseline-interpreter discovery and ABI3 wheel assembly without z/OS."""
 
 import importlib.util
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+import zipfile
 
 spec = importlib.util.spec_from_file_location(
     "package_wheel", Path(__file__).resolve().parents[1] / "package_wheel.py"
@@ -18,69 +20,74 @@ class RuntimeSelectionTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.config = {"runtimes": {
-            str(minor): str(Path(self.temporary.name) / f"python3.{minor}")
-            for minor in (11, 13, 14)
-        }}
-        self.add_runtime(11)
+        self.config = {"python": str(Path(self.temporary.name) / "python3.11")}
+        Path(self.config["python"]).touch()
         self.probe = patch.object(package_wheel.subprocess, "check_output", side_effect=self.runtime_metadata)
         self.mock_probe = self.probe.start()
         self.addCleanup(self.probe.stop)
-
-    def add_runtime(self, minor):
-        Path(self.config["runtimes"][str(minor)]).touch()
 
     @staticmethod
     def runtime_metadata(command, **kwargs):
         version = Path(command[0]).name.removeprefix("python")
         return package_wheel.json.dumps({"version": version, "deck": f"/lib/libpython{version}.x"}).encode()
 
-    def test_all_runtimes(self):
-        self.add_runtime(13)
-        self.add_runtime(14)
-        runtimes = package_wheel.probe_runtimes(self.config, {})
-        self.assertEqual(list(runtimes), [11, 13, 14])
-
-    def test_default_requires_all_runtimes(self):
-        with self.assertRaisesRegex(RuntimeError, "Python 3.13 not found"):
-            package_wheel.probe_runtimes(self.config, {})
-
-    def test_ci_uses_available_runtimes(self):
-        self.config["allowMissingRuntimes"] = True
-        for installed in (None, 13, 14):
-            with self.subTest(installed=installed):
-                if installed:
-                    self.add_runtime(installed)
-                expected = [11] if installed is None else [11, installed]
-                self.assertEqual(list(package_wheel.probe_runtimes(self.config, {})), expected)
-                if installed:
-                    Path(self.config["runtimes"][str(installed)]).unlink()
+    def test_only_the_build_interpreter_is_required(self):
+        runtime = package_wheel.probe_build_runtime(self.config, {})
+        self.assertEqual(runtime["version"], "3.11")
+        self.mock_probe.assert_called_once()
 
     def test_ci_still_requires_python_311(self):
-        self.config["allowMissingRuntimes"] = True
-        Path(self.config["runtimes"]["11"]).unlink()
-        with self.assertRaisesRegex(RuntimeError, "Python 3.11 not found"):
-            package_wheel.probe_runtimes(self.config, {})
+        Path(self.config["python"]).unlink()
+        with self.assertRaisesRegex(RuntimeError, "Build Python not found"):
+            package_wheel.probe_build_runtime(self.config, {})
 
     def test_ci_rejects_wrong_version(self):
-        self.config["allowMissingRuntimes"] = True
-        self.add_runtime(13)
-        self.mock_probe.side_effect = [
-            self.runtime_metadata([self.config["runtimes"]["11"]]),
-            b'{"version": "3.14", "deck": "/lib/libpython3.14.x"}',
-        ]
-        with self.assertRaisesRegex(RuntimeError, "Expected Python 3.13"):
-            package_wheel.probe_runtimes(self.config, {})
+        self.mock_probe.side_effect = None
+        self.mock_probe.return_value = b'{"version": "3.14"}'
+        with self.assertRaisesRegex(RuntimeError, "Expected build Python 3.11"):
+            package_wheel.probe_build_runtime(self.config, {})
 
     def test_ci_propagates_probe_failure(self):
-        self.config["allowMissingRuntimes"] = True
-        self.add_runtime(13)
-        self.mock_probe.side_effect = [
-            self.runtime_metadata([self.config["runtimes"]["11"]]),
-            subprocess.CalledProcessError(1, "python3.13"),
-        ]
+        self.mock_probe.side_effect = subprocess.CalledProcessError(1, "python3.11")
         with self.assertRaises(subprocess.CalledProcessError):
-            package_wheel.probe_runtimes(self.config, {})
+            package_wheel.probe_build_runtime(self.config, {})
+
+
+class WheelAssemblyTests(unittest.TestCase):
+    def test_single_native_copy_and_expanded_platform_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "dist").mkdir()
+            base = root / "dist/zo-1.0.2-cp311-abi3-os390_29_00_3932.whl"
+            with zipfile.ZipFile(base, "w") as archive:
+                for module in package_wheel.MODULES:
+                    archive.writestr(f"{module}.py", "# proxy\n")
+                    archive.writestr(f"_{module}.abi3.so", module.encode())
+                archive.writestr("zo-1.0.2.dist-info/METADATA", "Name: zo\nVersion: 1.0.2\n")
+            options = SimpleNamespace(platform=None, outdir=root / "out", license_file=root / "LICENSE")
+            loader = Path(package_wheel.__file__).with_name("_zbind_loader.py").read_bytes()
+            with patch.object(package_wheel.sysconfig, "get_platform", return_value="os390-29.00-3932"), \
+                    patch.object(package_wheel.sysconfig, "get_config_var", return_value="libpython3.11.so"), \
+                    patch.object(package_wheel.subprocess, "check_output", side_effect=[loader, b"EPL-2.0"]), \
+                    patch.object(package_wheel.subprocess, "run"):
+                wheel = package_wheel.assemble_wheel(base, options)
+            self.assertEqual(wheel.name, "zo-1.0.2-cp311-abi3-os390_29_00_3932.zos.whl")
+            with zipfile.ZipFile(wheel) as archive:
+                native = [name for name in archive.namelist() if name.endswith(".so")]
+                self.assertEqual(len(native), 4)
+                for module in package_wheel.MODULES:
+                    name = f"_zbind_native/_{module}.abi3.so"
+                    self.assertEqual(archive.read(name), module.encode())
+                    self.assertTrue(archive.getinfo(name).external_attr >> 16 & 0o111)
+                metadata = archive.read("zo-1.0.2.dist-info/WHEEL").decode()
+                self.assertIn("Tag: cp311-abi3-os390_29_00_3932\n", metadata)
+                self.assertIn("Tag: cp311-abi3-zos\n", metadata)
+                self.assertIn(b"PYTHON_DLL = 'libpython3.11.so'", archive.read("_zbind_loader.py"))
+
+    def test_invalid_platform_override_is_rejected(self):
+        for platform in ("zos/../any", "zos-whatever", "zos..any"):
+            with self.subTest(platform=platform), self.assertRaises(ValueError):
+                package_wheel.wheel_platforms(platform)
 
 
 if __name__ == "__main__":

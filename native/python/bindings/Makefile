@@ -87,7 +87,7 @@ help:
 	@echo "  build-zjb     - Build zjb_py module only"
 	@echo "  build-zkr     - Build zkr_py module only"
 	@echo "  clean         - Clean generated files"
-	@echo "  wheel         - Build a z/OS wheel for explicitly selected Python runtimes"
+	@echo "  wheel         - Build one z/OS ABI3 wheel using Python 3.11"
 	@echo "  help          - Show this help message"
 
 # Clean generated files

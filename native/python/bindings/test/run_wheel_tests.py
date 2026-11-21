@@ -31,7 +31,7 @@ def main():
     if args.functional and (not args.owner or not re.fullmatch(r"[A-Z@$#][A-Z0-9@$#]{0,7}", args.owner)):
         parser.error("Functional tests require --owner with an uppercase z/OS user ID")
     wheel = args.wheel.resolve()
-    work = Path(tempfile.mkdtemp(prefix="zbind-wheel-tests-", dir="/tmp"))
+    work = Path(tempfile.mkdtemp(prefix="zbind-wheel-tests-"))
     print(f"Validation artifacts: {work}", flush=True)
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
