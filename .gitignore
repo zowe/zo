@@ -1,6 +1,7 @@
 # Directories
 .cache
 .clangd
+.idea
 compile_commands.json
 artifacts
 bin
@@ -31,4 +32,4 @@ packages/sdk/logs/test.log
 .jscpd-report/jscpd-report.json
 *.tgz
 *.env
-.idea/
+*.pyc

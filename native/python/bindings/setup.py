@@ -8,7 +8,6 @@ from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
 import os
-import json
 import subprocess
 import sys
 
@@ -29,6 +28,9 @@ GSKCMS_SIDEDECK = "/usr/lib/GSKCMS64.x"
 # SWIG wrappers in ASCII. The conversion.hpp should bridge the two.
 EBCDIC_CHAR_MODE = "-fzos-le-char-mode=ebcdic"
 ABI3_BUILD = os.environ.get("ZBIND_ABI3") == "1"
+if ABI3_BUILD:
+    from package_metadata import PYTHON_VERSION, PYTHON_TAG, PY_LIMITED_API, validate_build_python
+    validate_build_python(f"{sys.version_info.major}.{sys.version_info.minor}")
 build_options = {}
 if os.environ.get("ZBIND_BUILD_BASE"):
     build_options["build_base"] = os.environ["ZBIND_BUILD_BASE"]
@@ -62,7 +64,6 @@ class BuildExtMixedCharMode(build_ext):
             return
 
         base_compile = compiler._compile
-        base_spawn = compiler.spawn
 
         def _compile(obj, src, src_ext, cc_args, extra_postargs, pp_opts):
             if os.path.abspath(src).startswith(ztype + os.sep):
@@ -71,20 +72,10 @@ class BuildExtMixedCharMode(build_ext):
 
         compiler._compile = _compile
 
-        def spawn(command, **kwargs):
-            result = base_spawn(command, **kwargs)
-            record = os.environ.get("ZBIND_LINK_COMMANDS")
-            if record and "-o" in command and command[command.index("-o") + 1].endswith(".abi3.so"):
-                with open(record, "a", encoding="utf-8") as output:
-                    output.write(json.dumps(command) + "\n")
-            return result
-
-        compiler.spawn = spawn
         try:
             super().build_extension(ext)
         finally:
             compiler._compile = base_compile
-            compiler.spawn = base_spawn
 
 zusf_py_module = Extension("_zusf_py",
                            sources=["zusf_py_wrap.cxx", "zusf_py.cpp",
@@ -195,7 +186,7 @@ print(f"Building modules: {', '.join(modules_to_build)}")
 for extension in ext_modules:
     extension.define_macros.append(("SWIG_TYPE_TABLE", extension.name))
     if ABI3_BUILD:
-        extension.define_macros.append(("Py_LIMITED_API", "0x030B0000"))
+        extension.define_macros.append(("Py_LIMITED_API", PY_LIMITED_API))
         extension.py_limited_api = True
 
 if ABI3_BUILD:
@@ -212,11 +203,11 @@ if ABI3_BUILD:
 setup(name="zo",
       version=get_version(),
       description="Zowe Remote SSH native Python bindings for z/OS",
-      python_requires=">=3.11" if ABI3_BUILD else None,
+      python_requires=f">={PYTHON_VERSION}" if ABI3_BUILD else None,
       cmdclass={"build_ext": BuildExtMixedCharMode, "build_py": BuildPyUtf8},
       license="EPL-2.0",
       license_files=["../../../LICENSE"],
-      options={"bdist_wheel": {"py_limited_api": "cp311"}, "build": build_options} if ABI3_BUILD else {},
+      options={"bdist_wheel": {"py_limited_api": PYTHON_TAG}, "build": build_options} if ABI3_BUILD else {},
       ext_modules=ext_modules,
       py_modules=py_modules,
       )
