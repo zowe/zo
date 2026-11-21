@@ -1,7 +1,17 @@
-"""Read the release version shared by zo and its Python bindings."""
+"""Release metadata and ABI3 build baseline for the Python bindings."""
 
 import json
 from pathlib import Path
+
+PYTHON_MIN_VERSION = (3, 11)
+PYTHON_VERSION = ".".join(map(str, PYTHON_MIN_VERSION))
+PYTHON_TAG = "cp" + "".join(map(str, PYTHON_MIN_VERSION))
+PY_LIMITED_API = f"0x{PYTHON_MIN_VERSION[0]:02X}{PYTHON_MIN_VERSION[1]:02X}0000"
+
+
+def validate_build_python(version):
+    if version != PYTHON_VERSION:
+        raise RuntimeError(f"Expected build Python {PYTHON_VERSION}, got {version}")
 
 
 def get_version():

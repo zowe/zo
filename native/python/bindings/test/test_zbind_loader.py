@@ -36,6 +36,7 @@ class LoaderTests(unittest.TestCase):
         values = {"platlibdir": "lib", "LDLIBRARY": self.library.name, "Py_GIL_DISABLED": 0}
         self.stack.enter_context(patch.object(loader, "__file__", str(root / "_zbind_loader.py")))
         self.stack.enter_context(patch.object(loader, "PYTHON_DLL", "libpython3.11.so"))
+        self.stack.enter_context(patch.object(loader, "PYTHON_MIN_VERSION", (3, 11)))
         self.stack.enter_context(patch.object(sys, "platform", "zos"))
         self.stack.enter_context(patch.object(sys, "version_info", (3, 13)))
         self.stack.enter_context(patch.object(sys, "base_prefix", str(root / "base")))
@@ -125,6 +126,19 @@ class LoaderTests(unittest.TestCase):
             with self.subTest(library=library), patch.object(loader, "PYTHON_DLL", library):
                 with self.assertRaisesRegex(ImportError, "Python DLL build metadata"):
                     loader.load_extension("_zds_py")
+
+    def test_recorded_minimum_version_is_enforced(self):
+        for minimum in ((3, 11), (3, 13), (3, 14)):
+            for running in ((3, 10), (3, 11), (3, 13), (3, 14)):
+                with self.subTest(minimum=minimum, running=running), \
+                        patch.object(loader, "PYTHON_MIN_VERSION", minimum), \
+                        patch.object(sys, "version_info", running):
+                    sys.modules.pop("_zds_py", None)
+                    if running < minimum:
+                        with self.assertRaisesRegex(ImportError, "requires CPython"):
+                            loader.load_extension("_zds_py")
+                    else:
+                        self.assertIs(loader.load_extension("_zds_py"), sys.modules["_zds_py"])
 
     def test_free_threaded_interpreter_is_rejected(self):
         with patch.object(loader.sysconfig, "get_config_var", return_value=1):

@@ -1294,7 +1294,7 @@ ${preBuildCmd || ":"}
         await run(
             `cp -R ${quoteWheelShell(`${remoteRoot}/c/chdsect`)} ${quoteWheelShell(`${stage}/native/c/chdsect`)}`,
         );
-        console.log("Building the ABI3 wheel with IBM Python 3.11...");
+        console.log("Building the ABI3 wheel with the selected IBM Python installation...");
         const buildOutput = await run(
             `${quoteWheelShell(python)} ${quoteWheelShell(`${stage}/${bindings}/package_wheel.py`)} --build-from-stdin`,
             JSON.stringify({

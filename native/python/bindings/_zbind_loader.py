@@ -11,18 +11,23 @@ import threading
 
 # Filled in by package_wheel.py using the interpreter that links the extensions.
 PYTHON_DLL = None
+PYTHON_MIN_VERSION = None
 _LOAD_LOCK = threading.RLock()
 _MODULES = {"_zusf_py", "_zds_py", "_zjb_py", "_zkr_py"}
 
 
 def load_extension(name):
     if (sys.platform not in ("zos", "os390") or sys.implementation.name != "cpython"
-            or sys.version_info < (3, 11) or sysconfig.get_config_var("Py_GIL_DISABLED")):
+            or sysconfig.get_config_var("Py_GIL_DISABLED")):
         raise ImportError("zo requires a GIL-enabled IBM CPython runtime on z/OS")
     if name not in _MODULES:
         raise ImportError(f"Unknown zo binding module: {name}")
-    if not PYTHON_DLL or PYTHON_DLL in (".", "..") or Path(PYTHON_DLL).name != PYTHON_DLL:
+    if (not PYTHON_DLL or PYTHON_DLL in (".", "..") or Path(PYTHON_DLL).name != PYTHON_DLL
+            or PYTHON_MIN_VERSION is None):
         raise ImportError("This zo wheel is missing its Python DLL build metadata")
+    if sys.version_info[:2] < PYTHON_MIN_VERSION:
+        minimum = ".".join(map(str, PYTHON_MIN_VERSION))
+        raise ImportError(f"This zo wheel requires CPython {minimum} or later")
     path = Path(__file__).resolve().parent / "_zbind_native" / f"{name}.abi3.so"
     if not path.is_file():
         raise ImportError(f"This zo wheel is missing {path.name}")

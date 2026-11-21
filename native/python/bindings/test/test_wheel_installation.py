@@ -16,12 +16,19 @@ import pytest
 
 
 def test_installed_wheel_metadata():
-    metadata = Parser().parsestr(distribution("zo").read_text("WHEEL"))
+    installed = distribution("zo")
+    requires_python = installed.metadata["Requires-Python"]
+    assert requires_python and requires_python.startswith(">=")
+    minimum = requires_python[2:]
+    python_tag = "cp" + minimum.replace(".", "")
+    metadata = Parser().parsestr(installed.read_text("WHEEL"))
     tags = metadata.get_all("Tag")
-    assert all(tag.startswith("cp311-abi3-") for tag in tags)
-    assert "cp311-abi3-zos" in tags
+    assert all(tag.startswith(f"{python_tag}-abi3-") for tag in tags)
+    assert f"{python_tag}-abi3-zos" in tags
     platform = sysconfig.get_platform().replace("-", "_").replace(".", "_")
-    assert f"cp311-abi3-{platform}" in tags
+    assert f"{python_tag}-abi3-{platform}" in tags
+    import _zbind_loader
+    assert _zbind_loader.PYTHON_MIN_VERSION == tuple(map(int, minimum.split(".")))
     assert metadata["Root-Is-Purelib"] == "false"
     files = distribution("zo").files
     native = [file for file in files if str(file).endswith(".so")]

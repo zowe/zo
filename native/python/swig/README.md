@@ -53,7 +53,12 @@ cd sample
 make abi3-wheel
 ```
 
-`PYTHON` can select a different build interpreter, for example `make abi3-wheel PYTHON=/path/to/python3.11`. The target sets `ABI3=1`, which enables `Py_LIMITED_API=0x030B0000` and `py_limited_api=True` in `setup.py`, and passes `--py-limited-api=cp311` to the wheel builder. It forces compilation in `build/abi3` and writes the wheel to `dist/abi3`. The ordinary `make test` build remains version-specific.
+`PYTHON` selects the build interpreter, for example `make abi3-wheel PYTHON=/path/to/python3.11`.
+The target sets `ABI3=1`, enabling `Py_LIMITED_API=0x030B0000` and
+`py_limited_api=True` in `setup.py`, and passes `--py-limited-api=cp311` to the
+wheel builder. It forces compilation in
+`build/abi3` and writes the wheel to `dist/abi3`. The ordinary `make test` build
+remains version-specific.
 
 Build with the oldest supported Python interpreter. On the tested build host, the resulting filename is `example-0.1-cp311-abi3-os390_29_00_3932.zos.whl`. The wheel advertises both the build host's platform tag and the newer `zos` tag using [compressed wheel tags](https://packaging.python.org/en/latest/specifications/platform-compatibility-tags/#compressed-tag-sets). It remains specific to z/OS and compatible native runtime/toolchain levels; these tags do not establish compatibility with every z/OS release or hardware model.
 

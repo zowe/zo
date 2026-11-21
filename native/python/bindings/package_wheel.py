@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build one z/OS ABI3 wheel using only the Python 3.11 build runtime."""
+"""Build one z/OS ABI3 wheel using the configured Python baseline."""
 
 import argparse
 import json
@@ -12,6 +12,9 @@ import sys
 import sysconfig
 import tempfile
 import zipfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from package_metadata import validate_build_python
 
 MODULES = ("zusf_py", "zds_py", "zjb_py", "zkr_py")
 
@@ -39,9 +42,8 @@ def probe_build_runtime(config, env):
     result = subprocess.check_output([str(executable), str(Path(__file__).resolve()),
                                       "--probe-runtime"], env=env)
     runtime = decode_json(result)
-    if runtime["version"] != "3.11":
-        raise RuntimeError(f"Expected build Python 3.11 at {executable}, got {runtime['version']}")
-    print("Wheel build runtime: 3.11 (ABI3; newer Python installations are not required)", flush=True)
+    validate_build_python(runtime["version"])
+    print(f"Wheel build runtime: {runtime['version']} (ABI3; newer Python installations are not required)", flush=True)
     return runtime
 
 
@@ -55,7 +57,7 @@ def build_from_stdin():
         env["PIP_INDEX_URL"] = config["indexUrl"]
     probe_build_runtime(config, env)
     venv = root / "build-venv"
-    subprocess.run([sys.executable, "-m", "venv", str(venv)], env=env, check=True)
+    subprocess.run([str(Path(config["python"]).resolve()), "-m", "venv", str(venv)], env=env, check=True)
     python = str(venv / "bin/python")
     requirements = root / "requirements-utf8.txt"
     with requirements.open("wb") as output:
@@ -81,8 +83,12 @@ def assemble_wheel(base, release):
     from wheel.wheelfile import WheelFile
 
     platforms, outdir = wheel_platforms(release.platform), release.outdir
+    runtime = probe_runtime()
+    python_tag = "cp" + runtime["version"].replace(".", "")
+    if base.name.split("-")[-3:-1] != [python_tag, "abi3"]:
+        raise RuntimeError("The base wheel must match the build interpreter's ABI3 tag")
     distribution, version = base.name.split("-")[:2]
-    filename = f"{distribution}-{version}-cp311-abi3-{platforms}.whl"
+    filename = f"{distribution}-{version}-{python_tag}-abi3-{platforms}.whl"
     outdir.mkdir(parents=True, exist_ok=True)
     wheel = base.parent.parent / filename
     with zipfile.ZipFile(base) as source, WheelFile(wheel, "w") as target:
@@ -92,11 +98,16 @@ def assemble_wheel(base, release):
                 target.writestr(name, source.read(name))
         loader = subprocess.check_output(["iconv", "-f", "IBM-1047", "-t", "UTF-8",
                                           "_zbind_loader.py"]).decode("utf-8")
-        library = sysconfig.get_config_var("LDLIBRARY")
-        if (not library or library in (".", "..") or Path(library).name != library
-                or loader.count("PYTHON_DLL = None") != 1):
+        library = runtime["dll"]
+        if not library or library in (".", "..") or Path(library).name != library:
             raise RuntimeError("Cannot record the linking interpreter's Python DLL name")
-        loader = loader.replace("PYTHON_DLL = None", f"PYTHON_DLL = {library!r}", 1)
+        build_metadata = {"PYTHON_DLL": library,
+                          "PYTHON_MIN_VERSION": tuple(map(int, runtime["version"].split(".")))}
+        for name, value in build_metadata.items():
+            placeholder = f"{name} = None"
+            if loader.count(placeholder) != 1:
+                raise RuntimeError(f"Expected one {name} placeholder in the wheel loader")
+            loader = loader.replace(placeholder, f"{name} = {value!r}", 1)
         target.writestr("_zbind_loader.py", loader.encode("utf-8"))
         for module in MODULES:
             target.writestr(f"_{module}.py",
@@ -111,7 +122,7 @@ def assemble_wheel(base, release):
         target.writestr(f"{info}/LICENSE", license_text)
         metadata = "Wheel-Version: 1.0\nGenerator: zo ABI3 builder\nRoot-Is-Purelib: false\n"
         for platform in platforms.split("."):
-            metadata += f"Tag: cp311-abi3-{platform}\n"
+            metadata += f"Tag: {python_tag}-abi3-{platform}\n"
         target.writestr(f"{info}/WHEEL", metadata.encode("utf-8"))
     subprocess.run(["chtag", "-b", str(wheel)], check=True)
     destination = outdir / filename
@@ -136,8 +147,13 @@ def main():
     if args.probe_runtime:
         print(json.dumps(probe_runtime()))
         return
-    if sys.platform != "zos" or sys.version_info[:2] != (3, 11):
-        parser.error("Build with IBM z/OS Python 3.11; newer versions are install targets")
+    if (sys.platform not in ("zos", "os390") or sys.implementation.name != "cpython"
+            or sys.version_info.major != 3 or sysconfig.get_config_var("Py_GIL_DISABLED")):
+        parser.error("Build with GIL-enabled IBM z/OS Python 3")
+    try:
+        validate_build_python(sysconfig.get_python_version())
+    except RuntimeError as error:
+        parser.error(str(error))
     if args.build_from_stdin:
         build_from_stdin()
         return
