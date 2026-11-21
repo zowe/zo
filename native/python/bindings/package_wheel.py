@@ -93,7 +93,8 @@ def assemble_wheel(base, release):
         loader = subprocess.check_output(["iconv", "-f", "IBM-1047", "-t", "UTF-8",
                                           "_zbind_loader.py"]).decode("utf-8")
         library = sysconfig.get_config_var("LDLIBRARY")
-        if not library or Path(library).name != library or loader.count("PYTHON_DLL = None") != 1:
+        if (not library or library in (".", "..") or Path(library).name != library
+                or loader.count("PYTHON_DLL = None") != 1):
             raise RuntimeError("Cannot record the linking interpreter's Python DLL name")
         loader = loader.replace("PYTHON_DLL = None", f"PYTHON_DLL = {library!r}", 1)
         target.writestr("_zbind_loader.py", loader.encode("utf-8"))

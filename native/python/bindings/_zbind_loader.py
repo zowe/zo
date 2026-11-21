@@ -21,7 +21,7 @@ def load_extension(name):
         raise ImportError("zo requires a GIL-enabled IBM CPython runtime on z/OS")
     if name not in _MODULES:
         raise ImportError(f"Unknown zo binding module: {name}")
-    if not PYTHON_DLL or Path(PYTHON_DLL).name != PYTHON_DLL:
+    if not PYTHON_DLL or PYTHON_DLL in (".", "..") or Path(PYTHON_DLL).name != PYTHON_DLL:
         raise ImportError("This zo wheel is missing its Python DLL build metadata")
     path = Path(__file__).resolve().parent / "_zbind_native" / f"{name}.abi3.so"
     if not path.is_file():

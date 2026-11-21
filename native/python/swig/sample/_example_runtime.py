@@ -27,10 +27,11 @@ def load_native():
     spec = importlib.util.find_spec("_example")
     if spec is None or not spec.origin or not spec.origin.endswith(".abi3.so"):
         return importlib.import_module("_example")
-    if not PYTHON_DLL:
+    if not PYTHON_DLL or PYTHON_DLL in (".", "..") or Path(PYTHON_DLL).name != PYTHON_DLL:
         raise ImportError("Build the abi3 wheel before importing this extension")
-    if sysconfig.get_config_var("Py_GIL_DISABLED"):
-        raise ImportError("This abi3 extension requires GIL-enabled CPython")
+    if (sys.implementation.name != "cpython" or sys.version_info < (3, 11)
+            or sysconfig.get_config_var("Py_GIL_DISABLED")):
+        raise ImportError("This abi3 extension requires GIL-enabled CPython 3.11 or later")
 
     library = (Path(sys.base_prefix) / sysconfig.get_config_var("platlibdir")
                / sysconfig.get_config_var("LDLIBRARY")).resolve(strict=True)

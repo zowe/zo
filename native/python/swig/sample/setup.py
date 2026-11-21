@@ -25,15 +25,17 @@ if abi3:
     from wheel.bdist_wheel import bdist_wheel
 
     class Abi3BuildPy(build_py):
-        def build_module(self, module, module_file, package):
-            result = super().build_module(module, module_file, package)
-            if module == "_example_runtime":
-                source = Path(module_file).read_text()
-                library = sysconfig.get_config_var("LDLIBRARY")
-                if not library or Path(library).name != library:
-                    raise RuntimeError("Expected a Python DLL filename in LDLIBRARY")
-                Path(result[0]).write_text(source.replace("PYTHON_DLL = None", f"PYTHON_DLL = {library!r}", 1))
-            return result
+        def build_modules(self):
+            library = sysconfig.get_config_var("LDLIBRARY")
+            source = Path(__file__).with_name("_example_runtime.py").read_text()
+            if (not library or library in (".", "..") or Path(library).name != library
+                    or source.count("PYTHON_DLL = None") != 1):
+                raise RuntimeError("Cannot record the linking interpreter's Python DLL name")
+            runtime = Path(self.build_lib) / "_example_runtime.py"
+            if runtime.is_symlink():
+                raise RuntimeError("The runtime build output must not be a symbolic link")
+            super().build_modules()
+            runtime.write_text(source.replace("PYTHON_DLL = None", f"PYTHON_DLL = {library!r}", 1))
 
     class Abi3Wheel(bdist_wheel):
         def get_tag(self):
