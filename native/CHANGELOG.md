@@ -4,6 +4,10 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- `python`: Added an opt-in stable ABI wheel for the SWIG Metal C sample with automatic Python DLL resolution, combined z/OS platform tags, and installation checks across Python 3.11, 3.13, and 3.14.
+
 ## `1.2.0`
 
 - `c`: Censor sensitive CLI argument values when logging. [#1234](https://github.com/zowe/zo/pull/1234)
