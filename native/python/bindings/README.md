@@ -24,10 +24,13 @@ claiming that these native binaries are platform-independent.
 
 The wrappers use Python's Limited API. The shared baseline is defined once as
 `PYTHON_MIN_VERSION` in [`package_metadata.py`](package_metadata.py). The bindings
-require a build interpreter with that exact major/minor version. The compiler's
+require a build interpreter at least that version within the same Python major
+version. The compiler's
 `Py_LIMITED_API`, wheel tags, `Requires-Python`, and loader's minimum version follow
-that baseline. To raise it, update the shared tuple and select the matching SDK
-with `ZPY_PYTHON_ROOT`. Choosing another SDK alone fails validation. The binder still records
+that baseline. A newer build interpreter does not raise the wheel's minimum version.
+To raise the baseline, update the shared tuple. Select the build SDK with
+`ZPY_PYTHON_ROOT`; building with the oldest supported interpreter is recommended.
+The binder still records
 a version-specific Python DLL name, so the wheel records that name in its loader.
 At import, the loader finds the running interpreter's library using `sys.base_prefix`
 and `sysconfig`, creates a private temporary alias, and changes `LIBPATH` only while
@@ -61,7 +64,7 @@ They archive the wheel and SHA-256 file in the `zowe-python-wheel` Actions artif
 The CI host only needs the selected IBM Python build runtime. Set the single `ZPY_PYTHON_ROOT` repository
 variable to its installation directory containing `bin/python` and `lib/`; the
 default in `scripts/buildTools.ts` is `/usr/lpp/IBM/cyp/v3r11/pyz`. The selected SDK
-must match the shared baseline. Releases use the same single build runtime.
+must meet or exceed the shared baseline. Releases use the same single build runtime.
 
 To publish, run the existing **Release** workflow with an explicit `version`.
 It passes that version to the combined build, downloads the wheel from the same
@@ -149,8 +152,10 @@ index is used.
 
 ### Build manually on z/OS
 
-Use a dedicated build venv from the IBM Python matching the baseline in
-`package_metadata.py` and install `requirements-build.txt`.
+Use a dedicated build venv from IBM Python at or above the baseline in
+`package_metadata.py` and install `requirements-build.txt`. Building with the
+oldest supported interpreter is recommended; newer SDKs also need compatible
+build dependencies.
 Uploaded EBCDIC requirements files must first be converted to UTF-8 for pip:
 
 ```sh
