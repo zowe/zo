@@ -10,8 +10,10 @@ PY_LIMITED_API = f"0x{PYTHON_MIN_VERSION[0]:02X}{PYTHON_MIN_VERSION[1]:02X}0000"
 
 
 def validate_build_python(version):
-    if version != PYTHON_VERSION:
-        raise RuntimeError(f"Expected build Python {PYTHON_VERSION}, got {version}")
+    build_version = tuple(map(int, version.split(".")))
+    if build_version[0] != PYTHON_MIN_VERSION[0] or build_version < PYTHON_MIN_VERSION:
+        raise RuntimeError(
+            f"Expected build Python {PYTHON_VERSION} or later (Python {PYTHON_MIN_VERSION[0]}.x), got {version}")
 
 
 def get_version():

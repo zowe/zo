@@ -14,7 +14,7 @@ import tempfile
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from package_metadata import validate_build_python
+from package_metadata import PYTHON_MIN_VERSION, PYTHON_VERSION, PYTHON_TAG, validate_build_python
 
 MODULES = ("zusf_py", "zds_py", "zjb_py", "zkr_py")
 
@@ -35,7 +35,7 @@ def decode_json(raw):
 
 
 def probe_build_runtime(config, env):
-    """Only the baseline interpreter is required to build the ABI3 wheel."""
+    """Only one interpreter meeting the ABI3 baseline is required."""
     executable = Path(config["python"]).resolve()
     if not executable.is_file():
         raise RuntimeError(f"Build Python not found: {executable}")
@@ -43,7 +43,7 @@ def probe_build_runtime(config, env):
                                       "--probe-runtime"], env=env)
     runtime = decode_json(result)
     validate_build_python(runtime["version"])
-    print(f"Wheel build runtime: {runtime['version']} (ABI3; newer Python installations are not required)", flush=True)
+    print(f"Wheel build runtime: {runtime['version']} (ABI3 baseline: {PYTHON_VERSION})", flush=True)
     return runtime
 
 
@@ -84,11 +84,11 @@ def assemble_wheel(base, release):
 
     platforms, outdir = wheel_platforms(release.platform), release.outdir
     runtime = probe_runtime()
-    python_tag = "cp" + runtime["version"].replace(".", "")
-    if base.name.split("-")[-3:-1] != [python_tag, "abi3"]:
-        raise RuntimeError("The base wheel must match the build interpreter's ABI3 tag")
+    validate_build_python(runtime["version"])
+    if base.name.split("-")[-3:-1] != [PYTHON_TAG, "abi3"]:
+        raise RuntimeError("The base wheel must match the configured ABI3 baseline")
     distribution, version = base.name.split("-")[:2]
-    filename = f"{distribution}-{version}-{python_tag}-abi3-{platforms}.whl"
+    filename = f"{distribution}-{version}-{PYTHON_TAG}-abi3-{platforms}.whl"
     outdir.mkdir(parents=True, exist_ok=True)
     wheel = base.parent.parent / filename
     with zipfile.ZipFile(base) as source, WheelFile(wheel, "w") as target:
@@ -101,8 +101,7 @@ def assemble_wheel(base, release):
         library = runtime["dll"]
         if not library or library in (".", "..") or Path(library).name != library:
             raise RuntimeError("Cannot record the linking interpreter's Python DLL name")
-        build_metadata = {"PYTHON_DLL": library,
-                          "PYTHON_MIN_VERSION": tuple(map(int, runtime["version"].split(".")))}
+        build_metadata = {"PYTHON_DLL": library, "PYTHON_MIN_VERSION": PYTHON_MIN_VERSION}
         for name, value in build_metadata.items():
             placeholder = f"{name} = None"
             if loader.count(placeholder) != 1:
@@ -122,7 +121,7 @@ def assemble_wheel(base, release):
         target.writestr(f"{info}/LICENSE", license_text)
         metadata = "Wheel-Version: 1.0\nGenerator: zo ABI3 builder\nRoot-Is-Purelib: false\n"
         for platform in platforms.split("."):
-            metadata += f"Tag: {python_tag}-abi3-{platform}\n"
+            metadata += f"Tag: {PYTHON_TAG}-abi3-{platform}\n"
         target.writestr(f"{info}/WHEEL", metadata.encode("utf-8"))
     subprocess.run(["chtag", "-b", str(wheel)], check=True)
     destination = outdir / filename
