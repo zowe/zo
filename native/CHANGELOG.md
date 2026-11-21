@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `python`: Added version-agnostic ABI3 wheels for the SWIG Metal C sample and all four Python bindings, with automatic Python DLL resolution, combined z/OS platform tags, and cross-version installation and concurrent import checks. [#1127](https://github.com/zowe/zo/pull/1127)
+- `python`: Added version-agnostic ABI3 wheels for the SWIG Metal C sample and all four Python bindings, with automatic Python DLL resolution, combined z/OS platform tags, and cross-version installation and concurrent import checks. [#1240](https://github.com/zowe/zo/pull/1240)
 
 ## `1.2.0`
 

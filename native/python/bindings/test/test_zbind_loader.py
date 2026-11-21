@@ -120,6 +120,12 @@ class LoaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ImportError, "Unknown zo binding module"):
             loader.load_extension("../../other")
 
+    def test_invalid_dll_metadata_is_rejected(self):
+        for library in (None, "", ".", "..", "../libpython3.11.so", "/lib/libpython3.11.so"):
+            with self.subTest(library=library), patch.object(loader, "PYTHON_DLL", library):
+                with self.assertRaisesRegex(ImportError, "Python DLL build metadata"):
+                    loader.load_extension("_zds_py")
+
     def test_free_threaded_interpreter_is_rejected(self):
         with patch.object(loader.sysconfig, "get_config_var", return_value=1):
             with self.assertRaisesRegex(ImportError, "GIL-enabled"):
