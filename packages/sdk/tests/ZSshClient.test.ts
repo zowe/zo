@@ -623,7 +623,8 @@ describe("ZSshClient", () => {
     });
 
     describe("callbacks", () => {
-        it("should receive ready message from Zowe server", async () => {
+        it("should receive ready message with server information", async () => {
+            const serverInfo = { version: "0.6.1", serverPathWritable: true };
             const sshStream = { stderr: new EventEmitter(), stdout: new EventEmitter() };
             const onStderrMock = vi.spyOn(sshStream.stderr, "on");
             const onStdoutMock = vi.spyOn(sshStream.stdout, "on");
@@ -631,14 +632,15 @@ describe("ZSshClient", () => {
             (client as any).mSshClient = {
                 exec: function (_command: string, callback: ClientCallback) {
                     callback(undefined, sshStream as any);
-                    sshStream.stdout.emit("data", readyMessage);
+                    sshStream.stdout.emit("data", JSON.stringify({ status: "ready", data: serverInfo }));
                     return this;
                 },
             };
             await (client as any).execAsync();
             expect(onStderrMock).toHaveBeenCalledTimes(2);
             expect(onStdoutMock).toHaveBeenCalledTimes(2);
-            expect(client.serverVersion).not.toBeNull();
+            expect(client.serverInfo).toEqual(serverInfo);
+            expect(client.serverVersion).toBe(client.serverInfo?.version);
         });
 
         it("should reject execAsync when the stream closes before the server is ready", async () => {
@@ -726,7 +728,8 @@ describe("ZSshClient", () => {
                 },
             };
             await (client as any).execAsync();
-            expect(client.serverVersion).not.toBeNull();
+            expect(client.serverInfo?.version).toBe("0.6.1");
+            expect(client.serverInfo?.serverPathWritable).toBeUndefined();
         });
 
         it("should handle a Language Environment load failure from Zowe server", async () => {
