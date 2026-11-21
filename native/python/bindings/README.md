@@ -8,23 +8,37 @@ can be rebuilt for a different target.
 
 ## Python wheel
 
-`make wheel` builds a pip-installable wheel using IBM Python 3.11. The npm build
-includes native copies for IBM Python 3.11, 3.13, and 3.14; the loader selects the
-copy matching the active interpreter. Imports are `zds_py`, `zjb_py`, `zusf_py`,
-and `zkr_py`.
+`make wheel` builds a pip-installable ABI3 wheel using IBM Python 3.11. It contains
+one native extension per binding module, shared by compatible GIL-enabled IBM
+CPython versions from 3.11 onward. Imports remain `zds_py`, `zjb_py`, `zusf_py`,
+and `zkr_py`. Newer Python installations and side decks are not needed to build it.
 
 The Python distribution is named `zo`. Its version comes from the root
 `package.json`, the same release version used by the native `zo` binary, so
 `npm run version:bump` also updates subsequent Python builds. The default filename
-is currently `zo-1.0.2-py3-none-any.whl`. The `py3-none-any` tag works around
-pip's differing `os390`/`zos` platform tags. The archive contains native z/OS
-binaries, and imports require a bundled, GIL-enabled IBM CPython runtime on z/OS.
+uses `cp311-abi3` tags, for example
+`zo-1.0.2-cp311-abi3-os390_29_00_3932.zos.whl`. The combined platform tag advertises
+the build host's older `os390` convention and the newer `zos` convention without
+claiming that these native binaries are platform-independent.
 
-The wrappers use Python's Limited API, but the z/OS binder records the Python DLL
-name in each extension. Supporting another minor Python version requires adding
-its side deck and runtime selection to the build, then running the installed-wheel
-tests with that interpreter. The Limited API alone does not make these binaries
-compatible with future Python versions.
+The wrappers use Python's Limited API with a 3.11 baseline. The binder still records
+a version-specific Python DLL name, so the wheel records that name in its loader.
+At import, the loader finds the running interpreter's library using `sys.base_prefix`
+and `sysconfig`, creates a private temporary alias, and changes `LIBPATH` only while
+loading the extension. It restores `LIBPATH` and removes the alias even if import
+fails. A shared lock serializes this wheel's concurrent binding imports. The Python
+installation and installed wheel files are not changed, and no Python DLL is bundled.
+The temporary directory contains only the alias to the active interpreter's DLL;
+lookups for other DLL names keep their existing search order. The lock covers first
+native loads, not cached imports or calls to the binding APIs.
+
+This is a tested loading strategy, not an IBM-supported version-independent DLL
+interface. `LIBPATH` is process-wide, so the loader cannot serialize unrelated code
+that loads DLLs concurrently. IBM [cautions against changing the DLL search order
+at runtime](https://www.ibm.com/docs/en/zos/2.5.0?topic=mudwrda-loading-dlls).
+The Limited API's compatibility guarantee also depends on the distributor's Python
+builds and the native runtime; see [Python's ABI platform considerations](https://docs.python.org/3.13/c-api/stable.html#platform-considerations).
+Keep installed-wheel tests for each supported Python version, including new releases.
 
 ### GitHub Actions artifacts and releases
 
@@ -38,13 +52,9 @@ the server.
 
 When selected, the Python steps build the wheel after the binding tests pass.
 They archive the wheel and SHA-256 file in the `zowe-python-wheel` Actions artifact.
-The CI host must provide IBM Python 3.11. PR, push, and manual builds include
-Python 3.13 and 3.14 when their configured interpreters exist. The build log lists
-the included runtimes. Versioned releases require all three runtimes.
-Set the `ZPY_PYTHON_ROOT` repository variable to change the default
-`/usr/lpp/IBM/cyp/` installation root with its `v3rXX/pyz/bin/python` layout.
-Set `ZPY_PYTHON_311`, `ZPY_PYTHON_313`, or `ZPY_PYTHON_314` repository variables
-to use individual interpreter paths.
+The CI host only needs IBM Python 3.11. Set the single `ZPY_PYTHON_ROOT` repository
+variable to its installation directory containing `bin/python` and `lib/`; the
+default is `/usr/lpp/IBM/cyp/v3r11/pyz`. Releases use the same single build runtime.
 
 To publish, run the existing **Release** workflow with an explicit `version`.
 It passes that version to the combined build, downloads the wheel from the same
@@ -73,7 +83,7 @@ Select a supported IBM Python interpreter, then run:
 
 ```sh
 python -m venv my-venv
-my-venv/bin/python -m pip install --no-index /path/to/zo-1.0.2-py3-none-any.whl
+my-venv/bin/python -m pip install --no-index /path/to/zo-1.0.2-cp311-abi3-os390_29_00_3932.zos.whl
 my-venv/bin/python -c 'import zds_py, zjb_py, zusf_py, zkr_py'
 ```
 
@@ -108,27 +118,23 @@ for runtime discovery, build-venv setup, dependency installation, and the normal
 
 ```yaml
 pythonEnv:
-  ZPY_PYTHON_ROOT: /usr/lpp/IBM/cyp/
-  # ZPY_PYTHON_311: /path/to/python3.11
-  # ZPY_PYTHON_313: /path/to/python3.13
-  # ZPY_PYTHON_314: /path/to/python3.14
+  ZPY_PYTHON_ROOT: /usr/lpp/IBM/cyp/v3r11/pyz
 ```
 
-`ZPY_PYTHON_ROOT` defaults to `/usr/lpp/IBM/cyp/`, with interpreters at
-`v3r11/pyz/bin/python`, `v3r13/pyz/bin/python`, and `v3r14/pyz/bin/python`.
-Use `~/python` for a home-directory installation, or override individual
-executables with the settings above. Local `ZPY_*` environment variables override
-`pythonEnv`. SSH target and deployment root come from the selected profile.
-The command uses the runtimes directly and does not change `fpm`.
-By default, all three runtimes are required. To build with Python 3.11 and any
-available additional runtimes, run:
+`ZPY_PYTHON_ROOT` is the selected Python 3.11 installation itself, rather than a
+directory containing multiple versioned installations. The command derives
+`bin/python` from it. For example, a home-directory installation might use
+`~/python/v3r11/pyz`. Local `ZPY_PYTHON_ROOT` overrides `pythonEnv`. SSH target and
+deployment root come from the selected profile. The command does not change `fpm`.
+You can also select the installation for one invocation:
 
 ```sh
-npm run z:python:wheel -- --allow-missing-runtimes
+ZPY_PYTHON_ROOT=/path/to/python3.11/installation npm run z:python:wheel
 ```
 
-This option skips missing Python 3.13 and 3.14 interpreters. An installed
-interpreter with the wrong version or a failed runtime probe still fails the build.
+The former `--allow-missing-runtimes` flag is unnecessary: other Python versions
+are never required for the build. A missing baseline interpreter, wrong version,
+or failed runtime probe still fails the build.
 
 If `PIP_INDEX_URL` is set locally, it is passed through SSH input to pip without
 putting its credentials in command arguments; otherwise the remote profile's
@@ -145,35 +151,34 @@ build_python=$(python -c 'import os, sys; print(os.path.realpath(sys.executable)
 iconv -f IBM-1047 -t UTF-8 requirements-build.txt > requirements-build-utf8.txt
 chtag -t -c UTF-8 requirements-build-utf8.txt
 wheel-build-venv/bin/python -m pip install -r requirements-build-utf8.txt
-make wheel PYTHON=wheel-build-venv/bin/python \
-  WHEEL_ARGS="--runtime cp313=/path/to/libpython3.13.x --runtime cp314=/path/to/libpython3.14.x"
+make wheel PYTHON=wheel-build-venv/bin/python
 ```
 
-Replace the side-deck paths with those from the installed IBM runtimes. The default
-`any` platform tag avoids platform matching in pip; `--platform` remains available
-for an explicit override. Without additional `--runtime` arguments, the wheel
-contains only Python 3.11. For deployments without the repository root, pass
+The default platform tags combine the build platform and `zos`; `--platform`
+remains available for an explicit override. Legacy `--runtime` arguments remain
+accepted, but no additional native copies are linked. For deployments without the repository root, pass
 `--license-file /path/to/LICENSE` in `WHEEL_ARGS`.
 The build also needs the release `package.json` at the repository root or beside
 the deployed `c/` and `python/` directories; the npm wheel command stages it
 automatically.
 
 The target builds native prerequisites and SWIG wrappers, stages UTF-8 proxies,
-links the specified runtime variants, and writes the wheel to the bindings'
+links one ABI3 copy of each extension, and writes the wheel to the bindings'
 `dist/`. The npm command downloads it to the project's root `dist/`. The existing
 `make build` workflow remains available.
 
 ### Verify the installed wheel
 
 For each target interpreter, the runner creates a fresh venv and stages tests in
-`/tmp` outside the source package:
+the system temporary directory outside the source package. Set `TMPDIR` to another
+writable directory if the default temporary filesystem has insufficient space:
 
 ```sh
-python test/run_wheel_tests.py /path/to/zo-1.0.2-py3-none-any.whl
-python test/run_wheel_tests.py /path/to/zo-1.0.2-py3-none-any.whl --functional --owner YOURID
+python test/run_wheel_tests.py /path/to/zo-1.0.2-cp311-abi3-os390_29_00_3932.zos.whl
+python test/run_wheel_tests.py /path/to/zo-1.0.2-cp311-abi3-os390_29_00_3932.zos.whl --functional --owner YOURID
 ```
 
-The first command tests installation, wheel metadata, native module selection,
+The first command tests installation, wheel metadata, shared native module locations,
 UTF-8 USS reads, and SWIG lifetimes. The second also creates disposable dataset,
 USS, job, and certificate/key-ring resources under the specified user. Tests use
 the configured `PIP_INDEX_URL` to obtain pytest/PyYAML; keep credentials in the environment.
@@ -191,7 +196,7 @@ npm run z:python:post -- <PR_NUMBER>
 The command uploads the available tarball and `zo` wheel from root `dist/`
 to the `py-bindings-dev` prerelease and creates or updates the PR comment with
 download links. It uses the current Git commit for the artifact build tag, for
-example `zo-1.0.2-1pr1181gabcdef12-py3-none-any.whl`, and generates a matching
+example `zo-1.0.2-1pr1181gabcdef12-cp311-abi3-os390_29_00_3932.zos.whl`, and generates a matching
 SHA-256 file. It does not rebuild or test the artifacts.
 
 Posting requires an authenticated GitHub CLI (`gh`). Keep only the wheel you

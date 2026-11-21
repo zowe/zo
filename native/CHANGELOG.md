@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `python`: Added an opt-in stable ABI wheel for the SWIG Metal C sample with automatic Python DLL resolution, combined z/OS platform tags, and installation checks across Python 3.11, 3.13, and 3.14.
+- `python`: Added version-agnostic ABI3 wheels for the SWIG Metal C sample and all four Python bindings, with automatic Python DLL resolution, combined z/OS platform tags, and cross-version installation and concurrent import checks. [#1127](https://github.com/zowe/zo/pull/1127)
 - `python`: Preserve certificate data set password checks and failed-write cleanup in the shared I/O helpers. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `python`: Archive the z/OS wheel and checksum in GitHub Actions and publish versioned releases to Zowe's PyPI Artifactory repository. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `python`: Name the Python distribution `zo` and read its version from the same `package.json` used by the native binary; update wheel staging, posting, and installation checks. [#1181](https://github.com/zowe/zowex/pull/1181)

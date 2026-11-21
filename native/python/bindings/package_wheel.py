@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build one z/OS wheel containing extensions linked for each supported runtime."""
+"""Build one z/OS ABI3 wheel using only the Python 3.11 build runtime."""
 
 import argparse
 import json
 import os
 from pathlib import Path
-import shlex
-import shutil
+import re
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -23,46 +23,26 @@ def parse_runtime(value):
     return tag, str(Path(path).resolve())
 
 
-def python_side_deck_index(command):
-    decks = [i for i, item in enumerate(command)
-             if Path(item).name.startswith("libpython") and item.endswith(".x")]
-    if len(decks) != 1:
-        raise RuntimeError("Expected exactly one Python side deck in the link command")
-    return decks[0]
-
-
 def probe_runtime():
-    version = sysconfig.get_python_version()
-    paths = [Path(sys.executable).resolve().parents[1] / "lib"]
-    paths += [Path(sysconfig.get_config_var(key) or ".") for key in ("LIBDIR", "LIBPL")]
-    side_deck = next((directory / f"libpython{version}.x" for directory in paths
-                      if (directory / f"libpython{version}.x").is_file()), None)
-    if side_deck is None:
-        raise RuntimeError(f"Cannot find the Python {version} side deck")
-    return {"version": version, "deck": str(side_deck)}
+    return {"version": sysconfig.get_python_version(), "dll": sysconfig.get_config_var("LDLIBRARY")}
 
 
 def decode_json(raw):
     return json.loads(raw.decode("utf-8" if raw.startswith(b"{") else "cp1047"))
 
 
-def probe_runtimes(config, env):
-    runtimes = {}
-    for minor in (11, 13, 14):
-        executable = Path(config["runtimes"][str(minor)]).resolve()
-        if not executable.is_file():
-            if minor != 11 and config.get("allowMissingRuntimes", False):
-                print(f"Skipping unavailable Python 3.{minor}: {executable}", flush=True)
-                continue
-            raise RuntimeError(f"Python 3.{minor} not found: {executable}")
-        result = subprocess.check_output([str(executable), str(Path(__file__).resolve()),
-                                          "--probe-runtime"], env=env)
-        runtime = decode_json(result)
-        if runtime["version"] != f"3.{minor}":
-            raise RuntimeError(f"Expected Python 3.{minor} at {executable}, got {runtime['version']}")
-        runtimes[minor] = runtime
-    print("Wheel runtimes: " + ", ".join(runtime["version"] for runtime in runtimes.values()), flush=True)
-    return runtimes
+def probe_build_runtime(config, env):
+    """Only the baseline interpreter is required to build the ABI3 wheel."""
+    executable = Path(config["python"]).resolve()
+    if not executable.is_file():
+        raise RuntimeError(f"Build Python not found: {executable}")
+    result = subprocess.check_output([str(executable), str(Path(__file__).resolve()),
+                                      "--probe-runtime"], env=env)
+    runtime = decode_json(result)
+    if runtime["version"] != "3.11":
+        raise RuntimeError(f"Expected build Python 3.11 at {executable}, got {runtime['version']}")
+    print("Wheel build runtime: 3.11 (ABI3; newer Python installations are not required)", flush=True)
+    return runtime
 
 
 def build_from_stdin():
@@ -73,7 +53,7 @@ def build_from_stdin():
     env = os.environ.copy()
     if config.get("indexUrl"):
         env["PIP_INDEX_URL"] = config["indexUrl"]
-    runtimes = probe_runtimes(config, env)
+    probe_build_runtime(config, env)
     venv = root / "build-venv"
     subprocess.run([sys.executable, "-m", "venv", str(venv)], env=env, check=True)
     python = str(venv / "bin/python")
@@ -84,65 +64,54 @@ def build_from_stdin():
     subprocess.run(["chtag", "-t", "-c", "UTF-8", str(requirements)], check=True)
     subprocess.run([python, "-m", "pip", "install", "--quiet", "-r", str(requirements)],
                    env=env, stdin=subprocess.DEVNULL, check=True)
-    args = []
-    for minor, runtime in runtimes.items():
-        if minor != 11:
-            args += ["--runtime", f"cp3{minor}={runtime['deck']}"]
-    subprocess.run(["make", "wheel", "PYTHON=" + python, "WHEEL_ARGS=" + shlex.join(args)],
+    subprocess.run(["make", "wheel", "PYTHON=" + python],
                    cwd=bindings, env=env, stdin=subprocess.DEVNULL, check=True)
 
 
-def link_runtimes(commands, runtimes, destination):
-    for tag, side_deck in runtimes.items():
-        target = destination / tag
-        target.mkdir(parents=True)
-        for command in commands:
-            output_index = command.index("-o") + 1
-            output = target / Path(command[output_index]).name
-            deck_index = python_side_deck_index(command)
-            linked = list(command)
-            linked[deck_index] = side_deck
-            linked[output_index] = str(output)
-            if side_deck == command[deck_index]:
-                shutil.copy2(command[output_index], output)
-            else:
-                subprocess.run(linked, check=True)
-            output.chmod(0o755)
-            subprocess.run(["chtag", "-b", str(output)], check=True)
+def wheel_platforms(override=None):
+    if override is None:
+        platform = sysconfig.get_platform().replace("-", "_").replace(".", "_")
+        override = ".".join(sorted({platform, "zos"}))
+    if not re.fullmatch(r"[a-z0-9_]+(?:\.[a-z0-9_]+)*", override):
+        raise ValueError("Wheel platforms must be dot-separated normalized platform tags")
+    return override
 
 
-def assemble_wheel(base, native, release):
+def assemble_wheel(base, release):
     from wheel.wheelfile import WheelFile
 
-    runtimes, platforms, outdir = release.runtimes, release.platform, release.outdir
-    # Default to py3-none-any to bypass inconsistent z/OS tags in pip.
-    # The loader enforces the actual platform and bundled runtime requirements.
+    platforms, outdir = wheel_platforms(release.platform), release.outdir
     distribution, version = base.name.split("-")[:2]
-    filename = f"{distribution}-{version}-py3-none-{platforms}.whl"
+    filename = f"{distribution}-{version}-cp311-abi3-{platforms}.whl"
     outdir.mkdir(parents=True, exist_ok=True)
-    wheel = native.parent / filename
+    wheel = base.parent.parent / filename
     with zipfile.ZipFile(base) as source, WheelFile(wheel, "w") as target:
         info = f"{distribution}-{version}.dist-info"
         for name in source.namelist():
             if name in {f"{module}.py" for module in MODULES} or name == f"{info}/METADATA":
                 target.writestr(name, source.read(name))
         loader = subprocess.check_output(["iconv", "-f", "IBM-1047", "-t", "UTF-8",
-                                          "_zbind_loader.py"])
-        target.writestr("_zbind_loader.py", loader)
+                                          "_zbind_loader.py"]).decode("utf-8")
+        library = sysconfig.get_config_var("LDLIBRARY")
+        if not library or Path(library).name != library or loader.count("PYTHON_DLL = None") != 1:
+            raise RuntimeError("Cannot record the linking interpreter's Python DLL name")
+        loader = loader.replace("PYTHON_DLL = None", f"PYTHON_DLL = {library!r}", 1)
+        target.writestr("_zbind_loader.py", loader.encode("utf-8"))
         for module in MODULES:
             target.writestr(f"_{module}.py",
-                            "from _zbind_loader import load_extension\nload_extension(__name__)\n")
-        for tag in runtimes:
-            for module in MODULES:
-                name = f"_{module}.abi3.so"
-                target.write(native / tag / name, f"_zbind_native/{tag}/{name}")
+                            b"from _zbind_loader import load_extension\nload_extension(__name__)\n")
+            name = f"_{module}.abi3.so"
+            entry = zipfile.ZipInfo(f"_zbind_native/{name}")
+            entry.external_attr = (stat.S_IFREG | 0o755) << 16
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            target.writestr(entry, source.read(name))
         license_text = subprocess.check_output(["iconv", "-f", "IBM-1047", "-t", "UTF-8",
                                                 str(release.license_file)])
         target.writestr(f"{info}/LICENSE", license_text)
-        metadata = "Wheel-Version: 1.0\nGenerator: zo multi-runtime builder\nRoot-Is-Purelib: false\n"
+        metadata = "Wheel-Version: 1.0\nGenerator: zo ABI3 builder\nRoot-Is-Purelib: false\n"
         for platform in platforms.split("."):
-            metadata += f"Tag: py3-none-{platform}\n"
-        target.writestr(f"{info}/WHEEL", metadata)
+            metadata += f"Tag: cp311-abi3-{platform}\n"
+        target.writestr(f"{info}/WHEEL", metadata.encode("utf-8"))
     subprocess.run(["chtag", "-b", str(wheel)], check=True)
     destination = outdir / filename
     wheel.replace(destination)
@@ -159,9 +128,9 @@ def main():
     parser.add_argument("--outdir", default="dist")
     parser.add_argument("--license-file", type=Path, default=Path(__file__).resolve().parents[3] / "LICENSE")
     parser.add_argument("--runtime", type=parse_runtime, action="append", default=[],
-                        help="Repeat for each additional runtime: cp313=/path/libpython3.13.x")
-    parser.add_argument("--platform", default="any",
-                        help="Override the default 'any' pip platform tag; separate multiple tags with dots")
+                        help="Legacy option; additional side decks are no longer needed for ABI3")
+    parser.add_argument("--platform",
+                        help="Override the build-platform and zos tags; separate multiple tags with dots")
     args = parser.parse_args()
     if args.probe_runtime:
         print(json.dumps(probe_runtime()))
@@ -175,6 +144,8 @@ def main():
         parser.error("License file is missing; use --license-file for a deployment without the repo root")
     if len(dict(args.runtime)) != len(args.runtime):
         parser.error("Each extra runtime must be unique")
+    if args.runtime:
+        print("Additional --runtime side decks are unnecessary for the ABI3 wheel", flush=True)
     bindings = Path(__file__).resolve().parent
     os.chdir(bindings)
     args.outdir = Path(args.outdir).resolve()
@@ -185,19 +156,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix="wheel-", dir=bindings) as work:
         work = Path(work)
         env["ZBIND_BUILD_BASE"] = str(work / "build")
-        env["ZBIND_LINK_COMMANDS"] = str(work / "links.jsonl")
         subprocess.run([sys.executable, "-m", "build", "--wheel", "--no-isolation",
                         "--outdir", str(work / "dist")], cwd=bindings, env=env, check=True)
-        commands = [json.loads(line) for line in (work / "links.jsonl").read_text(encoding="utf-8").splitlines()]
-        if len(commands) != len(MODULES):
-            raise RuntimeError("Expected a fresh link command for each of the four modules")
-        base_deck = commands[0][python_side_deck_index(commands[0])]
-        runtimes = {"cp311": base_deck, **dict(args.runtime)}
-        args.runtimes = runtimes
-        native = work / "native"
-        link_runtimes(commands, runtimes, native)
         base = next((work / "dist").glob("*.whl"))
-        wheel = assemble_wheel(base, native, args)
+        wheel = assemble_wheel(base, args)
         print(f"Created {wheel}")
 
 
