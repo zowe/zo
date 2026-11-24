@@ -2163,9 +2163,7 @@ void zds_tests()
         rc = zds_read(read_opts, content);
         ExpectWithContext(rc, read_zds.diag.e_msg).ToBe(0);
 
-        std::stringstream etag_stream;
-        etag_stream << std::hex << zut_calc_adler32_checksum(content);
-        Expect(etag_stream.str()).ToBe(write_etag);
+        Expect(zut_etag_digest(content)).ToBe(write_etag);
       });
 
       it("should detect etag mismatch on write (conflict resolution)", [&]() -> void
@@ -2194,6 +2192,32 @@ void zds_tests()
         std::string data3 = "conflicting write";
         ZDSWriteOpts write_opts3{.zds = &zds3, .dsname = dsn};
         rc = zds_write(write_opts3, data3);
+        Expect(rc).Not().ToBe(0);
+        Expect(std::string(zds3.diag.e_msg)).ToContain("Etag mismatch");
+      });
+
+      it("should detect a same-length change that leaves Adler-32 unchanged", [&]() -> void
+      {
+        std::string dsn = get_random_ds(3);
+        created_dsns.push_back(dsn);
+        ZDS zds = {0};
+        create_seq(&zds, dsn);
+
+        // +1/-1/-1/+1 across four consecutive bytes preserves both Adler-32 sums
+        ZDSWriteOpts write_opts{.zds = &zds, .dsname = dsn};
+        int rc = zds_write(write_opts, "MODE=0110");
+        ExpectWithContext(rc, zds.diag.e_msg).ToBe(0);
+        std::string stale_etag(zds.etag);
+
+        ZDS zds2 = {0};
+        ZDSWriteOpts write_opts2{.zds = &zds2, .dsname = dsn};
+        rc = zds_write(write_opts2, "MODE=1001");
+        ExpectWithContext(rc, zds2.diag.e_msg).ToBe(0);
+
+        ZDS zds3 = {0};
+        strcpy(zds3.etag, stale_etag.c_str());
+        ZDSWriteOpts write_opts3{.zds = &zds3, .dsname = dsn};
+        rc = zds_write(write_opts3, "MODE=1111");
         Expect(rc).Not().ToBe(0);
         Expect(std::string(zds3.diag.e_msg)).ToContain("Etag mismatch");
       });

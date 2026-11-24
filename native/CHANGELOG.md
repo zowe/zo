@@ -12,6 +12,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `python`: Default release wheels to `py3-none-any` filename and metadata tags so pip accepts them across z/OS platform-tag conventions; retain native runtime checks during import. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `c`: Corrected PDS directory used-count handling so full 256-byte blocks, including those in `SYS1.PARMLIB`, list successfully and member parsing stays within the active entry bytes. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `c`: Guard against OPEN hanging on a password-protected data set (legacy MVS password protection issues a WTOR with no console to answer it) by failing fast, pre-OPEN, in `zds_read`, `zds_read_streamed`, `zds_write`, `zds_write_streamed`, `zds_write_binary`, the BPAM write path, and `zo system cert export`/`import --dsn`. [#1126](https://github.com/zowe/zowex/pull/1126)
+- `c`: Fixed USS and data set e-tags missing same-length file changes. USS e-tags now use the inode, the microsecond ctime, and the file size, and add a SHA-512/256 content digest only when the file system has no ctime microseconds (for example, TFS) and the file changed within the last two seconds. Data set e-tags replace Adler-32 with a SHA-512/256 digest computed on CPACF. USS writes now check the e-tag against the opened file before truncating it. The first save of a file left open across a server upgrade may report a conflict even if the file has not changed. [#1235](https://github.com/zowe/zo/pull/1235)
 - `c`: Updated the `zjb_read_job_dynamic_allocation` function to validate that data set names do not exceed the maximum length. [#1231](https://github.com/zowe/zo/pull/1231)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
@@ -31,6 +32,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `c`: Made explicit `zo server --num-workers` and `-w` values override the `ZO_NUM_WORKERS` environment variable. [#1221](https://github.com/zowe/zo/pull/1221)
 - `c`: Improved error handling for RPC commands when input transforms fail, preventing invalid base64 or FIFO setup errors from reaching write handlers and truncating data sets or USS files. [#1228](https://github.com/zowe/zo/pull/1228)
 - `c`: Changed destination of FIFO pipes used for streaming to be inside the `~/.zowex/temp` directory, with automatic cleanup when requests finish, including after exceptions. [#1228](https://github.com/zowe/zo/pull/1228)
+- `c`: Added `serverPathWritable` property to the ready message returned by the `zo` RPC server to report if the server's parent directory has write access. [#1233](https://github.com/zowe/zo/pull/1233)
 
 ## `1.1.0`
 

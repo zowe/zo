@@ -1612,8 +1612,14 @@ void zo_ds_tests()
         std::string command = "echo 'test' | " + zo_command + " data-set write " + ds + " --etag-only";
         int rc = execute_command_with_output(command, response);
         ExpectWithContext(rc, response).ToBe(0);
-        Expect(response).ToContain("etag: 8890283"); // etag for "test"
         Expect(response).Not().ToContain("Wrote data to '" + ds + "'");
+        const std::string write_etag = parse_etag_from_output(response);
+        ExpectWithContext(write_etag.size(), response).ToBe(64);
+
+        command = zo_command + " data-set view " + ds + " --return-etag";
+        rc = execute_command_with_output(command, response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(parse_etag_from_output(response)).ToBe(write_etag);
       });
 
       it("should fail if the provided etag is different from the current etag", [&]() -> void
@@ -1621,15 +1627,20 @@ void zo_ds_tests()
         std::string ds = _ds.back();
         _create_ds(ds, "--dsorg PS");
         std::string response;
-        std::string command = "echo 'test' | " + zo_command + " data-set write " + ds;
+        std::string command = "echo 'test' | " + zo_command + " data-set write " + ds + " --etag-only";
         int rc = execute_command_with_output(command, response);
         ExpectWithContext(rc, response).ToBe(0);
-        Expect(response).ToContain("Wrote data to '" + ds + "'");
+        const std::string stale_etag = parse_etag_from_output(response);
 
-        command = "echo 'zowe' | " + zo_command + " data-set write " + ds + " --etag 8bb0280"; // etag for "zowe"
+        command = "echo 'zowe' | " + zo_command + " data-set write " + ds + " --etag-only";
+        rc = execute_command_with_output(command, response);
+        ExpectWithContext(rc, response).ToBe(0);
+        const std::string current_etag = parse_etag_from_output(response);
+
+        command = "echo 'test' | " + zo_command + " data-set write " + ds + " --etag " + stale_etag;
         rc = execute_command_with_output(command, response);
         ExpectWithContext(rc, response).Not().ToBe(0);
-        Expect(response).ToContain("Etag mismatch: expected 8bb0280, actual 8890283");
+        Expect(response).ToContain("Etag mismatch: expected " + stale_etag + ", actual " + current_etag);
         Expect(response).Not().ToContain("Wrote data to '" + ds + "'");
       });
 
@@ -1638,15 +1649,15 @@ void zo_ds_tests()
         std::string ds = _ds.back();
         _create_ds(ds, "--dsorg PS");
         std::string response;
-        std::string command = "echo 'zowe' | " + zo_command + " data-set write " + ds;
+        std::string command = "echo 'zowe' | " + zo_command + " data-set write " + ds + " --etag-only";
         int rc = execute_command_with_output(command, response);
         ExpectWithContext(rc, response).ToBe(0);
-        Expect(response).ToContain("Wrote data to '" + ds + "'");
+        const std::string current_etag = parse_etag_from_output(response);
 
-        command = "echo 'test' | " + zo_command + " data-set write " + ds + " --etag 8890283"; // etag for "test"
+        command = "echo 'test' | " + zo_command + " data-set write " + ds + " --etag 8890283";
         rc = execute_command_with_output(command, response);
         ExpectWithContext(rc, response).Not().ToBe(0);
-        Expect(response).ToContain("Etag mismatch: expected 8890283, actual 8bb0280");
+        Expect(response).ToContain("Etag mismatch: expected 8890283, actual " + current_etag);
         Expect(response).Not().ToContain("Wrote data to '" + ds + "'");
       });
 

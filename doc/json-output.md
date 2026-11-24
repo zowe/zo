@@ -46,7 +46,7 @@ What happens to the text a handler writes to stdout depends on the command:
 
    ```console
    $ zo ds view IBMUSER.CNTL(MEMBER) --json --return-etag
-   {"data":{"data":"//STEP1 EXEC PGM=IEFBR14\n","etag":"8890283"},"exitCode":0,"stderr":"","success":true}
+   {"data":{"data":"//STEP1 EXEC PGM=IEFBR14\n","etag":"46d86fb00a94824b2f75b608566525c6b531fa79340f47d3924c857059acc3fe"},"exitCode":0,"stderr":"","success":true}
    ```
 
 2. **The handler set no result object** — most mutations, such as `ds create` and `ds delete`.
