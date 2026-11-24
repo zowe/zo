@@ -931,6 +931,144 @@ int zusf_copy_file_or_dir(ZUSF *zusf, const std::string &source_path, const std:
  *
  * @return RTNCD_SUCCESS on success, RTNCD_FAILURE on failure
  */
+// Sets a directory's mode through a descriptor: chmod() by path would follow a symbolic link swapped in.
+static int zusf_set_dir_mode(ZUSF *zusf, const std::string &dir, mode_t mode)
+{
+  const int dir_fd = open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  if (dir_fd == -1 || fchmod(dir_fd, mode) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Failed to set mode on directory '%s', errno: %d", dir.c_str(), errno);
+    if (dir_fd != -1)
+    {
+      close(dir_fd);
+    }
+    return RTNCD_FAILURE;
+  }
+  close(dir_fd);
+  return RTNCD_SUCCESS;
+}
+
+// Removes the directories this call created, deepest first. rmdir() only removes empty directories,
+// so content created concurrently is never deleted.
+static void zusf_remove_created_dirs(const std::vector<std::string> &created)
+{
+  for (auto it = created.rbegin(); it != created.rend(); ++it)
+  {
+    rmdir(it->c_str());
+  }
+}
+
+// Creates a directory and any missing parents. Every new directory stays owner-only (so the next one
+// can be created inside it) until the whole path exists; the requested mode is then applied deepest
+// first, so each directory is still searchable when it is opened.
+static int zusf_create_dir(ZUSF *zusf, const std::string &dir, mode_t mode)
+{
+  std::vector<std::string> missing; // nearest parent first
+  std::string current = dir;
+  for (;;)
+  {
+    const auto slash = current.find_last_of('/');
+    if (slash == std::string::npos || slash == 0)
+    {
+      break;
+    }
+    current = current.substr(0, slash);
+    struct stat parent_stats;
+    if (stat(current.c_str(), &parent_stats) == 0)
+    {
+      break;
+    }
+    missing.push_back(current);
+  }
+
+  std::vector<std::string> created; // shallowest first
+  missing.insert(missing.begin(), dir);
+  for (auto it = missing.rbegin(); it != missing.rend(); ++it)
+  {
+    if (mkdir(it->c_str(), S_IRWXU) != 0)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Failed to create directory '%s', errno: %d", it->c_str(), errno);
+      zusf_remove_created_dirs(created);
+      return RTNCD_FAILURE;
+    }
+    created.push_back(*it);
+  }
+
+  for (auto it = created.rbegin(); it != created.rend(); ++it)
+  {
+    if (zusf_set_dir_mode(zusf, *it, mode) != RTNCD_SUCCESS)
+    {
+      return RTNCD_FAILURE;
+    }
+  }
+  return RTNCD_SUCCESS;
+}
+
+// Removes a file this call created, unless the path now names a different object.
+static void zusf_remove_created_file(int fd, const std::string &file)
+{
+  struct stat fd_stats;
+  struct stat path_stats;
+  if (fstat(fd, &fd_stats) == 0 && lstat(file.c_str(), &path_stats) == 0 && fd_stats.st_dev == path_stats.st_dev &&
+      fd_stats.st_ino == path_stats.st_ino)
+  {
+    unlink(file.c_str());
+  }
+}
+
+// Creates a file, or with `overwrite` replaces an existing one's content, and applies the exact mode.
+static int zusf_create_file(ZUSF *zusf, const std::string &file, mode_t mode, bool overwrite)
+{
+  // Start with no more than the owner read/write bits of the requested mode; fchmod then applies the
+  // exact mode through the descriptor, independent of the umask.
+  bool created = false;
+  const int fd = zut_open_for_write(file, mode & (S_IRUSR | S_IWUSR), overwrite, created);
+  if (fd == -1)
+  {
+    if (errno == ELOOP)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Path '%s' is a symbolic link", file.c_str());
+    }
+    else if (errno == EEXIST)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "File '%s' already exists", file.c_str());
+      return RTNCD_WARNING;
+    }
+    else
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Could not create '%s'", file.c_str());
+    }
+    return RTNCD_FAILURE;
+  }
+
+  struct stat fd_stats;
+  if (!created && (fstat(fd, &fd_stats) != 0 || !S_ISREG(fd_stats.st_mode)))
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' is not a regular file", file.c_str());
+    close(fd);
+    return RTNCD_FAILURE;
+  }
+  if (fchmod(fd, mode) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Failed to set mode on file '%s', errno: %d", file.c_str(), errno);
+    if (created)
+    {
+      zusf_remove_created_file(fd, file);
+    }
+    close(fd);
+    return RTNCD_FAILURE;
+  }
+  // An existing file is truncated only after its mode was changed, so a failure above keeps its data
+  if (!created && ftruncate(fd, 0) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Failed to truncate file '%s', errno: %d", file.c_str(), errno);
+    close(fd);
+    return RTNCD_FAILURE;
+  }
+  close(fd);
+  return RTNCD_SUCCESS;
+}
+
 int zusf_create_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode, const CreateOptions &options)
 {
   struct stat file_stats;
@@ -951,68 +1089,7 @@ int zusf_create_uss_file_or_dir(ZUSF *zusf, const std::string &file, mode_t mode
     return RTNCD_WARNING;
   }
 
-  if (options.create_dir)
-  {
-    const auto last_trailing_slash = file.find_last_of("/");
-    if (last_trailing_slash != std::string::npos)
-    {
-      const auto parent_path = file.substr(0, last_trailing_slash);
-      const auto exists = stat(parent_path.c_str(), &file_stats) == 0;
-      if (!exists)
-      {
-        const auto rc = zusf_create_uss_file_or_dir(zusf, parent_path, mode, CreateOptions(true));
-        if (0 != rc)
-        {
-          return rc;
-        }
-      }
-    }
-    // Create owner-only so the new directory can be opened, then set the mode through the descriptor:
-    // chmod() by path would follow a symbolic link swapped in after mkdir().
-    const auto rc = mkdir(file.c_str(), S_IRWXU);
-    if (0 != rc)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Failed to create directory '%s', errno: %d", file.c_str(), errno);
-      return rc;
-    }
-    const int dir_fd = open(file.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
-    if (dir_fd == -1 || fchmod(dir_fd, mode) != 0)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Failed to set mode on directory '%s', errno: %d", file.c_str(), errno);
-      if (dir_fd != -1)
-      {
-        close(dir_fd);
-      }
-      return RTNCD_FAILURE;
-    }
-    close(dir_fd);
-    return RTNCD_SUCCESS;
-  }
-
-  // Create owner-only, then apply the exact mode through the descriptor (not reduced by the umask), so
-  // the file is never more open than requested.
-  const int fd = zut_open_for_write(file, S_IRUSR | S_IWUSR, options.overwrite);
-  if (fd == -1)
-  {
-    if (errno == ELOOP)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Path '%s' is a symbolic link", file.c_str());
-    }
-    else
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Could not create '%s'", file.c_str());
-    }
-    return RTNCD_FAILURE;
-  }
-
-  if (fchmod(fd, mode) != 0)
-  {
-    ZDIAG_SET_MSG(&zusf->diag, "Failed to set mode on file '%s', errno: %d", file.c_str(), errno);
-    close(fd);
-    return RTNCD_FAILURE;
-  }
-  close(fd);
-  return RTNCD_SUCCESS;
+  return options.create_dir ? zusf_create_dir(zusf, file, mode) : zusf_create_file(zusf, file, mode, options.overwrite);
 }
 
 int zusf_move_uss_file_or_dir(ZUSF *zusf, const std::string &source, const std::string &target, bool force)
