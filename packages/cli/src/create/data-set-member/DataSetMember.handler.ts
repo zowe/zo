@@ -18,11 +18,11 @@ export default class CreateDatasetMemberHandler extends SshBaseHandler {
         const dsname = params.arguments.name;
         const response = await client.ds.createMember({ dsname });
 
-        const dsMessage = `Dataset "${dsname}" created`;
-        params.response.data.setMessage(dsMessage);
+        const memberMessage = `Member "${dsname}" created`;
+        params.response.data.setMessage(memberMessage);
         params.response.data.setObj(response);
         if (response.success) {
-            params.response.console.log(dsMessage);
+            params.response.console.log(memberMessage);
         }
         return response;
     }

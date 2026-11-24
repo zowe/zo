@@ -1,27 +1,27 @@
-# Creating a `zowex` Plug-in
+# Creating a `zo` Plug-in
 
-The native plug-in infrastructure lets extenders add new commands and behaviors to `zowex`. The entry points exposed in
-`native/c/extend/plugin.hpp` describe the full contract between a plug-in and `zowex`.
+The native plug-in infrastructure lets extenders add new commands and behaviors to `zo`. The entry points exposed in
+`native/c/extend/plugin.hpp` describe the full contract between a plug-in and `zo`.
 
-## Enabling plug-in loading: `ZOWEX_PLUGINS_DIR`
+## Enabling plug-in loading: `ZO_PLUGINS_DIR`
 
-`ZOWEX_PLUGINS_DIR` is a **security control**, not a path override. There is no implicit fallback directory: `zowex`
+`ZO_PLUGINS_DIR` is a **security control**, not a path override. There is no implicit fallback directory: `zo`
 never loads plug-ins unless this environment variable is explicitly set for the process. Setting it opts that
-`zowex` invocation into `dlopen`-ing and executing every shared library it finds in the named directory, with the
-same privileges as the `zowex` process itself.
+`zo` invocation into `dlopen`-ing and executing every shared library it finds in the named directory, with the
+same privileges as the `zo` process itself.
 
-- If `ZOWEX_PLUGINS_DIR` is unset or empty, `zowex` does not touch a plugins directory at all: no `opendir`, no
+- If `ZO_PLUGINS_DIR` is unset or empty, `zo` does not touch a plugins directory at all: no `opendir`, no
   `dlopen`, no plug-in code runs.
-- If it is set, `zowex` treats every regular file in that directory as native code to execute. On a shared install,
+- If it is set, `zo` treats every regular file in that directory as native code to execute. On a shared install,
   this directory **must** be writable only by trusted installers/administrators. Anyone who can write a file into it
-  can run arbitrary code as every user who subsequently invokes `zowex` with that variable set.
-- Environment variables are set per session, so overriding `ZOWEX_PLUGINS_DIR` for a session grants that session's
+  can run arbitrary code as every user who subsequently invokes `zo` with that variable set.
+- Environment variables are set per session, so overriding `ZO_PLUGINS_DIR` for a session grants that session's
   code the privileges of whoever authored the plug-ins in the directory it names. Only set this variable for a
   session when you trust that directory's contents.
 
 ## Directory and file requirements (provenance checks)
 
-Even once `ZOWEX_PLUGINS_DIR` is set, `zowex` will only load plug-ins from a directory whose ownership and
+Even once `ZO_PLUGINS_DIR` is set, `zo` will only load plug-ins from a directory whose ownership and
 permissions make it a safe place to load native code from. These checks run *before* any shared library is opened,
 so a rejected directory or file never gets to execute constructor code.
 
@@ -30,12 +30,12 @@ so a rejected directory or file never gets to execute constructor code.
 - be a directory (not a file, symlink target that isn't a directory, etc.);
 - **not** be group- or world-writable. If any identity other than the owner can add files to it, the whole
   directory is rejected and no plug-ins load;
-- be owned by **root or by the user running `zowex`**. A directory owned by some other identity is rejected.
+- be owned by **root or by the user running `zo`**. A directory owned by some other identity is rejected.
 
 **Each plug-in file must:**
 
 - be a regular file (symlinks, FIFOs, devices, and subdirectories are skipped);
-- be owned by the **same owner as the directory**, or by root, or by the user running `zowex`. A file dropped into
+- be owned by the **same owner as the directory**, or by root, or by the user running `zo`. A file dropped into
   an otherwise-trusted directory by a different, unprivileged identity is rejected even though the directory passed;
 - **not** be group- or world-writable, since a file others can overwrite could be swapped out after it was placed.
 
@@ -47,25 +47,25 @@ it is loaded.
 > Loading code owned by root or by yourself is not a cross-user privilege escalation; loading code owned by another
 > unprivileged identity is. Extending trust to a dedicated non-root installer identity via the platform ESM
 > (RACF/ACF2/TSS) is tracked separately in [zowe/zowex#1072](https://github.com/zowe/zowex/issues/1072), not
-> handled by a `zowex`-managed config file.
+> handled by a `zo`-managed config file.
 
 ## Command name reservations (built-in verb protection)
 
-Even a plug-in that loads successfully cannot override a built-in command. When `zowex` wires plug-in commands into
+Even a plug-in that loads successfully cannot override a built-in command. When `zo` wires plug-in commands into
 the command tree, it refuses a top-level command if its name or any of its aliases collides with a built-in verb
 (`console`, `ds`, `job`, `server`, `sys`, `tool`, `tso`, `uss`, and their aliases) or with a top-level command
 another plug-in has already registered.
 
 - A refused command is logged at `ZLOG_ERROR` explaining which token collided; the built-in (or first-registered)
   command stays in place and continues to work.
-- Only the colliding command is dropped. The plug-in's other, non-colliding commands still register, and `zowex`
+- Only the colliding command is dropped. The plug-in's other, non-colliding commands still register, and `zo`
   continues to run.
 - The collision check looks at the command's *final* name and alias set, so adding an alias after attaching a command
   does not sidestep it. Pick command names and aliases that do not overlap the built-in verbs above.
 
 ## Runtime entry point
 
-Each shared library is expected to export a single function that `zowex` discovers via dynamic loading:
+Each shared library is expected to export a single function that `zo` discovers via dynamic loading:
 
 ```c
 extern "C" void register_plugin(PluginManager &manager);
@@ -83,7 +83,7 @@ public:
   }
 };
 
-ZOWEX_PLUGIN_DECLARE_ABI()
+ZO_PLUGIN_DECLARE_ABI()
 
 extern "C" void register_plugin(PluginManager &manager)
 {
@@ -94,25 +94,25 @@ extern "C" void register_plugin(PluginManager &manager)
 
 ## Binary compatibility
 
-`ZOWEX_PLUGIN_DECLARE_ABI()` is required, and must be expanded exactly once, in the same translation unit as
+`ZO_PLUGIN_DECLARE_ABI()` is required, and must be expanded exactly once, in the same translation unit as
 `register_plugin`. It exports the version of the plug-in ABI your library was compiled against.
 
 Types like `InvocationContext`, `ArgumentMap` and `ast::ObjMap` cross the `dlopen` boundary, and accessors such as
 `context.get<T>(...)` are inlined *into your plug-in*. A plug-in built against a different revision of `plugin.hpp`
-therefore reads the wrong member offsets. `zowex` compares the reported version against its own
-`ZOWEX_PLUGIN_ABI_VERSION` before calling `register_plugin`, and rejects a mismatch with a `ZLOG_ERROR` message rather
+therefore reads the wrong member offsets. `zo` compares the reported version against its own
+`ZO_PLUGIN_ABI_VERSION` before calling `register_plugin`, and rejects a mismatch with a `ZLOG_ERROR` message rather
 than loading the plug-in and corrupting memory. A library that does not export the symbol at all is treated as version
 0 and rejected.
 
 Rebuild your plug-in against the current `native/c/extend/plugin.hpp` whenever the constant is bumped.
 
-Plug-ins are also subject to the same runtime floor as `zowex` itself: build them with the Open XL C/C++ level the
-project targets, or they will fail to load on older Language Environment maintenance levels even when `zowex` loads
+Plug-ins are also subject to the same runtime floor as `zo` itself: build them with the Open XL C/C++ level the
+project targets, or they will fail to load on older Language Environment maintenance levels even when `zo` loads
 fine. See [`native/c/compat/README.md`](../native/c/compat/README.md).
 
 ## Implementing a command provider
 
-`CommandProvider` is a `Factory<CommandProviderImpl>`. When `zowex` is ready to populate the command tree it calls
+`CommandProvider` is a `Factory<CommandProviderImpl>`. When `zo` is ready to populate the command tree it calls
 `create()`, expects a `CommandProviderImpl`, and immediately invokes `register_commands(...)` on the instance.
 
 ```cpp

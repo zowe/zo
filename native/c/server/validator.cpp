@@ -11,7 +11,6 @@
 
 #include "validator.hpp"
 #include "../zjson.hpp"
-#include <set>
 #include <string_view>
 
 using std::string;
@@ -102,7 +101,6 @@ ValidationResult validate_schema(const zjson::Value &params,
   }
 
   const auto &obj = params.as_object();
-  std::set<std::string_view> seen_fields;
 
   auto get_field_path = [&parent_field](std::string_view name) {
     return parent_field.empty() ? std::string(name) : parent_field + "." + std::string(name);
@@ -124,7 +122,6 @@ ValidationResult validate_schema(const zjson::Value &params,
       continue;
     }
 
-    seen_fields.insert(field.name);
     const zjson::Value &value = field_it->second;
 
     // Allow null for optional fields
@@ -188,7 +185,16 @@ ValidationResult validate_schema(const zjson::Value &params,
   {
     for (const auto &pair : obj)
     {
-      if (seen_fields.find(std::string_view(pair.first)) == seen_fields.end())
+      bool known_field = false;
+      for (size_t i = 0; i < field_count; i++)
+      {
+        if (schema[i].name == std::string_view(pair.first))
+        {
+          known_field = true;
+          break;
+        }
+      }
+      if (!known_field)
       {
         return ValidationResult::error("Unknown field: " + get_field_path(pair.first));
       }

@@ -16,7 +16,7 @@
 // function, usage and status constants. Ported from zowe/keyring-utilities
 // `keyring_types.h`; `_Packed` is expressed with `#pragma pack` so the layouts
 // compile cleanly under ibm-clang++ (C++), and the CLI-only helper structs are
-// dropped because zowex owns argument parsing.
+// dropped because zo owns argument parsing.
 
 #define ZKR_MAX_USAGE_LEN 20
 #define ZKR_MAX_USERID_LEN 8

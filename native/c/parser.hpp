@@ -13,6 +13,7 @@
 #define PARSER_HPP
 
 #include "extend/plugin.hpp"
+#include "json_output.hpp"
 #include "lexer.hpp"
 #include "zlogger.hpp"
 #include <algorithm>
@@ -126,6 +127,7 @@ struct ArgumentDef
   bool coerce_as_string = false; // treat numeric-looking values as strings when parsing
   ArgValue default_value;        // default value if argument is not provided
   bool is_help_flag;             // internal flag to identify the help argument
+  bool is_json_flag = false;     // internal flag to identify the JSON output flag
   std::vector<std::string>
       conflicts_with; // names of other arguments this one conflicts with
 
@@ -330,6 +332,7 @@ public:
         m_allow_dynamic_keywords(false), m_allow_passthrough(false), m_privileged(false)
   {
     ensure_help_argument();
+    ensure_json_argument();
   }
 
   // destructor to clean up subcommand pointers
@@ -489,6 +492,7 @@ public:
       return *this;
 
     sub->ensure_help_argument();
+    sub->ensure_json_argument();
 
     // Only propagate privileges if the parent is privileged
     if (m_privileged)
@@ -590,7 +594,8 @@ public:
 
   ParseResult parse(const std::vector<lexer::Token> &tokens,
                     size_t &current_token_index,
-                    const std::string &command_path_prefix) const;
+                    const std::string &command_path_prefix,
+                    bool json_inherited = false) const;
 
   // generate help text for this command and its subcommands
   void generate_help(std::ostream &os,
@@ -840,6 +845,9 @@ private:
   bool m_allow_dynamic_keywords;
   bool m_allow_passthrough;
   bool m_privileged;
+  bool m_json_registered = true;
+  bool m_json_capture = true;
+  bool m_stdout_is_payload = false;
   std::string m_passthrough_description;
   std::shared_ptr<std::vector<PreCommandHook>> m_pre_hooks;
 
@@ -1006,6 +1014,77 @@ private:
     }
   }
 
+  // helper to add the standard JSON output argument
+  void ensure_json_argument()
+  {
+    if (!m_json_registered)
+    {
+      return;
+    }
+    for (const auto &arg : m_args)
+    {
+      if (arg.name == "json")
+      {
+        return;
+      }
+      for (const auto &alias : arg.aliases)
+      {
+        if (alias == "--json" || alias == "--rfj")
+        {
+          return;
+        }
+      }
+    }
+
+    ArgumentDef json_arg("json", make_aliases("--json", "--rfj"),
+                         "print the result as a single line of JSON",
+                         ArgType_Flag, false, false, ArgValue(false), false);
+    json_arg.is_json_flag = true;
+    m_args.push_back(json_arg);
+  }
+
+  // Declare that this command's stdout carries its payload rather than a
+  // human-readable rendering of fields it also reports through
+  // set_object() -- the CLI equivalent of the server's read_stdout()
+  // transform. Without it, captured stdout is dropped for any handler that
+  // already produced fields of its own.
+public:
+  Command &mark_stdout_as_payload()
+  {
+    m_stdout_is_payload = true;
+    return *this;
+  }
+
+  bool stdout_is_payload() const
+  {
+    return m_stdout_is_payload;
+  }
+
+  // Refuse --json entirely: the argument is not accepted here, and an
+  // inherited --json from a parent command will not capture this handler
+  // either. For commands that must never serialize a result at all.
+  Command &disable_json_output()
+  {
+    m_json_registered = false;
+    m_json_capture = false;
+    for (auto it = m_args.begin(); it != m_args.end();)
+    {
+      it = it->is_json_flag ? m_args.erase(it) : it + 1;
+    }
+    return *this;
+  }
+
+  // Keep accepting --json -- so it parses here and still reaches
+  // subcommands -- but never capture this command's own handler. For the
+  // root command, whose handler prints help or enters the REPL, and for
+  // `server`, which owns stdout for the life of the process.
+  Command &disable_json_capture()
+  {
+    m_json_capture = false;
+    return *this;
+  }
+
+private:
   // check if the command has a specific alias
   bool has_alias(const std::string &alias) const
   {
@@ -1115,8 +1194,8 @@ public:
     ParserStatus_ParseError
   };
 
-  ParserStatus status;       // no default initializer
-  int exit_code;             // exit code returned by handler or set by parser
+  ParserStatus status = ParserStatus_Success;
+  int exit_code = 0;         // exit code returned by handler or set by parser
   std::string error_message; // error message if status is parse_error
   std::string command_path;  // full path of the executed command (e.g., "git
                              // remote add")
@@ -1129,12 +1208,20 @@ public:
   std::vector<std::string> m_passthrough_args;
 
   // pointer to the command definition for default value lookup
-  const Command *m_command;
+  const Command *m_command = nullptr;
 
-  ParseResult()
-      : status(ParserStatus_Success), exit_code(0), m_command(nullptr)
-  {
-  }
+  // --json state. Collected here rather than printed by Command::parse so
+  // that ArgumentParser::parse can emit the envelope from a single place,
+  // covering the handler path and every parser-level error return alike.
+  bool json_requested = false;
+  bool json_suppressed = false;
+  ast::Node json_data;
+  std::string json_stdout;
+  std::string json_stderr;
+  bool json_stdout_is_payload = false;
+  std::string json_output;
+
+  ParseResult() = default;
 
   // check if an arg was provided
   bool has(const std::string &name) const
@@ -1249,7 +1336,8 @@ inline bool ParseResult::get_value<bool>(const std::string &name,
 inline ParseResult
 Command::parse(const std::vector<lexer::Token> &tokens,
                size_t &current_token_index,
-               const std::string &command_path_prefix) const
+               const std::string &command_path_prefix,
+               bool json_inherited) const
 {
   ZLOG_TRACE("Command::parse entry: command='%s', prefix='%s', tokens=%zu, current_index=%zu",
              m_name.c_str(), command_path_prefix.c_str(), tokens.size(), current_token_index);
@@ -1266,7 +1354,7 @@ Command::parse(const std::vector<lexer::Token> &tokens,
   std::vector<ArgumentDef> pos_args;
   for (const auto &arg : m_args)
   {
-    if (arg.is_help_flag)
+    if (arg.is_help_flag || arg.is_json_flag)
     {
       continue;
     }
@@ -1546,6 +1634,14 @@ Command::parse(const std::vector<lexer::Token> &tokens,
         return result;
       }
 
+      if (matched_arg->is_json_flag)
+      {
+        current_token_index++; // consume only the flag token, never a value
+        args_seen[matched_arg->name] = true;
+        result.m_values[matched_arg->name] = ArgValue(true);
+        continue;
+      }
+
       current_token_index++; // consume the flag token itself
       args_seen[matched_arg->name] = true;
 
@@ -1729,7 +1825,8 @@ Command::parse(const std::vector<lexer::Token> &tokens,
         ZLOG_TRACE("Subcommand '%s' matched, delegating parse", potential_subcommand_or_alias.c_str());
         current_token_index++; // consume the subcommand/alias token
         ParseResult sub_result = matched_subcommand->parse(
-            tokens, current_token_index, result.command_path + " ");
+            tokens, current_token_index, result.command_path + " ",
+            json_inherited || result.get_value<bool>("json", false));
 
         // propagate the result (success, error, or help request) from the
         // subcommand.
@@ -1982,10 +2079,35 @@ Command::parse(const std::vector<lexer::Token> &tokens,
       invocation_args[kv.first] = kv.second;
     }
 
-    plugin::ContextArgs context_args(result.command_path, invocation_args, result.m_passthrough_args);
+    const bool json_wanted =
+        json_inherited || result.get_value<bool>("json", false);
+    const bool json_active = json_wanted && m_json_capture;
+    if (json_wanted && !m_json_capture)
+    {
+      result.json_suppressed = true;
+    }
+
+    // Redirecting also flips Io::is_redirecting_output(), which handlers
+    // already consult to suppress human-only decoration such as the
+    // "etag: " and "size: " lines -- exactly what should stay out of JSON.
+    std::stringstream json_stdout_buffer;
+    std::stringstream json_stderr_buffer;
+    plugin::ContextArgs context_args(result.command_path, invocation_args, result.m_passthrough_args,
+                                     nullptr,
+                                     json_active ? &json_stdout_buffer : nullptr,
+                                     json_active ? &json_stderr_buffer : nullptr);
     plugin::InvocationContext context(context_args);
     result.exit_code = m_handler(context);
     ZLOG_TRACE("Handler returned exit code: %d", result.exit_code);
+
+    if (json_active)
+    {
+      result.json_requested = true;
+      result.json_data = context.get_object();
+      result.json_stdout = json_stdout_buffer.str();
+      result.json_stderr = json_stderr_buffer.str();
+      result.json_stdout_is_payload = m_stdout_is_payload;
+    }
   }
 
   // If this command is a group (has subcommands), has no handler, and parsing
@@ -2059,7 +2181,7 @@ public:
   /**
    * @brief Register a pre-command hook to be called before any command handler executes.
    *
-   * Hooks receive the full command path (e.g. "zowex console issue") and run
+   * Hooks receive the full command path (e.g. "zo console issue") and run
    * in registration order. They cannot prevent handler execution.
    *
    * @param hook Callback invoked with the command path before the handler runs
@@ -2084,7 +2206,163 @@ public:
    * @param argv User-provided argument list (raw text)
    * @return Result of parse operation
    */
+  /**
+   * @brief Turn off --json for this parser entirely
+   *
+   * Used by zoweax, which runs APF-authorized: serializing a result would
+   * call the z/OS HWTJ services from an authorized job step.
+   */
+  void disable_json_output()
+  {
+    m_json_enabled = false;
+    m_root_cmd->disable_json_output();
+  }
+
   ParseResult parse(int argc, char *argv[])
+  {
+    ParseResult result = parse_impl(argc, argv);
+    emit_json_envelope(result, argv_requests_json(argc, argv));
+    return result;
+  }
+
+  /**
+   * @brief Parse and execute command based on the given string
+   *
+   * @param command_line The user-provided command, including keyword and positional arguments
+   * @return Result of parse operation
+   */
+  ParseResult parse(const std::string &command_line)
+  {
+    ParseResult result = parse_impl(command_line);
+    emit_json_envelope(result, line_requests_json(command_line));
+    return result;
+  }
+
+private:
+  static bool argv_requests_json(int argc, char *argv[])
+  {
+    for (int i = 1; i < argc; ++i)
+    {
+      if (argv[i] == nullptr)
+        continue;
+      const std::string arg(argv[i]);
+      if (arg == "--")
+        break;
+      if (arg == "--json" || arg == "--rfj")
+        return true;
+    }
+    return false;
+  }
+
+  static bool line_requests_json(const std::string &command_line)
+  {
+    std::istringstream words(command_line);
+    std::string word;
+    while (words >> word)
+    {
+      if (word == "--")
+        break;
+      if (word == "--json" || word == "--rfj")
+        return true;
+    }
+    return false;
+  }
+
+  /**
+   * @brief Print the --json envelope, at most once per invocation
+   *
+   * @param result Outcome of the parse, carrying the captured handler output
+   * @param json_requested Whether --json appeared in the raw input
+   */
+  void emit_json_envelope(ParseResult &result, bool json_requested)
+  {
+    // Help goes to stdout as human-readable text; an envelope on top of it
+    // would leave stdout holding neither one thing nor the other.
+    if (result.status == ParseResult::ParserStatus_HelpRequested)
+      return;
+    if (!m_json_enabled || result.json_suppressed)
+      return;
+    if (!result.json_requested && !json_requested)
+      return;
+
+#ifdef __MVS__
+    // zjson serializes through the z/OS HWTJ services, so there is nothing
+    // to emit off-platform. Guarded here rather than in json_output.hpp so
+    // that examples/native-cli keeps building parser.hpp with g++.
+    json_output::Envelope envelope;
+    envelope.exit_code = result.exit_code;
+    envelope.data = result.json_data;
+    envelope.captured_out = result.json_stdout;
+    envelope.captured_err = result.json_stderr;
+    envelope.error_message = result.error_message;
+    envelope.stdout_is_payload = result.json_stdout_is_payload;
+
+    result.json_output = json_output::serialize(envelope);
+    std::cout << result.json_output << std::endl;
+#endif
+  }
+
+  // Try to parse `arg` as a numeric or boolean literal that spans the whole
+  // argument; anything else (including a lex failure) is an identifier.
+  static lexer::Token classify_literal_or_identifier(const std::string &arg, const lexer::Span &span)
+  {
+    try
+    {
+      lexer::Src arg_source = lexer::Src::from_string(arg, "<arg>");
+      std::vector<lexer::Token> arg_tokens = lexer::Lexer::tokenize(arg_source);
+
+      if (arg_tokens.size() != 2 || arg_tokens[1].get_kind() != lexer::TokEof)
+      {
+        return lexer::Token::make_id(arg.c_str(), arg.size(), span);
+      }
+
+      const lexer::Token &parsed_token = arg_tokens[0];
+      switch (parsed_token.get_kind())
+      {
+      case lexer::TokIntLit:
+        return lexer::Token::make_int_lit(parsed_token.get_int_value(), parsed_token.get_int_base(), span);
+      case lexer::TokFloatLit:
+        return lexer::Token::make_float_lit(parsed_token.get_float_value(), parsed_token.has_float_exponent(), span);
+      case lexer::TokTrue:
+        return lexer::Token(lexer::TokTrue, span);
+      case lexer::TokFalse:
+        return lexer::Token(lexer::TokFalse, span);
+      default:
+        return lexer::Token::make_id(arg.c_str(), arg.size(), span);
+      }
+    }
+    catch (const lexer::LexError &)
+    {
+      return lexer::Token::make_id(arg.c_str(), arg.size(), span);
+    }
+  }
+
+  // Classify a single non-passthrough CLI argument as a long flag, short
+  // flag, quoted string literal, numeric/boolean literal, or identifier.
+  static lexer::Token classify_argument(const std::string &arg, const lexer::Span &span)
+  {
+    if (arg.size() > 2 && arg[0] == '-' && arg[1] == '-')
+    {
+      // Long flag: --flag
+      return lexer::Token::make_long_flag(arg.c_str() + 2, arg.size() - 2, span);
+    }
+    if (arg.size() > 1 && arg[0] == '-' && arg != "-")
+    {
+      // Short flag: -f or -abc
+      return lexer::Token::make_short_flag(arg.c_str() + 1, arg.size() - 1, span);
+    }
+    if (arg.size() >= 2 &&
+        ((arg[0] == '"' && arg[arg.size() - 1] == '"') ||
+         (arg[0] == '\'' && arg[arg.size() - 1] == '\'')))
+    {
+      // Quoted string literal (remove quotes)
+      return lexer::Token::make_str_lit(arg.c_str() + 1, arg.size() - 2, span);
+    }
+    // Use lexer to determine if this is numeric or identifier
+    return classify_literal_or_identifier(arg, span);
+  }
+
+  ParseResult parse_impl(int argc, char *argv[])
   {
     ZLOG_TRACE("ArgumentParser::parse(argc=%d) entry", argc);
 
@@ -2132,88 +2410,7 @@ public:
         continue;
       }
 
-      if (arg.size() > 2 && arg[0] == '-' && arg[1] == '-')
-      {
-        // Long flag: --flag
-        tokens.push_back(
-            lexer::Token::make_long_flag(arg.c_str() + 2, arg.size() - 2, span));
-      }
-      else if (arg.size() > 1 && arg[0] == '-' && arg != "-")
-      {
-        // Short flag: -f or -abc
-        tokens.push_back(
-            lexer::Token::make_short_flag(arg.c_str() + 1, arg.size() - 1, span));
-      }
-      else if ((arg.size() >= 2 &&
-                ((arg[0] == '"' && arg[arg.size() - 1] == '"') ||
-                 (arg[0] == '\'' && arg[arg.size() - 1] == '\''))))
-      {
-        // Quoted string literal (remove quotes)
-        tokens.push_back(
-            lexer::Token::make_str_lit(arg.c_str() + 1, arg.size() - 2, span));
-      }
-      else
-      {
-        // Use lexer to determine if this is numeric or identifier
-        try
-        {
-          lexer::Src arg_source = lexer::Src::from_string(arg, "<arg>");
-          std::vector<lexer::Token> arg_tokens = lexer::Lexer::tokenize(arg_source);
-
-          // Filter out EOF token and check if we got exactly one meaningful token
-          if (arg_tokens.size() >= 1 && arg_tokens[0].get_kind() != lexer::TokEof)
-          {
-            lexer::Token parsed_token = arg_tokens[0];
-
-            // If the lexer successfully parsed it as a single token that covers the whole argument,
-            // and it's a numeric or boolean literal, use that. Otherwise treat as identifier.
-            if (arg_tokens.size() == 2 && arg_tokens[1].get_kind() == lexer::TokEof &&
-                (parsed_token.get_kind() == lexer::TokIntLit ||
-                 parsed_token.get_kind() == lexer::TokFloatLit ||
-                 parsed_token.get_kind() == lexer::TokTrue ||
-                 parsed_token.get_kind() == lexer::TokFalse))
-            {
-              // Create a new token with the correct span for our context
-              switch (parsed_token.get_kind())
-              {
-              case lexer::TokIntLit:
-                tokens.push_back(lexer::Token::make_int_lit(
-                    parsed_token.get_int_value(), parsed_token.get_int_base(), span));
-                break;
-              case lexer::TokFloatLit:
-                tokens.push_back(lexer::Token::make_float_lit(
-                    parsed_token.get_float_value(), parsed_token.has_float_exponent(), span));
-                break;
-              case lexer::TokTrue:
-                tokens.push_back(lexer::Token(lexer::TokTrue, span));
-                break;
-              case lexer::TokFalse:
-                tokens.push_back(lexer::Token(lexer::TokFalse, span));
-                break;
-              default:
-                // Fallback to identifier
-                tokens.push_back(lexer::Token::make_id(arg.c_str(), arg.size(), span));
-                break;
-              }
-            }
-            else
-            {
-              // Multiple tokens or not a literal - treat as identifier
-              tokens.push_back(lexer::Token::make_id(arg.c_str(), arg.size(), span));
-            }
-          }
-          else
-          {
-            // No meaningful tokens - treat as identifier
-            tokens.push_back(lexer::Token::make_id(arg.c_str(), arg.size(), span));
-          }
-        }
-        catch (const lexer::LexError &)
-        {
-          // Lexer failed - treat as identifier
-          tokens.push_back(lexer::Token::make_id(arg.c_str(), arg.size(), span));
-        }
-      }
+      tokens.push_back(classify_argument(arg, span));
       pos += arg.size() + 1;
     }
 
@@ -2246,13 +2443,7 @@ public:
     return result;
   }
 
-  /**
-   * @brief Parse and execute command based on the given string
-   *
-   * @param command_line The user-provided command, including keyword and positional arguments
-   * @return Result of parse operation
-   */
-  ParseResult parse(const std::string &command_line)
+  ParseResult parse_impl(const std::string &command_line)
   {
     ZLOG_TRACE("ArgumentParser::parse(string='%s') entry", command_line.c_str());
 
@@ -2338,6 +2529,7 @@ public:
   }
 
 private:
+  bool m_json_enabled = true;
   std::string m_program_name;
   std::string m_program_desc;
   command_ptr m_root_cmd;

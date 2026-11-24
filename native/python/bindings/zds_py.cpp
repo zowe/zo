@@ -40,21 +40,20 @@ void create_data_set(std::string dsn, const DS_ATTRIBUTES &attributes)
   int rc = zds_create_dsn(&zds, dsn, attrs_copy, response);
   if (rc != 0)
   {
-    std::string diag(response, response.length());
-    diag.push_back('\0');
-    e2a_inplace(diag);
-    diag.pop_back();
-    throw std::runtime_error(diag);
+    // zds_create_dsn reports failures through `response`; it never touches zds.diag.
+    e2a_inplace(response);
+    throw std::runtime_error(response);
   }
 }
 
-std::vector<ZDSEntry> list_data_sets(std::string dsn)
+std::vector<ZDSEntry> list_data_sets(std::string dsn, bool show_attributes)
 {
   std::vector<ZDSEntry> entries;
   ZDS zds = {0};
 
   a2e_inplace(dsn);
-  int rc = zds_list_data_sets(&zds, dsn, entries);
+  // dsorg, volser, recfm and migrated stay empty unless attributes are requested.
+  int rc = zds_list_data_sets(&zds, dsn, entries, show_attributes);
 
   if (rc != 0)
   {
@@ -86,7 +85,7 @@ std::string read_data_set(std::string dsn, std::string codepage)
   }
 
   a2e_inplace(dsn);
-  ZDSReadOpts read_opts{ .zds = &zds, .dsname = dsn };
+  ZDSReadOpts read_opts{.zds = &zds, .dsname = dsn};
   std::string response;
   int rc = zds_read(read_opts, response);
 
@@ -120,7 +119,7 @@ std::string write_data_set(std::string dsn, std::string data, std::string codepa
 
   a2e_inplace(dsn);
   a2e_inplace(data);
-  int rc = zds_write_to_dsn(&zds, dsn, data);
+  int rc = zds_write({.zds = &zds, .dsname = dsn}, data);
 
   if (rc != 0)
   {
@@ -162,7 +161,7 @@ void create_member(std::string dsn)
   a2e_inplace(dsn);
   std::string empty_data = "";
   a2e_inplace(empty_data);
-  int rc = zds_write_to_dsn(&zds, dsn, empty_data);
+  int rc = zds_write({.zds = &zds, .dsname = dsn}, empty_data);
 
   if (rc != 0)
   {

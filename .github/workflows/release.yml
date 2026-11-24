@@ -14,39 +14,58 @@ on:
         required: false
         type: boolean
 
-permissions:
-  checks: write
-  contents: write
-  pull-requests: write
-
 jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        if: ${{ inputs.version != '' }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?(\+[A-Za-z0-9.]+)?$ ]]; then
+            echo "::error::Invalid version '$VERSION' - expected semver format, e.g. 1.0.0 or 1.0.0-rc.1"
+            exit 1
+          fi
+        env:
+          VERSION: ${{ inputs.version }}
+
   build:
-    if: ${{ inputs.version }}
+    if: ${{ github.ref_protected }}
+    needs: validate-version
     uses: ./.github/workflows/zos-build.yml
     with:
+      debug: ${{ github.event_name == 'schedule' }}
       version: ${{ inputs.version }}
+    permissions:
+      actions: read
+      checks: write
+      pull-requests: write
     secrets: inherit
 
   release:
     runs-on: ubuntu-latest
     needs: build
-    if: always() && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    environment:
+      name: ${{ github.event_name == 'schedule' && 'release-nightly' || 'release' }}
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
 
       - name: Setup JFrog CLI
-        uses: jfrog/setup-jfrog-cli@v4
+        uses: jfrog/setup-jfrog-cli@6ed45ef1a24199bd4c94d3fd55a7e8cb7e45985d # v5.3.2
         env:
           JF_ENV_1: ${{ secrets.JF_ARTIFACTORY_TOKEN }}
 
@@ -54,24 +73,27 @@ jobs:
         run: npm ci
 
       - name: Build Source
-        run: npm run build
+        run: |
+          npm run build
+          git add packages/sdk/src/ZSshConstants.ts
         env:
-          ZOWEX_RELEASE_VERSION: ${{ inputs.version }}
+          ZO_RELEASE_VERSION: ${{ inputs.version }}
 
       - name: Set Environment
         run: |
-          RUN_ID=$([ -z "${{ inputs.version }}" ] && \
+          RUN_ID=$([ -z "$VERSION" ] && \
             gh run list --branch=${{ github.ref }} --workflow=zos-build.yml --limit=1 --json=databaseId --jq='.[0].databaseId' || \
             echo "${{ github.run_id }}")
           DATESTAMP=$(date +"%Y-%m-%d-%H%M%S")
-          NEW_VERSION=$([ -z "${{ inputs.version }}" ] && jq -r '.version' package.json || echo "${{ inputs.version }}")
-          NEW_VERSION_SUFFIX=$([ -z "${{ inputs.version }}" ] && echo "$NEW_VERSION-$DATESTAMP" || echo "$NEW_VERSION")
-          TRAIN=$([ -z "${{ inputs.version }}" ] && echo "Nightly" || echo "Release")
-          echo "RUN_ID=$(echo $RUN_ID)" >> $GITHUB_ENV
-          echo "NEW_VERSION_SUFFIX=$(echo $NEW_VERSION_SUFFIX)" >> $GITHUB_ENV
-          echo "TRAIN=$(echo $TRAIN)" >> $GITHUB_ENV
+          NEW_VERSION=$([ -z "$VERSION" ] && jq -r '.version' package.json || echo "$VERSION")
+          NEW_VERSION_SUFFIX=$([ -z "$VERSION" ] && echo "$NEW_VERSION-$DATESTAMP" || echo "$NEW_VERSION")
+          TRAIN=$([ -z "$VERSION" ] && echo "Nightly" || echo "Release")
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+          echo "NEW_VERSION_SUFFIX=$NEW_VERSION_SUFFIX" >> $GITHUB_ENV
+          echo "TRAIN=$TRAIN" >> $GITHUB_ENV
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
 
       - name: Download Server
         run: |
@@ -83,8 +105,9 @@ jobs:
 
       - name: Run Octorelease
         if: ${{ env.TRAIN == 'Release' }}
-        uses: zowe-actions/octorelease@v1
+        uses: zowe-actions/octorelease@e4c509e08c4dfca0186571e937c605284a50de06 # v1
         env:
+          ALLOW_MAJOR_VERSION: ${{ vars.ALLOW_MAJOR_VERSION }}
           GIT_COMMITTER_NAME: ${{ secrets.ZOWE_ROBOT_USER }}
           GIT_COMMITTER_EMAIL: ${{ secrets.ZOWE_ROBOT_EMAIL }}
           GIT_CREDENTIALS: x-access-token:${{ secrets.ZOWE_ROBOT_TOKEN }}

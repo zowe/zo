@@ -60,6 +60,9 @@ void register_ds_commands(CommandDispatcher &dispatcher)
   dispatcher.register_command("deleteDataset",
                               create_ds_builder(ds::handle_data_set_delete)
                                   .validate<DeleteDatasetRequest, DeleteDatasetResponse>());
+  dispatcher.register_command("deleteVsam",
+                              create_ds_builder(ds::handle_vsam_delete)
+                                  .validate<DeleteVsamRequest, DeleteVsamResponse>());
   dispatcher.register_command("listDatasets",
                               CommandBuilder(ds::handle_data_set_list)
                                   .validate<ListDatasetsRequest, ListDatasetsResponse>()
@@ -209,9 +212,9 @@ void register_tso_commands(CommandDispatcher &dispatcher)
                                   .read_stdout("data", false));
 }
 
-static std::string locate_zoweax()
+static std::string locate_zoa()
 {
-  const char *override_path = getenv("ZOWEAX_PATH");
+  const char *override_path = getenv("ZOA_PATH");
   if (override_path != nullptr && *override_path != '\0')
   {
     return override_path;
@@ -219,13 +222,13 @@ static std::string locate_zoweax()
   const std::string &exec_dir = ZServer::get_instance().get_exec_dir();
   if (!exec_dir.empty())
   {
-    const std::string sibling = exec_dir + "/zoweax";
+    const std::string sibling = exec_dir + "/zoa";
     if (0 == access(sibling.c_str(), X_OK))
     {
       return sibling;
     }
   }
-  return "zoweax";
+  return "zoa";
 }
 
 static int handle_console_command(plugin::InvocationContext &context)
@@ -254,13 +257,13 @@ static int handle_console_command(plugin::InvocationContext &context)
 
   std::string out;
   std::string err;
-  const std::string zoweax = locate_zoweax();
-  const int rc = zut_run_program(zoweax, args, out, err);
+  const std::string zoa = locate_zoa();
+  const int rc = zut_run_program(zoa, args, out, err);
 
   if (0 != rc)
   {
     const std::string &details = err.empty() ? out : err;
-    context.error_stream() << "Error: console command failed via '" << zoweax << "', rc: '" << rc << "'" << std::endl;
+    context.error_stream() << "Error: console command failed via '" << zoa << "', rc: '" << rc << "'" << std::endl;
     if (!details.empty())
     {
       context.error_stream() << "  Details: " << details << std::endl;
@@ -268,11 +271,11 @@ static int handle_console_command(plugin::InvocationContext &context)
     if (std::string::npos != details.find("command not found") ||
         std::string::npos != details.find("Permission denied"))
     {
-      context.error_stream() << "  The zoweax binary must be installed alongside zowex (or named via ZOWEAX_PATH) and be executable by this user." << std::endl;
+      context.error_stream() << "  The zoa binary must be installed alongside zo (or named via ZOA_PATH) and be executable by this user." << std::endl;
     }
     else if (std::string::npos != details.find("Not authorized"))
     {
-      context.error_stream() << "  The zoweax binary is not APF-authorized; a system programmer must authorize it (extattr +ap) in a controlled location." << std::endl;
+      context.error_stream() << "  The zoa binary is not APF-authorized; a system programmer must authorize it (extattr +ap) in a controlled location." << std::endl;
     }
     return RTNCD_FAILURE;
   }

@@ -40,6 +40,7 @@ void register_commands(parser::Command &root_command)
   auto tso_group = command_ptr(new Command("tso", "TSO operations"));
   {
     auto tso_issue_cmd = command_ptr(new Command("issue", "issue TSO command"));
+    tso_issue_cmd->mark_stdout_as_payload();
     tso_issue_cmd->add_positional_arg("command", "command to issue", ArgType_Single, true);
     tso_issue_cmd->set_handler(handle_tso_issue);
 

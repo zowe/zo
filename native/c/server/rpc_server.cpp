@@ -12,8 +12,18 @@
 #include "rpc_server.hpp"
 #include "rpcio.hpp"
 #include "dispatcher.hpp"
-#include "logger.hpp"
+#include "../json_output.hpp"
+#include "../zlogger.hpp"
 #include <iostream>
+
+ZJSON_DERIVE(RpcNotification, jsonrpc, method, params);
+ZJSON_DERIVE(RpcRequest, jsonrpc, method, params, id);
+ZJSON_DERIVE(ErrorDetails, code, message, data);
+ZJSON_SERIALIZABLE(RpcResponse,
+                   ZJSON_FIELD(RpcResponse, jsonrpc),
+                   ZJSON_FIELD(RpcResponse, result).skip_serializing_if_none(),
+                   ZJSON_FIELD(RpcResponse, error).skip_serializing_if_none(),
+                   ZJSON_FIELD(RpcResponse, id));
 
 using std::string;
 
@@ -35,7 +45,24 @@ static void process_error_output(const string &error_output, string &out_message
   }
 }
 
-void RpcServer::process_request(const string &request_data)
+void RpcServer::process_request(const string &request_data, std::function<void()> heartbeat_callback)
+{
+  process_request_impl(request_data, std::move(heartbeat_callback),
+                       [this](const RpcResponse &response, MiddlewareContext *context)
+                       { print_response(response, context); });
+}
+
+string RpcServer::call(const string &request_data)
+{
+  string output;
+  process_request_impl(request_data, nullptr,
+                       [this, &output](const RpcResponse &response, MiddlewareContext *context)
+                       { output = render_response(response, context); });
+  return output;
+}
+
+void RpcServer::process_request_impl(const string &request_data, std::function<void()> heartbeat_callback,
+                                     const ResponseSink &emit)
 {
   try
   {
@@ -45,7 +72,7 @@ void RpcServer::process_request(const string &request_data)
     if (!parse_result.has_value())
     {
       const string error_msg = parse_result.error().what();
-      print_error(-1, RpcErrorCode::PARSE_ERROR, "Failed to parse command request", &error_msg);
+      emit(make_error(-1, RpcErrorCode::PARSE_ERROR, "Failed to parse command request", &error_msg), nullptr);
       return;
     }
 
@@ -63,8 +90,8 @@ void RpcServer::process_request(const string &request_data)
     // Check if command is registered
     if (!dispatcher.has_command(request.method))
     {
-      print_error(request.id, RpcErrorCode::METHOD_NOT_FOUND,
-                  "Unrecognized command " + request.method);
+      emit(make_error(request.id, RpcErrorCode::METHOD_NOT_FOUND,
+                  "Unrecognized command " + request.method), nullptr);
       return;
     }
 
@@ -74,7 +101,7 @@ void RpcServer::process_request(const string &request_data)
       auto validation_result = validate_json_with_schema(request.method, request.params.value(), true);
       if (!validation_result.is_valid)
       {
-        print_error(request.id, RpcErrorCode::INVALID_PARAMS, "Request validation failed (" + request.method + ")", &validation_result.error_message);
+        emit(make_error(request.id, RpcErrorCode::INVALID_PARAMS, "Request validation failed (" + request.method + ")", &validation_result.error_message), nullptr);
         return;
       }
     }
@@ -88,6 +115,7 @@ void RpcServer::process_request(const string &request_data)
 
     // Create MiddlewareContext for the command
     MiddlewareContext context(request.method, args);
+    context.set_heartbeat_callback(std::move(heartbeat_callback));
 
     // Dispatch the command
     int result = dispatcher.dispatch(request.method, context);
@@ -117,12 +145,12 @@ void RpcServer::process_request(const string &request_data)
         {
           err_object->set("details", ast::str(error_data));
         }
-        print_error(request.id, result, error_message, convert_ast_to_json(err_object));
+        emit(make_error(request.id, result, error_message, convert_ast_to_json(err_object)), nullptr);
         return;
       }
 
       const string *detail_ptr = error_data.empty() ? nullptr : &error_data;
-      print_error(request.id, result, error_message, detail_ptr);
+      emit(make_error(request.id, result, error_message, detail_ptr), nullptr);
       return;
     }
 
@@ -149,8 +177,8 @@ void RpcServer::process_request(const string &request_data)
     if (!validation_result.is_valid)
     {
       // Response validation failed - return internal error
-      print_error(request.id, RpcErrorCode::INTERNAL_ERROR,
-                  "Response validation failed (" + request.method + ")", &validation_result.error_message);
+      emit(make_error(request.id, RpcErrorCode::INTERNAL_ERROR,
+                  "Response validation failed (" + request.method + ")", &validation_result.error_message), nullptr);
       return;
     }
 
@@ -161,12 +189,12 @@ void RpcServer::process_request(const string &request_data)
     response.error = std::optional<ErrorDetails>();
     response.id = std::optional<int>(request.id);
 
-    print_response(response, &context);
+    emit(response, &context);
   }
   catch (const std::exception &e)
   {
     const string error_msg = e.what();
-    print_error(-1, RpcErrorCode::PARSE_ERROR, "Failed to parse command request", &error_msg);
+    emit(make_error(-1, RpcErrorCode::PARSE_ERROR, "Failed to parse command request", &error_msg), nullptr);
   }
 }
 
@@ -278,56 +306,8 @@ zjson::Value RpcServer::convert_output_to_json(const string &output)
 
 zjson::Value RpcServer::convert_ast_to_json(const ast::Node &ast_node)
 {
-  if (!ast_node)
-  {
-    return zjson::Value(); // null
-  }
-
-  switch (ast_node->kind())
-  {
-  case ast::Ast::Null:
-    return zjson::Value(); // null
-
-  case ast::Ast::Boolean:
-    return zjson::Value(ast_node->as_bool());
-
-  case ast::Ast::Integer:
-    return zjson::Value(ast_node->as_integer());
-
-  case ast::Ast::Number:
-    return zjson::Value(ast_node->as_number());
-
-  case ast::Ast::String:
-    return zjson::Value(ast_node->as_string());
-
-  case ast::Ast::Array:
-  {
-    zjson::Value array_value = zjson::Value::create_array();
-    const auto &ast_array = ast_node->as_array();
-    array_value.reserve_array(ast_array.size());
-
-    for (size_t i = 0; i < ast_array.size(); ++i)
-    {
-      array_value.add_to_array(convert_ast_to_json(ast_array[i]));
-    }
-    return array_value;
-  }
-
-  case ast::Ast::Object:
-  {
-    zjson::Value object_value = zjson::Value::create_object();
-    const auto &ast_object = ast_node->as_object();
-
-    for (const auto &pair : ast_object)
-    {
-      object_value.add_to_object(pair.first, convert_ast_to_json(pair.second));
-    }
-    return object_value;
-  }
-
-  default:
-    return zjson::Value(); // null for unknown types
-  }
+  // Shared with the CLI's --json path so both agree on the ast -> JSON mapping.
+  return json_output::ast_to_json(ast_node);
 }
 
 void RpcServer::print_response(const RpcResponse &response, MiddlewareContext *context)
@@ -341,6 +321,15 @@ void RpcServer::print_response(const RpcResponse &response, MiddlewareContext *c
     return;
   }
 
+  const string json_string = render_response(response, context);
+
+  auto &stream = response.error.has_value() ? std::cerr : std::cout;
+  std::lock_guard<std::mutex> lock(output_mutex());
+  stream << json_string << std::endl;
+}
+
+string RpcServer::render_response(const RpcResponse &response, MiddlewareContext *context)
+{
   // Log errors to the log file
   if (response.error.has_value())
   {
@@ -370,9 +359,7 @@ void RpcServer::print_response(const RpcResponse &response, MiddlewareContext *c
     }
   }
 
-  auto &stream = response.error.has_value() ? std::cerr : std::cout;
-  std::lock_guard<std::mutex> lock(output_mutex());
-  stream << json_string << std::endl;
+  return json_string;
 }
 
 void RpcServer::add_large_data_to_json(string &json_string, const string &field_name, const string &data)
@@ -387,7 +374,7 @@ void RpcServer::add_large_data_to_json(string &json_string, const string &field_
     return;
   }
 
-  // Assume that data is Base64 encoded so no JSON escaping needed
+  // Data is already JSON-string-safe: Base64 or escaped by the ReadStdout transform
   const string replacement = "\"" + field_name + "\":\"" + data + "\"";
   json_string.replace(pos, search_pattern.length(), replacement);
 
@@ -553,38 +540,36 @@ void RpcServer::send_timeout_error(const string &request_data, int64_t timeout_m
   LOG_WARN("Sent timeout error response for request ID %d (method: %s)", request_id, method.c_str());
 }
 
-void RpcServer::print_error(int request_id, int code, const string &message, const string *data)
+static RpcResponse build_error_response(int request_id, int code, const string &message, std::optional<zjson::Value> data)
 {
-  std::optional<zjson::Value> error_data;
-  if (data != nullptr)
-  {
-    error_data = zjson::Value(*data);
-  }
-
-  ErrorDetails error{code, message, error_data};
-
   RpcResponse response;
   response.jsonrpc = "2.0";
   response.result = std::optional<zjson::Value>();
-  response.error = std::optional<ErrorDetails>(error);
+  response.error = std::optional<ErrorDetails>(ErrorDetails{code, message, std::move(data)});
   // Use -1 as sentinel for null ID (per JSON-RPC spec for parse errors)
   response.id = (request_id == -1) ? std::optional<int>() : std::optional<int>(request_id);
+  return response;
+}
 
-  print_response(response);
+RpcResponse RpcServer::make_error(int request_id, int code, const string &message, const string *data)
+{
+  return build_error_response(request_id, code, message,
+                              data ? std::optional<zjson::Value>(zjson::Value(*data)) : std::optional<zjson::Value>());
+}
+
+RpcResponse RpcServer::make_error(int request_id, int code, const string &message, const zjson::Value &data)
+{
+  return build_error_response(request_id, code, message, std::optional<zjson::Value>(data));
+}
+
+void RpcServer::print_error(int request_id, int code, const string &message, const string *data)
+{
+  print_response(make_error(request_id, code, message, data));
 }
 
 void RpcServer::print_error(int request_id, int code, const string &message, const zjson::Value &data)
 {
-  ErrorDetails error{code, message, std::optional<zjson::Value>(data)};
-
-  RpcResponse response;
-  response.jsonrpc = "2.0";
-  response.result = std::optional<zjson::Value>();
-  response.error = std::optional<ErrorDetails>(error);
-  // Use -1 as sentinel for null ID (per JSON-RPC spec for parse errors)
-  response.id = (request_id == -1) ? std::optional<int>() : std::optional<int>(request_id);
-
-  print_response(response);
+  print_response(make_error(request_id, code, message, data));
 }
 
 validator::ValidationResult RpcServer::validate_json_with_schema(const string &method, const zjson::Value &data, bool is_request)
@@ -599,12 +584,12 @@ validator::ValidationResult RpcServer::validate_json_with_schema(const string &m
   }
 
   const CommandBuilder &builder = it->second;
-  auto validator = is_request ? builder.get_request_validator() : builder.get_response_validator();
+  const auto &schema = is_request ? builder.get_request_schema() : builder.get_response_schema();
 
-  if (!validator)
+  if (!schema)
   {
     return validator::ValidationResult::success();
   }
 
-  return validator(data);
+  return validator::validate_schema(data, schema->fields, schema->field_count, is_request);
 }

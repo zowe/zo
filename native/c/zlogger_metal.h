@@ -87,8 +87,8 @@ extern "C"
 #endif
 
 /* Convenience macros for Metal C logging
- * These macros are gated by ZLOG_ENABLE - if not defined during compilation,
- * all logging operations become no-ops with zero overhead.
+ * ZLOG_ENABLE is set only for DEBUG builds and affects Metal C instrumentation,
+ * not C++ logging. Without it these macros are no-ops with zero overhead.
  */
 #ifdef ZLOG_ENABLE
 #define ZLOGTMSG(msg) ZLGWRITE(&((int){ZLOGLEVEL_TRACE}), msg)

@@ -1,0 +1,94 @@
+*----------------------------------------------------------------------
+* zo-rest (Zowe API ML extension): CA Top Secret (TSS) definitions.
+*
+* UNVERIFIED TRANSLATION. Derived from the RACF sample
+* (zo-rest-racf.jcl) and documented TSS command syntax; NOT run on a
+* Top Secret system. Have your TSS administrator review and adjust
+* them (owning department, IBMFAC prefixes), and report corrections
+* back so this file can be fixed.
+*
+* Run as TSO commands or batch (PGM=TSSB) by a security administrator.
+* Placeholder names (edit before use):
+*   ZWESVUSR = Zowe started task ACID (zowe.setup.security.users.zowe)
+*   ZWEINST  = ACID that runs 'zwe components install'
+*   ZOENDGRP = profile or ACID of end users for the optional grants
+*   ZOOWNER  = department ACID that owns the resources
+*   ZORSTUSR = ACID for the optional separate started task (section 7)
+*   ZORSTC   = started task proc name (samples/ZORSTC.jcl)
+*   ZWEADMIN = Zowe group; ZORSTUSR default group
+*----------------------------------------------------------------------
+
+* 1. Ownership. These resources are normally already owned (Zowe's own TSS
+*    setup covers BPX.SERVER). Do NOT add ownership of BPX.SERVER if it is
+*    unowned: that protects it and changes z/OS UNIX server authorization
+*    system wide; involve your security team first. Check with:
+*      TSS WHOOWNS IBMFAC(BPX.SERVER)
+*      TSS WHOOWNS IBMFAC(BPX.FILEATTR.PROGCTL)
+*      TSS WHOOWNS IBMFAC(IRR.DIGTCERT.)
+
+* 2. BPX.SERVER: lets the service ACID create per-user security
+*    environments without a password. UPDATE is required.
+TSS PERMIT(ZWESVUSR) IBMFAC(BPX.SERVER) ACCESS(UPDATE)
+
+* 3. BPX.FILEATTR.PROGCTL: lets the installer run 'extattr +p' on lib/*.so.
+*    Only needed if the installer is not a superuser.
+TSS PERMIT(ZWEINST) IBMFAC(BPX.FILEATTR.PROGCTL) ACCESS(READ)
+
+* 4. Certificate and keyring endpoints (optional).
+TSS PERMIT(ZOENDGRP) IBMFAC(IRR.DIGTCERT.LIST) ACCESS(READ)
+TSS PERMIT(ZOENDGRP) IBMFAC(IRR.DIGTCERT.LISTRING) ACCESS(READ)
+
+* 5. Optional APPL gate (NOT yet wired in the extension). Left commented
+*    out; enable only when the extension supports it.
+*    TSS ADD(ZOOWNER) APPL(ZOREST)
+*    TSS PERMIT(ZOENDGRP) APPL(ZOREST)
+
+* 6. Verify.
+TSS LIST(ZWESVUSR) DATA(ALL)
+TSS WHOHAS IBMFAC(BPX.SERVER)
+TSS WHOHAS IBMFAC(BPX.FILEATTR.PROGCTL)
+
+*----------------------------------------------------------------------
+* 7. Running zo-rest as its own started task (optional)
+*    Replace <dept>, <uid> and <home> (for example /u/zorest).
+*----------------------------------------------------------------------
+* PROTECTED: no password, cannot sign on (PROTECTED and PASSWORD are
+* mutually exclusive).
+TSS CREATE(ZORSTUSR) TYPE(USER) NAME('ZO REST SERVER') +
+    DEPARTMENT(<dept>) FACILITY(STC) PROTECTED
+TSS ADD(ZORSTUSR) GROUP(ZWEADMIN) DFLTGRP(ZWEADMIN) UID(<uid>) +
+    HOME(<home>) OMVSPGM(/bin/sh)
+TSS ADD(STC) PROCNAME(ZORSTC) ACID(ZORSTUSR)
+
+* BPX.SERVER UPDATE (same warning as section 1) and BPX.JOBNAME READ.
+TSS PERMIT(ZORSTUSR) IBMFAC(BPX.SERVER) ACCESS(UPDATE)
+TSS PERMIT(ZORSTUSR) IBMFAC(BPX.JOBNAME) ACCESS(READ)
+
+* TCP/IP stack access: only if your site protects it (SERVAUTH).
+*    TSS PERMIT(ZORSTUSR) SERVAUTH(EZB.STACKACCESS.<sysname>.<stack>) +
+*        ACCESS(READ)
+
+* Certificate access, option (a): read the Zowe server's key ring
+* including the private key. Add ownership only if the resource is unowned
+* (check: TSS WHOOWNS RDATALIB(ZWESVUSR.ZOWEKRNG.LST)).
+*    TSS ADD(<dept>) RDATALIB(ZWESVUSR.ZOWEKRNG.LST)
+*    TSS PERMIT(ZORSTUSR) RDATALIB(ZWESVUSR.ZOWEKRNG.LST) ACCESS(CONTROL)
+* Option (b): give ZORSTUSR its own ring with a server certificate signed
+* by the Zowe CA (<zoweca> = the CA's DIGICERT id under CERTAUTH; the
+* Gateway then trusts zo-rest without changes). Ring ZORSTUSR/ZORSTRNG:
+*    TSS GENCERT(ZORSTUSR) DIGICERT(ZORSTSRV) +
+*        SUBJECTN('CN="<host>" O="<org>"') LABLCERT('ZORSTSRV') +
+*        KEYSIZE(2048) NADATE(<mm/dd/yy>) SIGNWITH(CERTAUTH,<zoweca>) +
+*        KEYUSAGE('HANDSHAKE') ALTNAME('DOMAIN=<host>')
+*    TSS ADD(ZORSTUSR) KEYRING(ZORSTRNG) LABLRING('ZORSTRNG')
+*    TSS ADD(ZORSTUSR) KEYRING(ZORSTRNG) RINGDATA(CERTAUTH,<zoweca>) +
+*        USAGE(CERTAUTH)
+*    TSS ADD(ZORSTUSR) KEYRING(ZORSTRNG) RINGDATA(ZORSTUSR,ZORSTSRV) +
+*        USAGE(PERSONAL) DEFAULT
+*    TSS PERMIT(ZORSTUSR) IBMFAC(IRR.DIGTCERT.LISTRING) ACCESS(READ)
+*    TSS PERMIT(ZORSTUSR) IBMFAC(IRR.DIGTCERT.LIST) ACCESS(READ)
+*    then: keystore/truststore safkeyring://ZORSTUSR/ZORSTRNG, alias ZORSTSRV
+* PKCS12 file installs: use group read via ZWEADMIN instead (chmod 640
+* server.p12 and truststore.p12, 750 on their directory and its parent).
+
+TSS LIST(ZORSTUSR) DATA(ALL)

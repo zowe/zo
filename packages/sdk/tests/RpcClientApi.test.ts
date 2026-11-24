@@ -32,7 +32,7 @@ describe("RpcClientApi", () => {
     });
 
     it("should route core commands correctly", async () => {
-        await client.core.getInfo({});
+        await client.core.getInfo();
         expect(client.request).toHaveBeenCalledWith({
             command: "getInfo",
         });
@@ -115,6 +115,12 @@ describe("RpcClientApi", () => {
             command: "resolveDsAlias",
             dsname: "MY.ALIAS",
         });
+
+        await client.ds.deleteVsam({ dsname: "MY.VSAM" });
+        expect(client.request).toHaveBeenCalledWith({
+            command: "deleteVsam",
+            dsname: "MY.VSAM",
+        });
     });
 
     it("should route jobs commands correctly", async () => {
@@ -153,7 +159,7 @@ describe("RpcClientApi", () => {
             jobid: "JOB00001",
         });
 
-        await client.jobs.listJobs({});
+        await client.jobs.listJobs();
         expect(client.request).toHaveBeenCalledWith({
             command: "listJobs",
         });
@@ -200,9 +206,47 @@ describe("RpcClientApi", () => {
     });
 
     it("should route system commands correctly", async () => {
-        await client.system.viewSyslog({});
+        await client.system.viewSyslog();
         expect(client.request).toHaveBeenCalledWith({
             command: "viewSyslog",
+        });
+    });
+
+    it("should route certificate commands correctly", async () => {
+        await client.certificates.exportCertificate({
+            owner: "USER01",
+            keyring: "RING02",
+            label: "CERT03",
+            format: "p12",
+            dsn: "USER01.CERT03.P12",
+            password: "secret",
+        });
+        expect(client.request).toHaveBeenCalledWith({
+            command: "exportCertificate",
+            owner: "USER01",
+            keyring: "RING02",
+            label: "CERT03",
+            format: "p12",
+            dsn: "USER01.CERT03.P12",
+            password: "secret",
+        });
+
+        await client.certificates.importCertificate({
+            owner: "USER01",
+            keyring: "RING02",
+            label: "CERT03",
+            usage: "PERSONAL",
+            dsn: "USER01.CERT03.P12",
+            password: "secret",
+        });
+        expect(client.request).toHaveBeenCalledWith({
+            command: "importCertificate",
+            owner: "USER01",
+            keyring: "RING02",
+            label: "CERT03",
+            usage: "PERSONAL",
+            dsn: "USER01.CERT03.P12",
+            password: "secret",
         });
     });
 

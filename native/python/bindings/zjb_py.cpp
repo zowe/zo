@@ -14,17 +14,29 @@
 
 using namespace std;
 
+static const char *ZJB_ANY_PREFIX = "*";
+
+void convert_job_to_ascii(ZJob &job)
+{
+  e2a_inplace(job.jobname);
+  e2a_inplace(job.jobid);
+  e2a_inplace(job.owner);
+  e2a_inplace(job.status);
+  e2a_inplace(job.full_status);
+  e2a_inplace(job.retcode);
+  e2a_inplace(job.correlator);
+  e2a_inplace(job.exec_system);
+  e2a_inplace(job.exec_member);
+  e2a_inplace(job.exec_submitted);
+  e2a_inplace(job.exec_started);
+  e2a_inplace(job.exec_ended);
+}
+
 void convert_jobs_to_ascii(vector<ZJob> &jobs)
 {
   for (auto &job : jobs)
   {
-    e2a_inplace(job.jobname);
-    e2a_inplace(job.jobid);
-    e2a_inplace(job.owner);
-    e2a_inplace(job.status);
-    e2a_inplace(job.full_status);
-    e2a_inplace(job.retcode);
-    e2a_inplace(job.correlator);
+    convert_job_to_ascii(job);
   }
 }
 
@@ -42,22 +54,20 @@ void handle_zjb_error(const ZJB &zjb, int rc)
 
 vector<ZJob> list_jobs_by_owner(string owner_name)
 {
-  vector<ZJob> jobs;
-  ZJB zjb = {0};
-
-  a2e_inplace(owner_name);
-  int rc = zjb_list_by_owner(&zjb, owner_name, "", "", jobs);
-
-  handle_zjb_error(zjb, rc);
-  convert_jobs_to_ascii(jobs);
-
-  return jobs;
+  return list_jobs_by_owner(owner_name, ZJB_ANY_PREFIX, "");
 }
 
 vector<ZJob> list_jobs_by_owner(string owner_name, string prefix, string status)
 {
   vector<ZJob> jobs;
   ZJB zjb = {0};
+
+  // A blank prefix reaches ZJBMLIST as a job name filter of blanks rather than "no filter",
+  // which the extended status service rejects, so send the wildcard zo defaults to.
+  if (prefix.empty())
+  {
+    prefix = ZJB_ANY_PREFIX;
+  }
 
   a2e_inplace(owner_name);
   a2e_inplace(prefix);
@@ -72,15 +82,14 @@ vector<ZJob> list_jobs_by_owner(string owner_name, string prefix, string status)
 
 ZJob get_job_status(string jobid)
 {
-  ZJob job = {0};
+  ZJob job = {}; // ZJob holds std::string members; `= {0}` would build one from a null pointer
   ZJB zjb = {0};
 
   a2e_inplace(jobid);
   int rc = zjb_view(&zjb, jobid, job);
 
   handle_zjb_error(zjb, rc);
-  vector<ZJob> jobs = {job};
-  convert_jobs_to_ascii(jobs);
+  convert_job_to_ascii(job);
 
   return job;
 }

@@ -3,7 +3,6 @@ module.exports = {
         {
             name: "main",
             level: "minor",
-            prerelease: "",
         }
     ],
     plugins: [
@@ -45,7 +44,7 @@ module.exports = {
         [
             "@octorelease/github",
             {
-                assets: ["dist/*.pax.Z", "dist/*.tgz", "dist/*.vsix"]
+                assets: ["dist/*.pax.Z", "dist/*.tgz"]
             },
         ],
         "@octorelease/git",

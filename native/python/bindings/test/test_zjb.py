@@ -2,6 +2,7 @@ import pytest
 import sys
 import os
 import yaml
+import time
 
 # Add parent directory to path for importing job module
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -136,7 +137,6 @@ class TestJobFunctions:
         self.submitted_jobs.append(jobid)
         
         # Wait a moment for job to process (in real usage, you'd check job status)
-        import time
         time.sleep(2)
         
         # List spool files
@@ -180,8 +180,8 @@ Hello World from Test Job
         self.submitted_jobs.append(jobid)
         
         # Wait for job to complete
-        import time
-        time.sleep(3)
+        
+        time.sleep(2)
         
         # Get spool files
         spool_files = jb.list_spool_files(jobid)
@@ -207,6 +207,9 @@ Hello World from Test Job
         jobid = jb.submit_job(test_jcl)
         self.submitted_jobs.append(jobid)
         
+        # Wait for job to complete
+        time.sleep(2)
+
         # Get job JCL
         jcl_content = jb.get_job_jcl(jobid)
         
@@ -228,6 +231,9 @@ Hello World from Test Job
         
         jobid = jb.submit_job(test_jcl)
         
+        # Wait for job to complete
+        time.sleep(2)
+
         # Delete the job
         result = jb.delete_job(jobid)
         
@@ -252,6 +258,9 @@ Hello World from Test Job
         jobid = jb.submit_job(test_jcl)
         assert len(jobid.strip()) > 0
         
+        # Wait for job to complete
+        time.sleep(2)
+
         # Check status
         job = jb.get_job_status(jobid)
         assert job.jobid.strip() == jobid.strip()

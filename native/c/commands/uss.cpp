@@ -22,6 +22,40 @@ using namespace commands::common;
 namespace uss
 {
 
+// Resolves the "mode" argument as octal digits (e.g. 644 or 0750). The CLI parser may store it as a
+// number, while JSON-RPC passes a string ("600"). The default applies only when no mode was given;
+// a value of any other type (e.g. 600.5) is rejected rather than silently replaced by the default.
+static bool resolve_mode(const InvocationContext &context, const char *default_digits, mode_t &mode)
+{
+  std::string digits;
+  // The CLI parser stores an omitted option as a "none" value, so absent means missing or none
+  const plugin::Argument *given = context.find("mode");
+  if (given == nullptr || given->is_none())
+  {
+    digits = default_digits;
+  }
+  else if (const long long *number = context.get_if<long long>("mode"))
+  {
+    digits = *number < 0 ? "-" : std::to_string(*number);
+    if (digits.size() < 3)
+    {
+      digits.insert(0, 3 - digits.size(), '0');
+    }
+  }
+  else if (const std::string *text = context.get_if<std::string>("mode"))
+  {
+    digits = *text;
+  }
+
+  if (digits.size() < 3 || digits.size() > 4 || digits.find_first_not_of("01234567") != std::string::npos)
+  {
+    context.error_stream() << "Error: invalid mode provided.\nExamples of valid modes: 777, 0644" << std::endl;
+    return false;
+  }
+  mode = static_cast<mode_t>(std::strtol(digits.c_str(), nullptr, 8));
+  return true;
+}
+
 int handle_uss_copy(InvocationContext &context)
 {
   std::string source_path = context.get<std::string>("source-path");
@@ -55,27 +89,12 @@ int handle_uss_create_file(InvocationContext &context)
   int rc = 0;
   std::string file_path = context.get<std::string>("file-path", "");
 
-  long long mode = context.get<long long>("mode", 644);
   bool overwrite = context.get<bool>("overwrite", false);
 
-  if (mode == 0)
-  {
-    context.error_stream() << "Error: invalid mode provided.\nExamples of valid modes: 777, 0644" << std::endl;
-    return RTNCD_FAILURE;
-  }
-
-  // Convert mode from decimal to octal
   mode_t cf_mode = 0;
-  int temp_mode = mode;
-  int multiplier = 1;
-
-  // Convert decimal representation of octal to actual octal value
-  // e.g. user inputs 777 -> converted to correct value for chmod
-  while (temp_mode > 0)
+  if (!resolve_mode(context, "644", cf_mode))
   {
-    cf_mode += (temp_mode % 10) * multiplier;
-    temp_mode /= 10;
-    multiplier *= 8;
+    return RTNCD_FAILURE;
   }
 
   ZUSF zusf{};
@@ -102,26 +121,10 @@ int handle_uss_create_dir(InvocationContext &context)
   int rc = 0;
   std::string file_path = context.get<std::string>("file-path", "");
 
-  long long mode = context.get<long long>("mode", 755);
-
-  if (mode == 0)
-  {
-    context.error_stream() << "Error: invalid mode provided.\nExamples of valid modes: 777, 0644" << std::endl;
-    return RTNCD_FAILURE;
-  }
-
-  // Convert mode from decimal to octal
   mode_t cf_mode = 0;
-  int temp_mode = mode;
-  int multiplier = 1;
-
-  // Convert decimal representation of octal to actual octal value
-  // e.g. user inputs 777 -> converted to correct value for chmod
-  while (temp_mode > 0)
+  if (!resolve_mode(context, "755", cf_mode))
   {
-    cf_mode += (temp_mode % 10) * multiplier;
-    temp_mode /= 10;
-    multiplier *= 8;
+    return RTNCD_FAILURE;
   }
 
   ZUSF zusf{};
@@ -171,7 +174,7 @@ int handle_uss_list(InvocationContext &context)
   ZUSF zusf{};
   std::string response;
   std::vector<ZusfListEntry> entries;
-  rc = zusf_list_uss_file_path(&zusf, uss_file, response, list_options, use_csv_format, use_csv_format ? &entries : nullptr);
+  rc = zusf_list_uss_file_path(&zusf, uss_file, response, list_options, use_csv_format, &entries);
   if (0 != rc)
   {
     context.error_stream() << "Error: could not list USS files: '" << uss_file << "' rc: '" << rc << "'" << std::endl;
@@ -183,39 +186,36 @@ int handle_uss_list(InvocationContext &context)
 
   context.output_stream() << response;
 
-  if (use_csv_format)
+  const auto result = obj();
+  const auto entries_array = arr();
+
+  for (const auto &list_entry : entries)
   {
-    const auto result = obj();
-    const auto entries_array = arr();
+    const auto entry = obj();
 
-    for (const auto& list_entry : entries)
+    if (list_options.long_format)
     {
-      const auto entry = obj();
-
-      if (list_options.long_format)
-      {
-        entry->set("mode", str(list_entry.mode));
-        entry->set("links", i64(list_entry.links));
-        entry->set("user", str(list_entry.user));
-        entry->set("group", str(list_entry.group));
-        entry->set("size", i64(list_entry.size));
-        entry->set("filetag", str(list_entry.filetag));
-        entry->set("mtime", str(list_entry.mtime));
-        entry->set("name", str(list_entry.name));
-      }
-      else
-      {
-        // Simple format: just the name
-        entry->set("name", str(list_entry.name));
-      }
-
-      entries_array->push(entry);
+      entry->set("mode", str(list_entry.mode));
+      entry->set("links", i64(list_entry.links));
+      entry->set("user", str(list_entry.user));
+      entry->set("group", str(list_entry.group));
+      entry->set("size", i64(list_entry.size));
+      entry->set("filetag", str(list_entry.filetag));
+      entry->set("mtime", str(list_entry.mtime));
+      entry->set("name", str(list_entry.name));
+    }
+    else
+    {
+      // Simple format: just the name
+      entry->set("name", str(list_entry.name));
     }
 
-    result->set("items", entries_array);
-    result->set("returnedRows", i64(entries.size()));
-    context.set_object(result);
+    entries_array->push(entry);
   }
+
+  result->set("items", entries_array);
+  result->set("returnedRows", i64(entries.size()));
+  context.set_object(result);
 
   return rc;
 }
@@ -256,6 +256,10 @@ int handle_uss_view(InvocationContext &context)
     zusf.set_size_callback = [&context](uint64_t size)
     {
       context.set_content_len(size);
+    };
+    zusf.update_heartbeat_callback = [&context]()
+    {
+      context.update_heartbeat();
     };
 
     size_t content_len = 0;
@@ -343,7 +347,12 @@ int handle_uss_write(InvocationContext &context)
     std::string etag_value = context.get<std::string>("etag", "");
     if (!etag_value.empty())
     {
-      strcpy(zusf.etag, etag_value.c_str());
+      if (etag_value.size() >= sizeof(zusf.etag))
+      {
+        context.error_stream() << "Error: etag exceeds " << sizeof(zusf.etag) - 1 << " character length limit" << std::endl;
+        return RTNCD_FAILURE;
+      }
+      memcpy(zusf.etag, etag_value.c_str(), etag_value.size() + 1);
     }
   }
 
@@ -354,6 +363,11 @@ int handle_uss_write(InvocationContext &context)
 
   if (has_pipe_path && !pipe_path.empty())
   {
+    zusf.update_heartbeat_callback = [&context]()
+    {
+      context.update_heartbeat();
+    };
+
     rc = zusf_write_to_uss_file_streamed(&zusf, file, pipe_path, &content_len);
     result->set("contentLen", i64(content_len));
   }
@@ -411,41 +425,14 @@ int handle_uss_delete(InvocationContext &context)
 int handle_uss_chmod(InvocationContext &context)
 {
   int rc = 0;
-  long long mode = context.get<long long>("mode", 0);
-  if (mode == 0 && !context.get<std::string>("mode", "").empty())
+  mode_t chmod_mode = 0;
+  if (!resolve_mode(context, "", chmod_mode))
   {
-    std::string mode_str = context.get<std::string>("mode", "");
-    if (mode_str.find_first_not_of("01234567") != std::string::npos || mode_str.length() < 3 || mode_str.length() > 4) {
-      context.error_stream() << "Error: invalid octal mode provided. Examples of valid modes: 777, 0644" << std::endl;
-      return RTNCD_FAILURE;
-    }
-    try
-    {
-      mode = std::stoll(mode_str);
-    }
-    catch (...)
-    {
-      context.error_stream() << "Error: invalid mode provided.\nExamples of valid modes: 777, 0644" << std::endl;
-      return RTNCD_FAILURE;
-    }
+    return RTNCD_FAILURE;
   }
 
   std::string file_path = context.get<std::string>("file-path", "");
   bool recursive = context.get<bool>("recursive", false);
-
-  // Convert mode from decimal to octal
-  mode_t chmod_mode = 0;
-  int temp_mode = mode;
-  int multiplier = 1;
-
-  // Convert decimal representation of octal to actual octal value
-  // e.g. user inputs 777 -> converted to correct value for chmod
-  while (temp_mode > 0)
-  {
-    chmod_mode += (temp_mode % 10) * multiplier;
-    temp_mode /= 10;
-    multiplier *= 8;
-  }
 
   ZUSF zusf{};
   rc = zusf_chmod_uss_file_or_dir(&zusf, file_path, chmod_mode, recursive);
@@ -456,7 +443,7 @@ int handle_uss_chmod(InvocationContext &context)
     return RTNCD_FAILURE;
   }
 
-  context.output_stream() << "USS path '" << file_path << "' modified: '" << mode << "'" << std::endl;
+  context.output_stream() << "USS path '" << file_path << "' modified: '" << std::oct << chmod_mode << std::dec << "'" << std::endl;
 
   return rc;
 }
@@ -599,6 +586,7 @@ void register_commands(parser::Command &root_command)
 
   // View subcommand
   auto uss_view_cmd = command_ptr(new Command("view", "view a USS file"));
+  uss_view_cmd->mark_stdout_as_payload();
   uss_view_cmd->add_positional_arg(FILE_PATH);
   uss_view_cmd->add_keyword_arg(ENCODING);
   uss_view_cmd->add_keyword_arg(LOCAL_ENCODING);
@@ -611,7 +599,7 @@ void register_commands(parser::Command &root_command)
   // Write subcommand
   auto uss_write_cmd = command_ptr(new Command("write", "write to a USS file"));
   uss_write_cmd->add_positional_arg(FILE_PATH);
-  uss_write_cmd->add_keyword_arg(ENCODING);
+  uss_write_cmd->add_keyword_arg(ENCODING_INPUT);
   uss_write_cmd->add_keyword_arg(LOCAL_ENCODING);
   uss_write_cmd->add_keyword_arg(ETAG);
   uss_write_cmd->add_keyword_arg(ETAG_ONLY);
@@ -652,6 +640,7 @@ void register_commands(parser::Command &root_command)
 
   // Issue subcommand
   auto uss_issue_cmd = std::make_shared<Command>("issue", "issue a UNIX command");
+  uss_issue_cmd->mark_stdout_as_payload();
   uss_issue_cmd->add_positional_arg("command", "command to issue", ArgType_Single, true);
   uss_issue_cmd->set_handler(handle_uss_issue_cmd);
   uss_group->add_command(uss_issue_cmd);

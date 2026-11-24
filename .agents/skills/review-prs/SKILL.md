@@ -60,7 +60,7 @@ Optional improvements:
 - Manual memory management: proper `new`/`delete` pairing, no leaks
 - EBCDIC/ASCII encoding issues for z/OS
 - Proper error handling with return codes
-- Thread safety in `zowex server` code
+- Thread safety in `zo server` code
 
 **Style (from .clang-format):**
 

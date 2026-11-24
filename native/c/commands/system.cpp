@@ -407,14 +407,15 @@ void register_commands(parser::Command &root_command)
 
   // View-syslog subcommand
   auto system_view_syslog_cmd = command_ptr(new Command("view-syslog", "view syslog"));
+  system_view_syslog_cmd->mark_stdout_as_payload();
   system_view_syslog_cmd->set_handler(handle_system_view_syslog);
   system_view_syslog_cmd->add_keyword_arg("time", make_aliases("--time", "-t"), "specify time hh:mm:ss, e.g. -t 10:41:00. Mutually exclusive with --seconds-ago", ArgType_Single, false);
   system_view_syslog_cmd->add_keyword_arg("date", make_aliases("--date", "-d"), "specify date yyyy-mm-dd, e.g. --date 2026-01-20. Mutually exclusive with --seconds-ago", ArgType_Single, false, ArgValue(""), true);
   system_view_syslog_cmd->add_keyword_arg("seconds-ago", make_aliases("--seconds-ago", "-s"), "relative offset in seconds from now, e.g. --seconds-ago 300 for last 5 minutes. Mutually exclusive with --date/--time", ArgType_Single, false);
   system_view_syslog_cmd->add_keyword_arg("max-lines", make_aliases("--max-lines", "--ml"), "maximum number of lines to display (1-10000), e.g. --max-lines 100", ArgType_Single, false);
-  system_view_syslog_cmd->add_example("View last 30 seconds of syslog (default)", "zowex system view-syslog");
-  system_view_syslog_cmd->add_example("View last 5 minutes of syslog", "zowex system view-syslog --seconds-ago 300");
-  system_view_syslog_cmd->add_example("View syslog for a specific date and time", "zowex system view-syslog --date 2026-03-13 --time 10:41:00 --max-lines 100");
+  system_view_syslog_cmd->add_example("View last 30 seconds of syslog (default)", "zo system view-syslog");
+  system_view_syslog_cmd->add_example("View last 5 minutes of syslog", "zo system view-syslog --seconds-ago 300");
+  system_view_syslog_cmd->add_example("View syslog for a specific date and time", "zo system view-syslog --date 2026-03-13 --time 10:41:00 --max-lines 100");
   system_cmd->add_command(system_view_syslog_cmd);
 
   // ESM certificate and key ring commands live as `cert` and `keyring` sibling
