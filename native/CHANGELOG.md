@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `c`: Fixed USS and data set e-tags missing same-length file changes. USS e-tags now use the inode, the microsecond ctime, and the file size, and add a SHA-512/256 content digest only when the file system has no ctime microseconds (for example, TFS) and the file changed within the last two seconds. Data set e-tags replace Adler-32 with a SHA-512/256 digest computed on CPACF. USS writes now check the e-tag against the opened file before truncating it. The first save of a file left open across a server upgrade may report a conflict even if the file has not changed. [#1235](https://github.com/zowe/zo/pull/1235)
 - `c`: Updated the `zjb_read_job_dynamic_allocation` function to validate that data set names do not exceed the maximum length. [#1231](https://github.com/zowe/zo/pull/1231)
 - `c`: Fixed BPAM writes to blocked V-format members silently dropping a record that exactly fills the remaining block space (for example, 80-byte records in a VB LRECL 84 BLKSIZE 88 member). [#1126](https://github.com/zowe/zowex/pull/1126)
 - `c`: Added an optional `--dsn` field to the `zo system cert import`/`export` command, letting a certificate be read from or written to a sequential data set or PDS/E member instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)

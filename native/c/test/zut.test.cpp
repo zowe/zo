@@ -1027,6 +1027,35 @@ void zut_tests()
       });
     });
 
+    describe("EtagHasher", []() -> void
+    {
+      // Inputs are ASCII bytes so the FIPS 180-4 SHA-512/256 vectors apply on EBCDIC hosts
+      it("should match SHA-512/256 known answers", []() -> void
+      {
+        expect(zut_etag_digest("")).ToBe("c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a");
+        expect(zut_etag_digest(std::string("\x61\x62\x63", 3))).ToBe("53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23");
+        expect(zut_etag_digest(std::string(1000000, '\x61'))).ToBe("9a59a052930187a97038cae692f30708aa6491923ef5194394dc68d56c74fb21");
+      });
+
+      it("should produce the same digest regardless of how updates are split", []() -> void
+      {
+        std::string data(1000, '\0');
+        for (size_t i = 0; i < data.size(); i++)
+          data[i] = static_cast<char>((i * 7 + 3) & 0xff);
+
+        EtagHasher hasher;
+        size_t offset = 0;
+        for (size_t piece : {1, 127, 128, 129, 300, 315})
+        {
+          hasher.update(data.data() + offset, piece);
+          offset += piece;
+        }
+        expect(offset).ToBe(data.size());
+        expect(hasher.hex_digest()).ToBe("14271b3d36ca983ae2da2693d995fe68412c0bd5394ec2f05b763586db6e24fd");
+        expect(zut_etag_digest(data)).ToBe("14271b3d36ca983ae2da2693d995fe68412c0bd5394ec2f05b763586db6e24fd");
+      });
+    });
+
     describe("zut_set_dd_with_padding", []() -> void
     {
       it("should pad a short DD name with spaces to 8 characters", []() -> void
