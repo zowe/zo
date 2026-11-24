@@ -33,11 +33,11 @@
 
 static std::string get_executable_dir(const char *argv0)
 {
-  std::string full_path(argv0);
-  size_t last_slash = full_path.find_last_of('/');
-  if (last_slash != std::string::npos)
-    return full_path.substr(0, last_slash);
-  return ".";
+  const std::string full_path(argv0 != nullptr ? argv0 : "");
+  const size_t last_slash = full_path.find_last_of('/');
+  if (last_slash == std::string::npos)
+    return ".";
+  return last_slash == 0 ? "/" : full_path.substr(0, last_slash);
 }
 
 // Plugin loading is opt-in: ZO_PLUGINS_DIR must be explicitly set

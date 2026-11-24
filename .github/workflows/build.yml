@@ -30,6 +30,13 @@ jobs:
 
       - run: npm run test
 
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && matrix.os == 'ubuntu' }}
+        with:
+          name: unit-test-results
+          path: packages/*/results/unit/
+          if-no-files-found: ignore
+
       - name: Get z/OS build run ID
         if: ${{ matrix.os == 'ubuntu' }}
         run: |

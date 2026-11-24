@@ -12,6 +12,7 @@ listings
 node_modules
 prebuilds
 out
+results
 typedoc*
 zowex-package
 
