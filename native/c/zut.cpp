@@ -1251,20 +1251,36 @@ std::string zut_read_input(std::istream &input_stream)
   return data;
 }
 
-int zut_open_for_write(const std::string &path, mode_t mode, bool truncate)
+int zut_open_for_write(const std::string &path, mode_t mode, bool allow_existing, bool &created)
 {
-  // One open() binds the existence check, creation, and truncation to the same object.
+  // One open() binds the existence check and creation to the same object.
   // O_NOFOLLOW refuses a symbolic link as the last component, dangling or not.
-  const int flags = O_WRONLY | O_CREAT | O_NOFOLLOW | (truncate ? O_TRUNC : O_EXCL);
-  const int fd = open(path.c_str(), flags, mode);
-  if (fd == -1 && errno == EEXIST)
+  created = false;
+  const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
+  if (fd != -1)
   {
-    // O_EXCL may report a symbolic link as EEXIST before O_NOFOLLOW reports ELOOP.
-    struct stat link_stats;
-    const bool is_link = lstat(path.c_str(), &link_stats) == 0 && S_ISLNK(link_stats.st_mode);
-    errno = is_link ? ELOOP : EEXIST;
+    created = true;
+    return fd;
   }
-  return fd;
+  if (errno != EEXIST)
+  {
+    return -1;
+  }
+
+  // O_EXCL may report a symbolic link as EEXIST before O_NOFOLLOW reports ELOOP.
+  struct stat link_stats;
+  if (lstat(path.c_str(), &link_stats) == 0 && S_ISLNK(link_stats.st_mode))
+  {
+    errno = ELOOP;
+    return -1;
+  }
+  if (!allow_existing)
+  {
+    errno = EEXIST;
+    return -1;
+  }
+  // O_NONBLOCK: opening a FIFO for writing must not block the caller
+  return open(path.c_str(), O_WRONLY | O_NOFOLLOW | O_NONBLOCK);
 }
 
 int zut_write_file_private(const std::string &path, const std::string &data, std::string &error)

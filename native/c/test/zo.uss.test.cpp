@@ -614,6 +614,33 @@ void zo_uss_tests()
         rc = execute_command_with_output("ls -l " + uss_file, response);
         Expect(rc).Not().ToBe(0);
       });
+      // A decimal is parsed as a double; it must be rejected, not replaced by the default mode
+      it("should reject a decimal mode and not create the file", [&]() -> void
+      {
+        std::string uss_file = get_random_uss(ussTestDir);
+        {
+          test_utils::ErrorStreamCapture c;
+          rc = execute_command_with_output(zo_command + " uss create-file " + uss_file + " --mode 600.5", response);
+        }
+        ExpectWithContext(rc, response).ToBe(255);
+        Expect(response).ToContain("invalid mode");
+
+        rc = execute_command_with_output("ls -l " + uss_file, response);
+        Expect(rc).Not().ToBe(0);
+      });
+      it("should reject a decimal mode and not create the directory", [&]() -> void
+      {
+        std::string uss_dir = get_random_uss(ussTestDir) + "_dir";
+        {
+          test_utils::ErrorStreamCapture c;
+          rc = execute_command_with_output(zo_command + " uss create-dir " + uss_dir + " --mode 755.5", response);
+        }
+        ExpectWithContext(rc, response).ToBe(255);
+        Expect(response).ToContain("invalid mode");
+
+        rc = execute_command_with_output("ls -ld " + uss_dir, response);
+        Expect(rc).Not().ToBe(0);
+      });
       it("should properly handle a creating a file in a non-existent directory", [&]() -> void
       {
         std::string uss_file = get_random_uss(ussTestDir) + "/does_not_exist";

@@ -461,17 +461,19 @@ std::string zut_read_input(std::istream &input_stream);
  * @brief Open a file for writing without ever following a symbolic link as the
  *   last path component.
  *
- * A single open() with O_CREAT | O_NOFOLLOW binds the existence check, creation,
- * and truncation to the same object, so neither a dangling nor a live symbolic
- * link can redirect the write. Without `truncate` the file is created with O_EXCL
- * and any existing path fails.
+ * The file is created with O_CREAT | O_EXCL | O_NOFOLLOW, so the existence check
+ * and creation bind to the same object and neither a dangling nor a live symbolic
+ * link can redirect the write. An existing file is opened only when
+ * `allow_existing` is set, and it is never truncated here: the caller can check
+ * it (for example change its mode) before discarding its data with ftruncate().
  *
  * @param path Path of the file to open
  * @param mode Permission bits for a newly created file (subject to the umask)
- * @param truncate Open and truncate an existing regular file instead of failing with EEXIST
+ * @param allow_existing Open an existing file instead of failing with EEXIST
+ * @param created Set to true when this call created the file
  * @return File descriptor, or -1 with errno set; ELOOP when `path` is a symbolic link
  */
-int zut_open_for_write(const std::string &path, mode_t mode, bool truncate);
+int zut_open_for_write(const std::string &path, mode_t mode, bool allow_existing, bool &created);
 
 /**
  * @brief Atomically replace a file with owner-only read/write permissions (0600),

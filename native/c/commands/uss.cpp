@@ -23,11 +23,18 @@ namespace uss
 {
 
 // Resolves the "mode" argument as octal digits (e.g. 644 or 0750). The CLI parser may store it as a
-// number, while JSON-RPC passes a string ("600"); a typed lookup alone silently falls back to the default.
-static bool resolve_mode(InvocationContext &context, const char *default_digits, mode_t &mode)
+// number, while JSON-RPC passes a string ("600"). The default applies only when no mode was given;
+// a value of any other type (e.g. 600.5) is rejected rather than silently replaced by the default.
+static bool resolve_mode(const InvocationContext &context, const char *default_digits, mode_t &mode)
 {
-  std::string digits = default_digits;
-  if (const long long *number = context.get_if<long long>("mode"))
+  std::string digits;
+  // The CLI parser stores an omitted option as a "none" value, so absent means missing or none
+  const plugin::Argument *given = context.find("mode");
+  if (given == nullptr || given->is_none())
+  {
+    digits = default_digits;
+  }
+  else if (const long long *number = context.get_if<long long>("mode"))
   {
     digits = *number < 0 ? "-" : std::to_string(*number);
     if (digits.size() < 3)

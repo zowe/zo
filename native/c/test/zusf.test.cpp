@@ -1961,6 +1961,43 @@ void zusf_tests()
       Expect(static_cast<int>(st.st_mode & 0777)).ToBe(0750);
     });
 
+    it("should create missing parents and apply a read-only mode after the child exists", [&]() -> void
+    {
+      const std::string parent = get_random_uss("/tmp");
+      const std::string child = parent + "/child";
+      const int rc = zusf_create_uss_file_or_dir(&zusf, child, 0555, CreateOptions(true));
+      struct stat parent_st{};
+      struct stat child_st{};
+      const bool parent_created = lstat(parent.c_str(), &parent_st) == 0;
+      const bool child_created = lstat(child.c_str(), &child_st) == 0;
+      chmod(parent.c_str(), 0700);
+      rmdir(child.c_str());
+      rmdir(parent.c_str());
+
+      ExpectWithContext(rc, zusf.diag.e_msg).ToBe(RTNCD_SUCCESS);
+      Expect(parent_created).ToBe(true);
+      Expect(child_created).ToBe(true);
+      Expect(static_cast<int>(parent_st.st_mode & 0777)).ToBe(0555);
+      Expect(static_cast<int>(child_st.st_mode & 0777)).ToBe(0555);
+    });
+
+    it("should leave a non-regular file untouched when overwriting", [&]() -> void
+    {
+      const std::string path = get_random_uss("/tmp");
+      Expect(mkfifo(path.c_str(), 0640)).ToBe(0);
+      chmod(path.c_str(), 0640);
+
+      const int rc = zusf_create_uss_file_or_dir(&zusf, path, 0600, CreateOptions(false, true));
+      struct stat st{};
+      const bool exists = lstat(path.c_str(), &st) == 0;
+      unlink(path.c_str());
+
+      Expect(rc).ToBe(RTNCD_FAILURE);
+      Expect(exists).ToBe(true);
+      Expect(S_ISFIFO(st.st_mode)).ToBe(true);
+      Expect(static_cast<int>(st.st_mode & 0777)).ToBe(0640);
+    });
+
     it("should create a directory with a mode that denies the owner read access", [&]() -> void
     {
       const std::string path = get_random_uss("/tmp");

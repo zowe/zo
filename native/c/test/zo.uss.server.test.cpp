@@ -291,6 +291,28 @@ void zo_uss_server_tests()
         Expect(listing()).ToContain("drwxr-x---");
       });
 
+      // Missing parents must stay writable until the child exists; the mode is applied afterwards
+      it("should create a directory under a missing parent with a read-only mode via RPC", [&]() -> void
+      {
+        const std::string child = file_path + "/child";
+        int req_id;
+        write_to_server(server, make_rpc_request("createFile", "{\"fspath\":\"" + child +
+                                                                   "\",\"isDir\":true,\"permissions\":\"0555\"}",
+                                                 req_id));
+        const std::string response = read_rpc_response(server);
+
+        std::string parent_ls;
+        std::string child_ls;
+        execute_command_with_output("ls -ld " + file_path, parent_ls);
+        execute_command_with_output("ls -ld " + child, child_ls);
+        std::string ignored;
+        execute_command_with_output("chmod -R u+w " + file_path, ignored); // so afterAll can delete it
+
+        Expect(response).ToContain("\"success\":true");
+        Expect(parent_ls).ToContain("dr-xr-xr-x");
+        Expect(child_ls).ToContain("dr-xr-xr-x");
+      });
+
       it("should reject invalid permissions and not create the file via RPC", [&]() -> void
       {
         Expect(create_with_permissions(false, "789")).ToContain("\"error\"");
