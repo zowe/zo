@@ -156,6 +156,13 @@ jobs:
           path: native/c/test/test-results.xml
           reporter: java-junit
 
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: zos-test-results
+          path: native/c/test/test-results.xml
+          if-no-files-found: ignore
+
       - name: Clean up on z/OS
         if: always()
         run: npm run z:delete
