@@ -91,16 +91,23 @@ void censor_tests()
         Expect(censored).ToBe("very slashful --password **** somethingelse");
       });
 
-      it("strings that cause a lexer error aggressively censor the remaining string",
+      it("strings that cause a lexer error aggressively censor the string",
          []()
       {
         std::string censored = censor_raw_data("not gonna terminate the quote --password \"hey seems like more --credentials are coming but");
-        Expect(censored).ToBe("not gonna terminate the quote --password ****");
+        Expect(censored).ToBe("****");
       });
+
       it("redacts an unquoted value that starts with digits", []()
       {
         Expect(censor_raw_data("command --password 123abc --normal ok"))
             .ToBe("command --password **** --normal ok");
+      });
+
+      it("ignores option names inside quoted non-sensitive values", []()
+      {
+        Expect(censor_raw_data("command --credentials wowreallycoolandgood --label \"my --auth is cool\" --password great"))
+            .ToBe("command --credentials **** --label \"my --auth is cool\" --password ****");
       });
     });
   });

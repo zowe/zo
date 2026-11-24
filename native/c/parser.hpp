@@ -2446,7 +2446,10 @@ private:
 
   ParseResult parse_impl(const std::string &command_line)
   {
-    ZLOG_TRACE("ArgumentParser::parse(string='%s') entry", censor::censor_raw_data(command_line).c_str());
+    if (ZLogger::get_instance().should_log(LogLevel::ZLOGLEVEL_TRACE))
+    { // censor is potentially expensive, so only call it if we are trace logging
+      ZLOG_TRACE("ArgumentParser::parse(string='%s') entry", censor::censor_raw_data(command_line).c_str());
+    }
 
     if (!m_root_cmd)
     {
