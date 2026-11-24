@@ -583,6 +583,64 @@ void zo_uss_tests()
         ExpectWithContext(rc, response).ToBe(0);
         Expect(response).ToContain("-rw-r--r--");
       });
+      it("should properly create a file with an owner-only mode", [&]() -> void
+      {
+        std::string uss_file = get_random_uss(ussTestDir);
+        create_test_file_cmd(uss_file, "--mode 600");
+
+        rc = execute_command_with_output("ls -l " + uss_file, response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain("-rw-------");
+      });
+      it("should properly create a file with a 4-digit octal mode", [&]() -> void
+      {
+        std::string uss_file = get_random_uss(ussTestDir);
+        create_test_file_cmd(uss_file, "--mode 0640");
+
+        rc = execute_command_with_output("ls -l " + uss_file, response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain("-rw-r-----");
+      });
+      it("should reject a mode with non-octal digits and not create the file", [&]() -> void
+      {
+        std::string uss_file = get_random_uss(ussTestDir);
+        {
+          test_utils::ErrorStreamCapture c;
+          rc = execute_command_with_output(zo_command + " uss create-file " + uss_file + " --mode 789", response);
+        }
+        ExpectWithContext(rc, response).ToBe(255);
+        Expect(response).ToContain("invalid mode");
+
+        rc = execute_command_with_output("ls -l " + uss_file, response);
+        Expect(rc).Not().ToBe(0);
+      });
+      // A decimal is parsed as a double; it must be rejected, not replaced by the default mode
+      it("should reject a decimal mode and not create the file", [&]() -> void
+      {
+        std::string uss_file = get_random_uss(ussTestDir);
+        {
+          test_utils::ErrorStreamCapture c;
+          rc = execute_command_with_output(zo_command + " uss create-file " + uss_file + " --mode 600.5", response);
+        }
+        ExpectWithContext(rc, response).ToBe(255);
+        Expect(response).ToContain("invalid mode");
+
+        rc = execute_command_with_output("ls -l " + uss_file, response);
+        Expect(rc).Not().ToBe(0);
+      });
+      it("should reject a decimal mode and not create the directory", [&]() -> void
+      {
+        std::string uss_dir = get_random_uss(ussTestDir) + "_dir";
+        {
+          test_utils::ErrorStreamCapture c;
+          rc = execute_command_with_output(zo_command + " uss create-dir " + uss_dir + " --mode 755.5", response);
+        }
+        ExpectWithContext(rc, response).ToBe(255);
+        Expect(response).ToContain("invalid mode");
+
+        rc = execute_command_with_output("ls -ld " + uss_dir, response);
+        Expect(rc).Not().ToBe(0);
+      });
       it("should properly handle a creating a file in a non-existent directory", [&]() -> void
       {
         std::string uss_file = get_random_uss(ussTestDir) + "/does_not_exist";

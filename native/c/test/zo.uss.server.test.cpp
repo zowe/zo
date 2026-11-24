@@ -254,6 +254,71 @@ void zo_uss_server_tests()
         int rc = execute_command_with_output("ls -l " + file_path, ls_response);
         Expect(rc).ToBe(0);
       });
+
+      // Creates file_path via RPC with the given permissions; returns the RPC response
+      auto create_with_permissions = [&](bool is_dir, const std::string &permissions) -> std::string
+      {
+        int req_id;
+        write_to_server(server, make_rpc_request("createFile", "{\"fspath\":\"" + file_path + "\",\"isDir\":" +
+                                                                   (is_dir ? "true" : "false") + ",\"permissions\":\"" +
+                                                                   permissions + "\"}",
+                                                 req_id));
+        return read_rpc_response(server);
+      };
+      auto listing = [&]() -> std::string
+      {
+        std::string ls_response;
+        execute_command_with_output("ls -ld " + file_path, ls_response);
+        return ls_response;
+      };
+
+      // JSON-RPC passes permissions as a string; it must not fall back to the 644 default
+      it("should apply string permissions when creating a file via RPC", [&]() -> void
+      {
+        Expect(create_with_permissions(false, "600")).ToContain("\"success\":true");
+        Expect(listing()).ToContain("-rw-------");
+      });
+
+      it("should apply permissions exactly, regardless of the umask, via RPC", [&]() -> void
+      {
+        Expect(create_with_permissions(false, "0666")).ToContain("\"success\":true");
+        Expect(listing()).ToContain("-rw-rw-rw-");
+      });
+
+      it("should apply string permissions when creating a directory via RPC", [&]() -> void
+      {
+        Expect(create_with_permissions(true, "750")).ToContain("\"success\":true");
+        Expect(listing()).ToContain("drwxr-x---");
+      });
+
+      // Missing parents must stay writable until the child exists; the mode is applied afterwards
+      it("should create a directory under a missing parent with a read-only mode via RPC", [&]() -> void
+      {
+        const std::string child = file_path + "/child";
+        int req_id;
+        write_to_server(server, make_rpc_request("createFile", "{\"fspath\":\"" + child +
+                                                                   "\",\"isDir\":true,\"permissions\":\"0555\"}",
+                                                 req_id));
+        const std::string response = read_rpc_response(server);
+
+        std::string parent_ls;
+        std::string child_ls;
+        execute_command_with_output("ls -ld " + file_path, parent_ls);
+        execute_command_with_output("ls -ld " + child, child_ls);
+        std::string ignored;
+        execute_command_with_output("chmod -R u+w " + file_path, ignored); // so afterAll can delete it
+
+        Expect(response).ToContain("\"success\":true");
+        Expect(parent_ls).ToContain("dr-xr-xr-x");
+        Expect(child_ls).ToContain("dr-xr-xr-x");
+      });
+
+      it("should reject invalid permissions and not create the file via RPC", [&]() -> void
+      {
+        Expect(create_with_permissions(false, "789")).ToContain("\"error\"");
+        std::string ls_response;
+        Expect(execute_command_with_output("ls -ld " + file_path, ls_response)).Not().ToBe(0);
+      });
     });
 
     describe("delete", [&]() -> void
