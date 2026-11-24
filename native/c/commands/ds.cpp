@@ -394,18 +394,16 @@ int handle_data_set_view(InvocationContext &context)
     };
 
     size_t content_len = 0;
-    uint32_t etag_val = 0;
-    rc = zds_read_streamed(read_opts, pipe_path, &content_len, &etag_val);
+    std::string etag;
+    rc = zds_read_streamed(read_opts, pipe_path, &content_len, &etag);
 
     if (context.get<bool>("return-etag", false))
     {
-      std::stringstream etag_stream;
-      etag_stream << std::hex << etag_val << std::dec;
       if (!context.is_redirecting_output())
       {
-        context.output_stream() << "etag: " << etag_stream.str() << std::endl;
+        context.output_stream() << "etag: " << etag << std::endl;
       }
-      result->set("etag", str(etag_stream.str()));
+      result->set("etag", str(etag));
     }
 
     if (!context.is_redirecting_output())
@@ -427,15 +425,13 @@ int handle_data_set_view(InvocationContext &context)
 
     if (context.get<bool>("return-etag", false))
     {
-      const auto etag = zut_calc_adler32_checksum(response);
-      std::stringstream etag_stream;
-      etag_stream << std::hex << etag << std::dec;
+      const auto etag = zut_etag_digest(response);
       if (!context.is_redirecting_output())
       {
-        context.output_stream() << "etag: " << etag_stream.str() << std::endl;
+        context.output_stream() << "etag: " << etag << std::endl;
         context.output_stream() << "data: ";
       }
-      result->set("etag", str(etag_stream.str()));
+      result->set("etag", str(etag));
     }
 
     bool has_encoding = context.has("encoding");
@@ -742,20 +738,7 @@ int handle_data_set_write(InvocationContext &context)
 
   if (context.has("etag"))
   {
-    std::string etag_value = context.get<std::string>("etag", "");
-    if (etag_value.empty())
-    {
-      // Adler-32 etags that consist only of decimal digits (no a-f) are
-      // lexed as integers rather than strings; recover the original hex string
-      // by formatting the stored integer back as decimal (its digits are the etag)
-      const long long *etag_int = context.get_if<long long>("etag");
-      if (etag_int)
-      {
-        std::stringstream ss;
-        ss << *etag_int;
-        etag_value = ss.str();
-      }
-    }
+    const std::string etag_value = context.get<std::string>("etag", "");
     if (!etag_value.empty())
     {
       if (etag_value.size() >= sizeof(zds.etag))

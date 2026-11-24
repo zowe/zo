@@ -139,7 +139,9 @@ const ArgTemplate ETAG = {
     ArgType_Single,
     false,
     ArgValue(),
-    make_aliases()};
+    make_aliases(),
+    false,
+    true};
 
 const ArgTemplate ETAG_ONLY = {
     "etag-only",
