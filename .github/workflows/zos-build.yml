@@ -64,7 +64,8 @@ jobs:
 
       - name: Select Python build
         id: python
-        if: ${{ !inputs.debug }}
+        # if: ${{ !inputs.debug }}
+        if: ${{ !inputs.debug && inputs.version == '' }} # Temporarily disable Python wheels for release builds
         env:
           FORCE_PYTHON: ${{ inputs.build-python || inputs.version != '' }}
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
