@@ -42,9 +42,15 @@ module.exports = {
             },
         ],
         [
+            "@octorelease/pypi",
+            {
+                distPath: "dist/python/wheels",
+            },
+        ],
+        [
             "@octorelease/github",
             {
-                assets: ["dist/*.pax.Z", "dist/*.tgz"]
+                assets: ["dist/*.pax.Z", "dist/*.tgz", "dist/python/wheels/*.whl"]
             },
         ],
         "@octorelease/git",

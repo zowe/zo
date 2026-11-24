@@ -139,6 +139,25 @@ The existing table and CSV columns are unchanged; the execution fields are avail
 | List proclib    | ❌      | ❌   | ✅               | ✅              | ❌                  | ✅              | ❌              | ➖       |
 | List subsystems | ❌      | ❌   | ✅               | ❌              | ❌                  | ❌              | ❌              | ➖       |
 
+## Certificates
+
+| Operation                | z/OSMF | FTP | `zo`<br>Backend | `zo`<br>Server | Python<br>Bindings | Node.js<br>SDK | CLI<br>Plug-in | VS Code |
+| ------------------------ | ------ | --- | --------------- | -------------- | ------------------ | -------------- | -------------- | ------- |
+| List key rings           | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Count certificates       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| List certificates        | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Show certificate         | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Create key ring          | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Import certificate       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Export certificate       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Delete certificate       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Delete key ring          | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Set default certificate  | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Connect certificate      | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Trust certificate        | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Rename certificate       | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+| Refresh DIGTCERT class   | ❌      | ❌   | ✅               | ✅              | ✅                  | ✅              | ✅              | ❌       |
+
 ## Other
 
 | Operation            | z/OSMF | FTP | `zo`<br>Backend | `zo`<br>Server | Python<br>Bindings | Node.js<br>SDK | CLI<br>Plug-in | VS Code |

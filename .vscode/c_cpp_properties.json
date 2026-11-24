@@ -5,6 +5,7 @@
       "includePath": [
         "${workspaceFolder}/**",
         "${workspaceFolder}/native/c",
+        "${workspaceFolder}/native/python/bindings",
         "${workspaceFolder}/native/c/chdsect",
         "${workspaceFolder}/native/asmmac",
         "/usr/include/metal"
