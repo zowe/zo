@@ -6,6 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
+- `c`: Censor sensitive CLI argument values when logging. [#1234](https://github.com/zowe/zo/pull/1234)
 - `python`: Preserve certificate data set password checks and failed-write cleanup in the shared I/O helpers. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `python`: Archive the z/OS wheel and checksum in GitHub Actions and publish versioned releases to Zowe's PyPI Artifactory repository. [#1181](https://github.com/zowe/zowex/pull/1181)
 - `python`: Name the Python distribution `zo` and read its version from the same `package.json` used by the native binary; update wheel staging, posting, and installation checks. [#1181](https://github.com/zowe/zowex/pull/1181)
