@@ -44,6 +44,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <memory>
 #include <iconv.h>
 #include <grp.h>
@@ -1426,6 +1427,220 @@ int zusf_list_uss_file_path(ZUSF *zusf, const std::string &file, std::string &re
   return RTNCD_SUCCESS;
 }
 
+// A write in a later second always moves ctime, so a whole-second ctime only vouches for content that
+// last changed before the stat; the slack covers the stat-to-time() gap and coarse PFS timestamps
+static constexpr time_t ZUSF_ETAG_RACY_WINDOW_SEC = 2;
+
+static std::string zusf_etag_metadata(const struct stat &st)
+{
+  std::ostringstream ss;
+  ss << std::hex << st.st_ino << '-' << st.st_ctime << '.' << st.st_ctimemsec << '-' << st.st_size;
+  return ss.str();
+}
+
+/**
+ * Whether an etag for `st` needs a content digest: the file system reports no ctime microseconds
+ * (e.g. TFS) and the file changed recently enough that another write could reuse the same ctime.
+ * Call right after the stat so the clock comparison matches the moment the metadata was taken.
+ */
+static bool zusf_etag_needs_digest(const struct stat &st)
+{
+  return st.st_ctimemsec == 0 && st.st_ctime + ZUSF_ETAG_RACY_WINDOW_SEC >= time(nullptr);
+}
+
+static void zusf_set_etag(ZUSF *zusf, const struct stat &st, const std::string &digest)
+{
+  std::string etag = zusf_etag_metadata(st);
+  if (!digest.empty())
+  {
+    etag += "-" + digest;
+  }
+  snprintf(zusf->etag, sizeof(zusf->etag), "%s", etag.c_str());
+}
+
+/**
+ * Digests the current content of `file`, which must still be the inode described by `expected`.
+ * Callers must disable auto-conversion so the raw bytes are hashed, as on the read path.
+ */
+static int zusf_digest_file(ZUSF *zusf, const std::string &file, const struct stat &expected, std::string &digest)
+{
+  EtagHasher hasher;
+  const int fd = open(file.c_str(), O_RDONLY);
+  if (fd == -1)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not open '%s' to verify etag", file.c_str());
+    return RTNCD_FAILURE;
+  }
+
+  struct stat st;
+  const bool same_file = fstat(fd, &st) == 0 && st.st_ino == expected.st_ino && st.st_dev == expected.st_dev;
+  std::vector<char> buf(FIFO_CHUNK_SIZE);
+  ssize_t bytes_read = 0;
+  while (same_file && (bytes_read = read(fd, &buf[0], buf.size())) > 0)
+  {
+    hasher.update(&buf[0], bytes_read);
+  }
+  close(fd);
+
+  if (!same_file)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Etag mismatch: '%s' was replaced while its etag was being verified", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (bytes_read < 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not read '%s' to verify etag", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  digest = hasher.hex_digest();
+  return RTNCD_SUCCESS;
+}
+
+/**
+ * Checks the caller's etag against `st`, the file open for writing. Metadata decides unless the etag
+ * carries a digest (ctime had no microseconds when it was issued); then the current content is hashed.
+ */
+static int zusf_validate_etag(ZUSF *zusf, const std::string &file, int fd, const struct stat &st)
+{
+  const std::string expected(zusf->etag);
+  std::string actual = zusf_etag_metadata(st);
+  if (expected.size() > actual.size() && expected.compare(0, actual.size() + 1, actual + "-") == 0)
+  {
+    std::string digest;
+    if (zusf_digest_file(zusf, file, st, digest) != RTNCD_SUCCESS)
+    {
+      return RTNCD_FAILURE;
+    }
+    struct stat after;
+    if (fstat(fd, &after) != 0)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Could not stat '%s' after hashing", file.c_str());
+      return RTNCD_FAILURE;
+    }
+    if (st.st_ctime != after.st_ctime || st.st_ctimemsec != after.st_ctimemsec || st.st_size != after.st_size)
+    {
+      ZDIAG_SET_MSG(&zusf->diag, "Etag mismatch: '%s' changed while its etag was being verified", file.c_str());
+      return RTNCD_FAILURE;
+    }
+    actual += "-" + digest;
+  }
+
+  if (expected != actual)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Etag mismatch: expected %s, actual %s", expected.c_str(), actual.c_str());
+    return RTNCD_FAILURE;
+  }
+  return RTNCD_SUCCESS;
+}
+
+static int zusf_create_for_write(ZUSF *zusf, const std::string &file)
+{
+  std::string path = file;
+  for (int links = 0; links <= POSIX_SYMLOOP; ++links)
+  {
+    // Only skip e-tag validation when exclusive creation proves the target is new.
+    const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (fd != -1)
+    {
+      zusf->created = true;
+      return fd;
+    }
+    if (errno != EEXIST)
+      break;
+
+    const int existing_fd = open(file.c_str(), O_WRONLY);
+    if (existing_fd != -1)
+      return existing_fd;
+    if (errno != ENOENT || links == POSIX_SYMLOOP)
+      break;
+
+    // O_EXCL does not follow the final symlink. Resolve a dangling link and try its target.
+    char target[PATH_MAX + 1];
+    const ssize_t length = readlink(path.c_str(), target, sizeof(target));
+    if (length <= 0 || static_cast<size_t>(length) == sizeof(target))
+      break;
+
+    const std::string_view link(target, length);
+    for (std::string_view prefix : {"$VERSION", "$SYSNAME", "$SYSSYMA/", "$SYSSYMR/", "$SYSSECA/", "$SYSSECR/"})
+    {
+      if (link.compare(0, prefix.size(), prefix) == 0)
+      {
+        ZDIAG_SET_MSG(&zusf->diag, "Could not create the target of '%s': dangling symbolic link uses a z/OS substitution",
+                      file.c_str());
+        return -1;
+      }
+    }
+
+    const auto slash = path.find_last_of('/');
+    const auto parent_length = link.front() == '/' || slash == std::string::npos ? 0 : slash + 1;
+    path.replace(parent_length, std::string::npos, link);
+  }
+  ZDIAG_SET_MSG(&zusf->diag, "Could not create '%s' for writing", file.c_str());
+  return -1;
+}
+
+/**
+ * Opens `file` for writing without truncating it, so the etag is checked against the same inode that
+ * is then truncated and written. Sets zusf->created when the file is new.
+ *
+ * @return the file descriptor, or -1 with zusf->diag set
+ */
+static int zusf_open_for_write(ZUSF *zusf, const std::string &file)
+{
+  zusf->created = false;
+  int fd = open(file.c_str(), O_WRONLY);
+  if (fd == -1 && errno == ENOENT)
+  {
+    return zusf_create_for_write(zusf, file);
+  }
+
+  if (fd == -1)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not open '%s' for writing", file.c_str());
+  }
+  return fd;
+}
+
+/**
+ * Validates the caller's etag (for existing files) and truncates `fd`, the file opened by
+ * zusf_open_for_write. Only regular files are truncated, as fopen(..., "w") does.
+ */
+static int zusf_prepare_overwrite(ZUSF *zusf, const std::string &file, int fd)
+{
+  struct stat st;
+  if (fstat(fd, &st) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not stat '%s'", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (!zusf->created && zusf->etag[0] != '\0' && zusf_validate_etag(zusf, file, fd, st) != RTNCD_SUCCESS)
+  {
+    return RTNCD_FAILURE;
+  }
+  if (S_ISREG(st.st_mode) && ftruncate(fd, 0) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not truncate '%s', errno: %d", file.c_str(), errno);
+    return RTNCD_FAILURE;
+  }
+  return RTNCD_SUCCESS;
+}
+
+/**
+ * Records the etag of the content just written through `fd`. `written_digest` produces the digest of
+ * the written bytes and is only called when ctime cannot vouch for them.
+ */
+static int zusf_set_written_etag(ZUSF *zusf, const std::string &file, int fd, const std::function<std::string()> &written_digest)
+{
+  struct stat st;
+  if (fstat(fd, &st) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not stat file '%s' after writing", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  zusf_set_etag(zusf, st, zusf_etag_needs_digest(st) ? written_digest() : "");
+  return RTNCD_SUCCESS;
+}
+
 /**
  * Reads data from a USS file.
  *
@@ -1438,6 +1653,16 @@ int zusf_list_uss_file_path(ZUSF *zusf, const std::string &file, std::string &re
 int zusf_read_from_uss_file(ZUSF *zusf, const std::string &file, std::string &response)
 {
   AutocvtGuard autocvt(false);
+
+  // Stat before opening: a change after this point leaves the etag stale, which surfaces as a conflict
+  struct stat st;
+  if (stat(file.c_str(), &st) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Could not stat file '%s'", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  const bool needs_digest = zusf_etag_needs_digest(st);
+
   std::ifstream in(file.c_str(), zusf->encoding_opts.data_type == eDataTypeBinary ? std::ifstream::in | std::ifstream::binary : std::ifstream::in);
   if (!in.is_open())
   {
@@ -1454,6 +1679,7 @@ int zusf_read_from_uss_file(ZUSF *zusf, const std::string &file, std::string &re
 
   response.assign(raw_data.begin(), raw_data.end());
   in.close();
+  zusf_set_etag(zusf, st, needs_digest ? zut_etag_digest(response) : "");
 
   // Use file tag encoding if available, otherwise fall back to provided encoding
   std::string from_encoding;
@@ -1528,10 +1754,16 @@ int zusf_read_from_uss_file_streamed(ZUSF *zusf, const std::string &file, const 
   }
 
   struct stat st;
-  if (stat(file.c_str(), &st) != 0)
+  if (fstat(fileno(fin), &st) != 0)
   {
     ZDIAG_SET_MSG(&zusf->diag, "Could not stat file '%s'", file.c_str());
     return RTNCD_FAILURE;
+  }
+  // Hash the raw bytes as they stream only when ctime cannot vouch for the content
+  std::optional<EtagHasher> hasher;
+  if (zusf_etag_needs_digest(st))
+  {
+    hasher.emplace();
   }
 
   if (zusf->set_size_callback)
@@ -1606,6 +1838,10 @@ int zusf_read_from_uss_file_streamed(ZUSF *zusf, const std::string &file, const 
 
     int chunk_len = bytes_read;
     const char *chunk = &buf[0];
+    if (hasher)
+    {
+      hasher->update(chunk, bytes_read);
+    }
 
     if (has_encoding)
     {
@@ -1667,6 +1903,7 @@ int zusf_read_from_uss_file_streamed(ZUSF *zusf, const std::string &file, const 
   }
 
   fflush(fout);
+  zusf_set_etag(zusf, st, hasher ? hasher->hex_digest() : "");
   return RTNCD_SUCCESS;
 }
 
@@ -1682,22 +1919,6 @@ int zusf_read_from_uss_file_streamed(ZUSF *zusf, const std::string &file, const 
 int zusf_write_to_uss_file(ZUSF *zusf, const std::string &file, std::string &data)
 {
   // TODO(zFernand0): Avoid overriding existing files
-  struct stat file_stats;
-
-  int stat_result = stat(file.c_str(), &file_stats);
-  if (std::strlen(zusf->etag) > 0 && stat_result != -1)
-  {
-    const auto current_etag = zut_build_etag(file_stats.st_mtime, file_stats.st_size);
-    if (current_etag != zusf->etag)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Etag mismatch: expected %s, actual %s", zusf->etag, current_etag.c_str());
-      return RTNCD_FAILURE;
-    }
-  }
-  if (stat_result == -1 && errno != ENOENT)
-    return RTNCD_FAILURE;
-  zusf->created = stat_result == -1;
-
   // Use encoding provided in arguments, otherwise fall back to file tag encoding
   std::string encoding_to_use;
   bool has_encoding = false;
@@ -1738,24 +1959,27 @@ int zusf_write_to_uss_file(ZUSF *zusf, const std::string &file, std::string &dat
   }
 
   AutocvtGuard autocvt(false);
-  const char *mode = (zusf->encoding_opts.data_type == eDataTypeBinary) ? "wb" : "w";
+  const int fd = zusf_open_for_write(zusf, file);
+  if (fd == -1)
   {
-    FileGuard fp(file.c_str(), mode);
-    if (!fp)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Could not open '%s' for writing", file.c_str());
-      return RTNCD_FAILURE;
-    }
+    return RTNCD_FAILURE;
+  }
+  FileGuard fp(fd, zusf->encoding_opts.data_type == eDataTypeBinary ? "wb" : "w");
+  if (!fp)
+  {
+    close(fd);
+    ZDIAG_SET_MSG(&zusf->diag, "Could not open '%s' for writing", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (zusf_prepare_overwrite(zusf, file, fd) != RTNCD_SUCCESS)
+  {
+    return RTNCD_FAILURE;
+  }
 
-    if (!temp.empty())
-    {
-      size_t bytes_written = fwrite(temp.data(), 1, temp.size(), fp);
-      if (bytes_written != temp.size())
-      {
-        ZDIAG_SET_MSG(&zusf->diag, "Failed to write to '%s' (possibly out of space)", file.c_str());
-        return RTNCD_FAILURE;
-      }
-    }
+  if ((!temp.empty() && fwrite(temp.data(), 1, temp.size(), fp) != temp.size()) || fflush(fp) != 0)
+  {
+    ZDIAG_SET_MSG(&zusf->diag, "Failed to write to '%s' (possibly out of space)", file.c_str());
+    return RTNCD_FAILURE;
   }
 
   if (has_encoding)
@@ -1763,20 +1987,8 @@ int zusf_write_to_uss_file(ZUSF *zusf, const std::string &file, std::string &dat
     zusf_chtag_uss_file_or_dir(zusf, file, encoding_to_use, false);
   }
 
-  struct stat new_stats;
-  if (stat(file.c_str(), &new_stats) == -1)
-  {
-    zusf->diag.e_msg_len = snprintf(
-        zusf->diag.e_msg, sizeof(zusf->diag.e_msg),
-        "Could not stat file '%s' after writing",
-        file.c_str());
-    return RTNCD_FAILURE;
-  }
-
-  const std::string new_tag = zut_build_etag(new_stats.st_mtime, new_stats.st_size);
-  strcpy(zusf->etag, new_tag.c_str());
-
-  return RTNCD_SUCCESS; // success
+  return zusf_set_written_etag(zusf, file, fd, [&temp]()
+  { return zut_etag_digest(temp); });
 }
 
 /**
@@ -1797,8 +2009,6 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
     ZDIAG_SET_MSG(&zusf->diag, "content_len must be a valid size_t pointer");
     return RTNCD_FAILURE;
   }
-
-  struct stat file_stats;
 
   // Use encoding provided in arguments, otherwise fall back to file tag encoding
   std::string encoding_to_use;
@@ -1823,25 +2033,21 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
     }
   }
 
-  int stat_result = stat(file.c_str(), &file_stats);
-  if (std::strlen(zusf->etag) > 0 && stat_result != -1)
-  {
-    const auto current_etag = zut_build_etag(file_stats.st_mtime, file_stats.st_size);
-    if (current_etag != zusf->etag)
-    {
-      ZDIAG_SET_MSG(&zusf->diag, "Etag mismatch: expected %s, actual %s", zusf->etag, current_etag.c_str());
-      return RTNCD_FAILURE;
-    }
-  }
-  if (stat_result == -1 && errno != ENOENT)
-    return RTNCD_FAILURE;
-  zusf->created = stat_result == -1;
-
   AutocvtGuard autocvt(false);
-  FileGuard fout(file.c_str(), zusf->encoding_opts.data_type == eDataTypeBinary ? "wb" : "w");
+  const int fd = zusf_open_for_write(zusf, file);
+  if (fd == -1)
+  {
+    return RTNCD_FAILURE;
+  }
+  FileGuard fout(fd, zusf->encoding_opts.data_type == eDataTypeBinary ? "wb" : "w");
   if (!fout)
   {
+    close(fd);
     ZDIAG_SET_MSG(&zusf->diag, "Could not open '%s'", file.c_str());
+    return RTNCD_FAILURE;
+  }
+  if (zusf_prepare_overwrite(zusf, file, fd) != RTNCD_SUCCESS)
+  {
     return RTNCD_FAILURE;
   }
 
@@ -1865,6 +2071,8 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
   std::vector<char> temp_encoded;
   std::vector<char> left_over;
   bool truncated = false;
+  // The written bytes are not kept, so digest them in case ctime cannot vouch for the new content
+  EtagHasher written;
 
   // Open iconv descriptor once for all chunks (for stateful encodings like IBM-939)
   iconv_t cd = (iconv_t)(-1);
@@ -1914,6 +2122,7 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
       truncated = true;
       break;
     }
+    written.update(chunk, chunk_len);
     temp_encoded.clear();
   }
 
@@ -1938,6 +2147,7 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
         {
           truncated = true;
         }
+        written.update(&flush_buffer[0], flush_buffer.size());
       }
     }
     catch (std::exception &e)
@@ -1962,17 +2172,8 @@ int zusf_write_to_uss_file_streamed(ZUSF *zusf, const std::string &file, const s
     zusf_chtag_uss_file_or_dir(zusf, file, encoding_to_use, false);
   }
 
-  if (stat(file.c_str(), &file_stats) == -1)
-  {
-    ZDIAG_SET_MSG(&zusf->diag, "Path '%s' does not exist", file.c_str());
-    return RTNCD_FAILURE;
-  }
-
-  // Print new e-tag to stdout as response
-  std::string etag_str = zut_build_etag(file_stats.st_mtime, file_stats.st_size);
-  strcpy(zusf->etag, etag_str.c_str());
-
-  return RTNCD_SUCCESS;
+  return zusf_set_written_etag(zusf, file, fd, [&written]()
+  { return written.hex_digest(); });
 }
 
 namespace

@@ -267,12 +267,11 @@ int handle_uss_view(InvocationContext &context)
 
     if (context.get<bool>("return-etag", false))
     {
-      const auto etag = zut_build_etag(file_stats.st_mtime, file_stats.st_size);
       if (!context.is_redirecting_output())
       {
-        context.output_stream() << "etag: " << etag << std::endl;
+        context.output_stream() << "etag: " << zusf.etag << std::endl;
       }
-      result->set("etag", str(etag));
+      result->set("etag", str(zusf.etag));
     }
 
     if (!context.is_redirecting_output())
@@ -296,13 +295,12 @@ int handle_uss_view(InvocationContext &context)
 
     if (context.get<bool>("return-etag", false))
     {
-      const auto etag = zut_build_etag(file_stats.st_mtime, file_stats.st_size);
       if (!context.is_redirecting_output())
       {
-        context.output_stream() << "etag: " << etag << std::endl;
+        context.output_stream() << "etag: " << zusf.etag << std::endl;
         context.output_stream() << "data: ";
       }
-      result->set("etag", str(etag));
+      result->set("etag", str(zusf.etag));
     }
 
     bool has_encoding = context.has("encoding");

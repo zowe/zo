@@ -103,7 +103,7 @@ typedef struct
   int32_t len;              // future use
 
   ZEncode encoding_opts;
-  char etag[9]; // 8 characters + null terminator
+  char etag[65]; // SHA-512/256 digest as 64 hex characters + null terminator
   unsigned char _etag_ddname_pad[7];
   char ddname[8];
 
