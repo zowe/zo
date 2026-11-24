@@ -41,12 +41,12 @@ module.exports = {
                 tarballDir: "dist",
             },
         ],
-        [
-            "@octorelease/pypi",
-            {
-                distPath: "dist/python/wheels",
-            },
-        ],
+        // [
+        //     "@octorelease/pypi",
+        //     {
+        //         distPath: "dist/python/wheels",
+        //     },
+        // ],
         [
             "@octorelease/github",
             {
