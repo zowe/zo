@@ -6,7 +6,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## Recent Changes
 
-- `c`: Updated `--response-format-csv` output to follow RFC 4180: fields that contain a comma, a double quote, or a control character are now enclosed in double quotes, with embedded double quotes doubled. The `zo uss list` text output (short, long, and CSV) now shows control characters and backslashes in file names as escape sequences, such as `\n`, `\t`, `\001`, and `\\`; the structured `--json` and RPC results still return the original names. [#XXXX](https://github.com/zowe/zo/pull/XXXX)
+- `c`: Updated `--response-format-csv` output to follow RFC 4180: fields that contain a comma, a double quote, or a control character are now enclosed in double quotes, with embedded double quotes doubled. The `zo uss list` text output (short, long, and CSV) now shows control characters and backslashes in file names as escape sequences, such as `\n`, `\t`, `\001`, and `\\`; the structured `--json` and RPC results still return the original names. [#1245](https://github.com/zowe/zo/pull/1245)
 
 ## `1.2.0`
 
