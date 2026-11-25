@@ -314,6 +314,26 @@ RDJFCB_MODEL(rdfjfcb_model);
 #endif
 
 #if defined(__IBM_METAL__)
+#define STOW_DELETE(dcb, list, rc, rsn)                       \
+  __asm(                                                      \
+      "*                                                  \n" \
+      " STOW %2,"                                             \
+      "%3,"                                                   \
+      "D                                                  \n" \
+      "*                                                  \n" \
+      " ST    15,%0     Save RC                           \n" \
+      " ST    0,%1      Save RSN                          \n" \
+      "*                                                    " \
+      : "=m"(rc),                                             \
+        "=m"(rsn)                                             \
+      : "m"(dcb),                                             \
+        "m"(list)                                             \
+      : "r0", "r1", "r14", "r15");
+#else
+#define STOW_DELETE(dcb, list, rc, rsn)
+#endif
+
+#if defined(__IBM_METAL__)
 #define NOTE(dcb, listaddr, rc, rsn)                          \
   __asm(                                                      \
       "*                                                  \n" \

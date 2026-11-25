@@ -4,6 +4,10 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- `c`: Implemented a shared-allocation fallback for member deletes to avoid `errno=91` (Failed to allocate data set / dataset open in another process). This would happen if the member was in a STEPLIB dataset of a running STC. [#1220](https://github.com/zowe/zo/pull/1220)
+
 ## `1.2.0`
 
 - `c`: Censor sensitive CLI argument values when logging. [#1234](https://github.com/zowe/zo/pull/1234)
