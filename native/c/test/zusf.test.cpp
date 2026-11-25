@@ -556,8 +556,8 @@ void zusf_tests()
   describe("zusf_chmod_uss_file_or_dir tests", [&]() -> void
   {
     ZUSF zusf{};
-    const std::string test_file = "/tmp/zusf_test_file.txt";
-    const std::string test_dir = "/tmp/zusf_test_dir";
+    const std::string test_file = get_random_uss("/tmp");
+    const std::string test_dir = get_random_uss("/tmp");
     const std::string nonexistent_file = "/tmp/nonexistent_file.txt";
 
     afterEach([&]() -> void
@@ -783,8 +783,8 @@ void zusf_tests()
   describe("zusf_get_file_ccsid tests", [&]() -> void
   {
     ZUSF zusf{};
-    const std::string test_file = "/tmp/zusf_ccsid_test_file.txt";
-    const std::string test_dir = "/tmp/zusf_ccsid_test_dir";
+    const std::string test_file = get_random_uss("/tmp");
+    const std::string test_dir = get_random_uss("/tmp");
     const std::string nonexistent_file = "/tmp/nonexistent_ccsid_file.txt";
 
     // --- Hooks ---
@@ -814,7 +814,7 @@ void zusf_tests()
 
       int result = zusf_get_file_ccsid(&zusf, test_dir);
       Expect(result).ToBe(RTNCD_FAILURE);
-      Expect(std::string(zusf.diag.e_msg)).ToBe("Path '/tmp/zusf_ccsid_test_dir' is a directory");
+      Expect(std::string(zusf.diag.e_msg)).ToBe("Path '" + test_dir + "' is a directory");
     });
 
     it("should return CCSID for a regular file", [&]() -> void
@@ -1021,8 +1021,8 @@ void zusf_tests()
   describe("zusf_format_file_entry tests", [&]() -> void
   {
     ZUSF zusf{};
-    const std::string test_file = "/tmp/zusf_format_test_file.txt";
-    const std::string test_dir = "/tmp/zusf_format_test_dir";
+    const std::string test_file = get_random_uss("/tmp");
+    const std::string test_dir = get_random_uss("/tmp");
 
     afterEach([&]() -> void
     {
@@ -1148,8 +1148,8 @@ void zusf_tests()
   describe("zusf_list_uss_file_path tests", [&]() -> void
   {
     ZUSF zusf{};
-    const std::string test_file = "/tmp/zusf_list_test_file.txt";
-    const std::string test_dir = "/tmp/zusf_list_test_dir";
+    const std::string test_file = get_random_uss("/tmp");
+    const std::string test_dir = get_random_uss("/tmp");
     const std::string nonexistent_path = "/tmp/nonexistent_path_for_list";
 
     it("should fail for nonexistent path", [&]() -> void
@@ -1179,7 +1179,7 @@ void zusf_tests()
       int result = zusf_list_uss_file_path(&zusf, test_file, response, options, false);
 
       Expect(result).ToBe(RTNCD_SUCCESS);
-      Expect(response).ToContain("zusf_list_test_file.txt");
+      Expect(response).ToContain(get_basename(test_file));
 
       // Cleanup
       unlink(test_file.c_str());
@@ -1200,7 +1200,7 @@ void zusf_tests()
       int result = zusf_list_uss_file_path(&zusf, test_file, response, options, false);
 
       Expect(result).ToBe(RTNCD_SUCCESS);
-      Expect(response).ToContain("zusf_list_test_file.txt");
+      Expect(response).ToContain(get_basename(test_file));
       Expect(response).ToContain("-rw-"); // file permissions
 
       // Cleanup
@@ -1338,7 +1338,7 @@ void zusf_tests()
 
       // CSV format should have commas
       Expect(response).ToContain(",");
-      Expect(response).ToContain("zusf_list_test_file.txt");
+      Expect(response).ToContain(get_basename(test_file));
 
       // Should have proper number of fields (8 fields = 7 commas)
       int comma_count = 0;
@@ -1406,7 +1406,7 @@ void zusf_tests()
     it("should list immediate children only with depth 1", [&]() -> void
     {
       // Create test directory structure
-      std::string test_dir = "/tmp/test_depth1_dir";
+      std::string test_dir = get_random_uss("/tmp");
       std::string sub_dir = test_dir + "/subdir";
       std::string file1 = test_dir + "/file1.txt";
       std::string file2 = sub_dir + "/file2.txt";
@@ -1451,7 +1451,7 @@ void zusf_tests()
     it("should return directory info when depth is 0 (like 'ls -d')", [&]() -> void
     {
       // Create test directory structure
-      std::string test_dir = "/tmp/test_depth0_dir";
+      std::string test_dir = get_random_uss("/tmp");
       std::string sub_dir = test_dir + "/subdir";
       std::string file1 = test_dir + "/file1.txt";
       std::string file2 = sub_dir + "/file2.txt";
@@ -1482,9 +1482,9 @@ void zusf_tests()
       int result = zusf_list_uss_file_path(&zusf, test_dir, response, options, false);
 
       Expect(result).ToBe(RTNCD_SUCCESS);
-      Expect(response).Not().ToBe("");               // Should return directory info, not empty
-      Expect(response).ToContain("test_depth0_dir"); // Should contain the directory name
-      Expect(response).Not().ToContain("file1.txt"); // Should NOT include actual directory contents
+      Expect(response).Not().ToBe("");                    // Should return directory info, not empty
+      Expect(response).ToContain(get_basename(test_dir)); // Should contain the directory name
+      Expect(response).Not().ToContain("file1.txt");      // Should NOT include actual directory contents
       Expect(response).Not().ToContain("subdir");
       Expect(response).Not().ToContain("subdir/file2.txt");
 
@@ -1498,7 +1498,7 @@ void zusf_tests()
     it("should include one level of subdirectories with depth 2", [&]() -> void
     {
       // Create test directory structure
-      std::string test_dir = "/tmp/test_depth2_dir";
+      std::string test_dir = get_random_uss("/tmp");
       std::string sub_dir = test_dir + "/subdir";
       std::string file1 = test_dir + "/file1.txt";
       std::string file2 = sub_dir + "/file2.txt";
@@ -1543,7 +1543,7 @@ void zusf_tests()
     it("should handle '.' and '..' entries correctly when all_files is set", [&]() -> void
     {
       // Create test directory structure
-      std::string test_dir = "/tmp/test_all_files_dir";
+      std::string test_dir = get_random_uss("/tmp");
       std::string sub_dir = test_dir + "/subdir";
       std::string file1 = test_dir + "/file1.txt";
 
@@ -1568,10 +1568,10 @@ void zusf_tests()
       int result = zusf_list_uss_file_path(&zusf, test_dir, response, options_depth0, false);
 
       Expect(result).ToBe(RTNCD_SUCCESS);
-      Expect(response).ToContain("test_all_files_dir"); // Should contain the directory name itself
-      Expect(response).Not().ToContain(".");            // Should NOT contain current directory entry with depth=0
-      Expect(response).Not().ToContain("..");           // Should NOT contain parent directory entry with depth=0
-      Expect(response).Not().ToContain("file1.txt");    // Should NOT include directory contents with depth 0
+      Expect(response).ToContain(get_basename(test_dir)); // Should contain the directory name itself
+      Expect(response).Not().ToContain(".");              // Should NOT contain current directory entry with depth=0
+      Expect(response).Not().ToContain("..");             // Should NOT contain parent directory entry with depth=0
+      Expect(response).Not().ToContain("file1.txt");      // Should NOT include directory contents with depth 0
       Expect(response).Not().ToContain("subdir");
 
       // Test with depth 1 and all_files = true
@@ -1666,7 +1666,7 @@ void zusf_tests()
       strcpy(zusf.encoding_opts.source_codepage, "IBM-1047");
       zusf.encoding_opts.data_type = eDataTypeText;
 
-      const std::string test_file = "/tmp/zusf_source_encoding_test.txt";
+      const std::string test_file = get_random_uss("/tmp");
 
       // Create a test file with some content
       unlink(test_file.c_str());
@@ -1746,7 +1746,7 @@ void zusf_tests()
       strcpy(zusf.encoding_opts.source_codepage, "UTF-8");
       zusf.encoding_opts.data_type = eDataTypeText;
 
-      const std::string test_file = "/tmp/zusf_create_with_source_encoding.txt";
+      const std::string test_file = get_random_uss("/tmp");
 
       // Cleanup any existing file
       unlink(test_file.c_str());
@@ -1775,7 +1775,7 @@ void zusf_tests()
       strcpy(zusf.encoding_opts.source_codepage, "IBM-037");
       zusf.encoding_opts.data_type = eDataTypeText;
 
-      const std::string test_dir = "/tmp/zusf_dir_source_encoding_test";
+      const std::string test_dir = get_random_uss("/tmp");
 
       // Cleanup any existing directory
       rmdir(test_dir.c_str());

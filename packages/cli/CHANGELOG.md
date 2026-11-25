@@ -4,7 +4,7 @@ All notable changes to the Client code for "zowex-for-zowe-cli" are documented i
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## Recent Changes
+## `1.2.0`
 
 - Added an optional `--dsn` field to the `zo system cert export`/`import` command, letting a certificate be exported to, or imported from, a sequential data set or PDS/E member on the server instead of a USS file. [#1126](https://github.com/zowe/zowex/pull/1126)
 - BugFix: Fixed an issue where the exit code of `zowe zo` commands would remain zero even when the commands terminated with an error. [#1230](https://github.com/zowe/zo/pull/1230)

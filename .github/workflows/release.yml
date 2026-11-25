@@ -115,21 +115,21 @@ jobs:
         run: |
           python -m pip install --only-binary :all: "twine==7.0.0"
 
-      - name: Download Python Wheel
-        if: ${{ env.TRAIN == 'Release' }}
-        run: gh run download "${{ github.run_id }}" --dir dist/python --name zowe-python-wheel
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # - name: Download Python Wheel
+      #   if: ${{ env.TRAIN == 'Release' }}
+      #   run: gh run download "${{ github.run_id }}" --dir dist/python --name zowe-python-wheel
+      #   env:
+      #     GH_TOKEN: ${{ github.token }}
 
-      - name: Check Python Wheel
-        if: ${{ env.TRAIN == 'Release' }}
-        working-directory: dist/python
-        run: |
-          sha256sum --check --strict *.whl.sha256
-          python -m twine check *.whl
-          # The PyPI plug-in uploads every file in its distribution directory.
-          mkdir wheels
-          mv *.whl wheels/
+      # - name: Check Python Wheel
+      #   if: ${{ env.TRAIN == 'Release' }}
+      #   working-directory: dist/python
+      #   run: |
+      #     sha256sum --check --strict *.whl.sha256
+      #     python -m twine check *.whl
+      #     # The PyPI plug-in uploads every file in its distribution directory.
+      #     mkdir wheels
+      #     mv *.whl wheels/
 
       - name: Run Octorelease
         if: ${{ env.TRAIN == 'Release' }}

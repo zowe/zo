@@ -1552,7 +1552,7 @@ void zds_tests()
     describe("list VSAM", [&]() -> void
     {
       std::string user = get_user();
-      std::string base = get_random_ds(2, user);
+      std::string base = get_random_ds(3, user);
       std::string ksds_dsn = base + ".VSAM.KSDS";
       std::string ksds_aix_dsn = base + ".VSAM.KAIX";
       std::string ksds_path_dsn = base + ".VSAM.KPTH";

@@ -371,11 +371,6 @@ private:
     }
   }
 
-  bool should_log(LogLevel level) const
-  {
-    return level >= ZLOGLEVEL_TRACE && level < ZLOGLEVEL_OFF && level >= m_level.load(std::memory_order_relaxed);
-  }
-
   __attribute__((noinline)) void write_message(LogLevel level, const char *message)
   {
     const std::lock_guard<std::mutex> lock(m_log_mutex);
@@ -463,6 +458,10 @@ public:
     close_log_file();
     m_pending_initialization = false;
     m_level.store(ZLOGLEVEL_OFF, std::memory_order_relaxed);
+  }
+  bool should_log(LogLevel level) const
+  {
+    return level >= ZLOGLEVEL_TRACE && level < ZLOGLEVEL_OFF && level >= m_level.load(std::memory_order_relaxed);
   }
 
   __attribute__((noinline)) void vlog(LogLevel level, const char *format, va_list args)
