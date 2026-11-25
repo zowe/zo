@@ -4,6 +4,10 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## Recent Changes
+
+- `python`: Added ABI3 wheels for the Python bindings, allowing the same wheel to run across supported Python versions without rebuilding. [#1240](https://github.com/zowe/zo/pull/1240)
+
 ## `1.2.0`
 
 - `c`: Censor sensitive CLI argument values when logging. [#1234](https://github.com/zowe/zo/pull/1234)

@@ -13,6 +13,7 @@ CC=ibm-clang64
 CXX=ibm-clang++64
 MC=xlc
 ASM=as
+PYTHON=python
 
 _CC_CCMODE=1
 _CXX_CCMODE=1
@@ -61,11 +62,14 @@ example_wrap.cxx: example.i example.h
 #
 build-ext: example_wrap.cxx example.cpp example.h setup.py zmetal.o hello.o
 	@echo 'Building Python extension'
-	python setup.py build_ext --inplace
+	$(PYTHON) setup.py build_ext --inplace
+
+abi3-wheel: example_wrap.cxx example.cpp example.h setup.py _example_runtime.py zmetal.o hello.o
+	env ABI3=1 $(PYTHON) setup.py build --build-base build/abi3 --force bdist_wheel --py-limited-api=cp311 --dist-dir dist/abi3
 
 test: build-ext
 	@echo 'Running example'
-	python -c "import example; print(example.hello_ascii('Zowe'))"
+	$(PYTHON) -c "import example; print(example.hello_ascii('Zowe'))"
 
 clean:
 	rm -f *.o
@@ -77,4 +81,4 @@ clean:
 	rm -f _example*.so
 	rm -rf build
 
-.PHONY: all build-ext test clean
+.PHONY: all build-ext abi3-wheel test clean
