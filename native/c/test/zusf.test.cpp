@@ -9,6 +9,7 @@
  *
  */
 
+#include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -98,6 +99,11 @@ struct ZusfMetadataFixture
     return std::to_string(geteuid()) + ":" + std::to_string(getegid());
   }
 };
+
+int count_lines(const std::string &text)
+{
+  return static_cast<int>(std::count(text.begin(), text.end(), '\n'));
+}
 }
 
 void zusf_tests()
@@ -1143,6 +1149,66 @@ void zusf_tests()
                             result.find("UTF-8") != std::string::npos || result.find("binary") != std::string::npos;
       Expect(has_ccsid_info).ToBe(true);
     });
+
+    const auto stat_new_test_file = [&]() -> struct stat
+    {
+      unlink(test_file.c_str());
+      std::ofstream file(test_file);
+      file.close();
+      struct stat file_stats{};
+      stat(test_file.c_str(), &file_stats);
+      return file_stats;
+    };
+
+    it("should escape control characters in the display name for short listing", [&]() -> void
+    {
+      const struct stat file_stats = stat_new_test_file();
+      ListOptions options{false, false, 1};
+      std::string result = zusf_format_file_entry(&zusf, file_stats, test_file, "line1\nline2\t\\end", options, false);
+
+      Expect(result).ToBe("line1\\nline2\\t\\\\end\n");
+    });
+
+    it("should keep an ls-style entry on one line when the display name has control characters", [&]() -> void
+    {
+      const struct stat file_stats = stat_new_test_file();
+      ListOptions options{false, true, 1};
+      std::string result = zusf_format_file_entry(&zusf, file_stats, test_file, "line1\nline2", options, false);
+
+      Expect(result).ToContain(" line1\\nline2\n");
+      Expect(count_lines(result)).ToBe(1);
+    });
+
+    it("should quote a CSV display name containing a comma or double quote", [&]() -> void
+    {
+      const struct stat file_stats = stat_new_test_file();
+      ListOptions options{false, true, 1};
+      std::string result = zusf_format_file_entry(&zusf, file_stats, test_file, "a,b \"c\"", options, true);
+
+      Expect(result).ToContain(",\"a,b \"\"c\"\"\"\n");
+      Expect(count_lines(result)).ToBe(1);
+    });
+
+    it("should escape control characters and quote the CSV display name in one record", [&]() -> void
+    {
+      const struct stat file_stats = stat_new_test_file();
+      ListOptions options{false, true, 1};
+      std::string result = zusf_format_file_entry(&zusf, file_stats, test_file, "line1\nline2,x", options, true);
+
+      Expect(result).ToContain(",\"line1\\nline2,x\"\n");
+      Expect(count_lines(result)).ToBe(1);
+    });
+
+    it("should keep the raw display name in structured entries", [&]() -> void
+    {
+      const struct stat file_stats = stat_new_test_file();
+      ListOptions options{false, true, 1};
+      std::vector<ZusfListEntry> entries;
+      zusf_format_file_entry(&zusf, file_stats, test_file, "line1\nline2,x", options, true, &entries);
+
+      Expect(entries.size()).ToBe(static_cast<size_t>(1));
+      Expect(entries[0].name).ToBe("line1\nline2,x");
+    });
   });
 
   describe("zusf_list_uss_file_path tests", [&]() -> void
@@ -1396,6 +1462,36 @@ void zusf_tests()
       // Cleanup
       unlink(hidden_file.c_str());
       rmdir(test_dir.c_str());
+    });
+
+    it("should list a file whose name contains control characters as one escaped entry", [&]() -> void
+    {
+      const std::string list_dir = get_random_uss("/tmp");
+      mkdir(list_dir.c_str(), 0755);
+      const std::string name = "line1\nline2,\"x\"";
+      const std::string file1 = list_dir + "/" + name;
+      std::ofstream f1(file1);
+      f1.close();
+
+      std::string response;
+      std::vector<ZusfListEntry> entries;
+      ListOptions short_options{false, false, 1};
+      Expect(zusf_list_uss_file_path(&zusf, list_dir, response, short_options, false, &entries)).ToBe(RTNCD_SUCCESS);
+      Expect(response).ToBe("line1\\nline2,\"x\"\n");
+      Expect(entries.size()).ToBe(static_cast<size_t>(1));
+      Expect(entries[0].name).ToBe(name);
+
+      ListOptions long_options{false, true, 1};
+      Expect(zusf_list_uss_file_path(&zusf, list_dir, response, long_options, false)).ToBe(RTNCD_SUCCESS);
+      Expect(response).ToContain(" line1\\nline2,\"x\"\n");
+      Expect(count_lines(response)).ToBe(1);
+
+      Expect(zusf_list_uss_file_path(&zusf, list_dir, response, long_options, true)).ToBe(RTNCD_SUCCESS);
+      Expect(response).ToContain(",\"line1\\nline2,\"\"x\"\"\"\n");
+      Expect(count_lines(response)).ToBe(1);
+
+      unlink(file1.c_str());
+      rmdir(list_dir.c_str());
     });
   });
 

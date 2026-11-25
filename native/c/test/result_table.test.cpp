@@ -201,6 +201,25 @@ void result_table_tests()
 
         Expect(fixture.output()).ToBe(std::string("jobid,owner\nJOB00042,IBMUSER\n"));
       });
+
+      it("quotes a cell containing a comma or a double quote", []()
+      {
+        TableFixture fixture(true);
+        fixture.table.add_column("dsname").add_column("note").add_column("id");
+        fixture.table.row().add("A,B").add("say \"hi\"").add(1).emit();
+
+        Expect(fixture.output()).ToBe(std::string("\"A,B\",\"say \"\"hi\"\"\",1\n"));
+      });
+
+      it("keeps a cell containing a line break inside one quoted record", []()
+      {
+        TableFixture fixture(true);
+        fixture.table.add_column("name").add_column("id");
+        fixture.table.row().add("line1\nline2").add(7).emit();
+        fixture.table.row().add("next").add(8).emit();
+
+        Expect(fixture.output()).ToBe(std::string("\"line1\nline2\",7\nnext,8\n"));
+      });
     });
 
     describe("cell helpers", []() -> void

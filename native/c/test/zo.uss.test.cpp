@@ -10,6 +10,7 @@
  */
 
 #include "ztest.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <ctime>
@@ -1047,10 +1048,36 @@ void zo_uss_tests()
         std::string listDepthCommand = zo_command + " uss ls " + ussTestDir + "/subDir1 -l --rfc";
         rc = execute_command_with_output(listDepthCommand, response);
         ExpectWithContext(rc, response).ToBe(0);
-        Expect(response).ToContain("comma,file,test.txt");
+        Expect(response).ToContain(",\"comma,file,test.txt\"\n");
 
         // cleanup
         execute_command_with_output(zo_command + " uss delete " + commaFile, response);
+      });
+      it("should keep each entry on one line when a file name contains control characters", [&]() -> void
+      {
+        const std::string listDir = get_random_uss(ussTestDir);
+        create_test_dir_cmd(listDir, "--mode 755");
+        const std::string controlFile = listDir + "/line1\nline2,\"x\"";
+        FILE *fp = fopen(controlFile.c_str(), "w");
+        ExpectWithContext(fp != nullptr, "Failed to create test file").ToBe(true);
+        fclose(fp);
+
+        rc = execute_command_with_output(zo_command + " uss ls " + listDir, response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToBe("line1\\nline2,\"x\"\n");
+
+        rc = execute_command_with_output(zo_command + " uss ls " + listDir + " -l", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain(" line1\\nline2,\"x\"\n");
+        Expect(static_cast<int>(std::count(response.begin(), response.end(), '\n'))).ToBe(1);
+
+        rc = execute_command_with_output(zo_command + " uss ls " + listDir + " -l --rfc", response);
+        ExpectWithContext(rc, response).ToBe(0);
+        Expect(response).ToContain(",\"line1\\nline2,\"\"x\"\"\"\n");
+        Expect(static_cast<int>(std::count(response.begin(), response.end(), '\n'))).ToBe(1);
+
+        unlink(controlFile.c_str());
+        rmdir(listDir.c_str());
       });
       it("should preserve symlink file type in long listing", [&]() -> void
       {

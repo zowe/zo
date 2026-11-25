@@ -22,6 +22,7 @@
 #include <sys/ps.h>
 #include <cerrno>
 #include <cstdio>
+#include <cctype>
 #include <cstring>
 #include <csignal>
 
@@ -1190,19 +1191,80 @@ std::string &zut_trim(std::string &s, const char *t)
   return zut_ltrim(zut_rtrim(s, t), t);
 }
 
+static bool zut_csv_needs_quotes(const std::string &field)
+{
+  return std::any_of(field.begin(), field.end(), [](char ch)
+                     { return ch == ',' || ch == '"' || iscntrl(static_cast<unsigned char>(ch)); });
+}
+
 std::string zut_format_as_csv(std::vector<std::string> &fields)
 {
   std::string formatted;
-  for (int i = 0; i < fields.size(); i++)
+  for (size_t i = 0; i < fields.size(); i++)
   {
-    formatted += zut_trim(fields.at(i));
-    if (i < fields.size() - 1)
+    if (i > 0)
     {
-      formatted += ",";
+      formatted += ',';
     }
+
+    const std::string &field = zut_trim(fields[i]);
+    if (!zut_csv_needs_quotes(field))
+    {
+      formatted += field;
+      continue;
+    }
+
+    formatted += '"';
+    for (const char ch : field)
+    {
+      if (ch == '"')
+      {
+        formatted += '"';
+      }
+      formatted += ch;
+    }
+    formatted += '"';
   }
 
   return formatted;
+}
+
+std::string zut_escape_control_chars(const std::string &input)
+{
+  std::string escaped;
+  escaped.reserve(input.size());
+  for (const char ch : input)
+  {
+    switch (ch)
+    {
+    case '\\':
+      escaped += "\\\\";
+      break;
+    case '\n':
+      escaped += "\\n";
+      break;
+    case '\r':
+      escaped += "\\r";
+      break;
+    case '\t':
+      escaped += "\\t";
+      break;
+    default:
+      if (iscntrl(static_cast<unsigned char>(ch)))
+      {
+        char octal[5];
+        snprintf(octal, sizeof(octal), "\\%03o", static_cast<unsigned int>(static_cast<unsigned char>(ch)));
+        escaped += octal;
+      }
+      else
+      {
+        escaped += ch;
+      }
+      break;
+    }
+  }
+
+  return escaped;
 }
 
 bool zut_string_compare_c(const std::string &a, const std::string &b)
