@@ -412,10 +412,10 @@ int zdsReadDynalloc(const std::string &, const std::string &, const std::string 
  * @param opts read options containing ZDS state and either a dsname or ddname. If both ddname and dsname are provided, ddname takes precedence.
  * @param pipe name of the output pipe
  * @param content_len pointer where the length of the data set contents will be stored
- * @param etag_checksum optional pointer where the Adler32 checksum of the raw content will be stored (nullptr to skip)
+ * @param etag optional pointer where the content etag (SHA-512/256 digest in hex) will be stored (nullptr to skip)
  * @return int 0 for success; non zero otherwise
  */
-int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *content_len, uint32_t *etag_checksum = nullptr);
+int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *content_len, std::string *etag = nullptr);
 
 /**
  * @brief Invoke the IDCAMS program and receive its SYSPRINT output.

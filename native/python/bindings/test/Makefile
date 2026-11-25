@@ -2,12 +2,18 @@ RESULTS_FILE := test_results.txt
 TEST_ZDS := test_zds.py
 TEST_ZJB := test_zjb.py
 TEST_ZUSF := test_zusf.py
+TEST_ZKR := test_zkr.py
+TEST_SWIG := test_swig_lifetimes.py
 TEST_ZDS_UTF8 := test_zds_utf8.py
 TEST_ZJB_UTF8 := test_zjb_utf8.py
 TEST_ZUSF_UTF8 := test_zusf_utf8.py
+TEST_ZKR_UTF8 := test_zkr_utf8.py
+TEST_SWIG_UTF8 := test_swig_lifetimes_utf8.py
 JUNIT_ZDS := results-zds.xml
 JUNIT_ZJB := results-zjb.xml
 JUNIT_ZUSF := results-zusf.xml
+JUNIT_ZKR := results-zkr.xml
+JUNIT_SWIG := results-swig.xml
 JUNIT_ALL := pybi_results.xml
 PY_ENV := export PYTHONIOENCODING=utf-8 && ./venv
 PIP := $(PY_ENV)/bin/pip
@@ -21,9 +27,11 @@ test: setup
 	@echo "=== Test Results - $$(date) ===" | tee $(RESULTS_FILE)
 	@echo | tee -a $(RESULTS_FILE)
 	@rm -f .tests_failed
-	@$(MAKE) test-zds 2>&1 | tee -a $(RESULTS_FILE) || touch .tests_failed
-	@$(MAKE) test-zjb 2>&1 | tee -a $(RESULTS_FILE) || touch .tests_failed
-	@$(MAKE) test-zusf 2>&1 | tee -a $(RESULTS_FILE) || touch .tests_failed
+	@for suite in zds zjb zusf zkr swig; do \
+		$(MAKE) test-$$suite > .suite-$$suite.log 2>&1 || touch .tests_failed; \
+		cat .suite-$$suite.log | tee -a $(RESULTS_FILE); \
+		rm -f .suite-$$suite.log; \
+	done
 	@$(MAKE) merge-results || touch .tests_failed
 	@echo | tee -a $(RESULTS_FILE)
 	@echo "=== Test Completed - $$(date) ===" | tee -a $(RESULTS_FILE)
@@ -50,9 +58,16 @@ test-zusf: $(TEST_ZUSF_UTF8)
 	@echo "Running USS tests..."
 	@$(PYTEST) $(TEST_ZUSF_UTF8) -v --junitxml=$(JUNIT_ZUSF) -o junit_suite_name=TestUSSFunctions
 
+test-zkr: $(TEST_ZKR_UTF8)
+	@echo "Running certificate/key ring tests..."
+	@$(PYTEST) $(TEST_ZKR_UTF8) -v --junitxml=$(JUNIT_ZKR) -o junit_suite_name=TestCertificates
+
+test-swig: $(TEST_SWIG_UTF8)
+	@$(PYTEST) $(TEST_SWIG_UTF8) -v --junitxml=$(JUNIT_SWIG) -o junit_suite_name=TestSwigLifetimes
+
 # Combines the per-suite JUnit reports into a single file so CI only needs to retrieve/publish one report
 merge-results:
-	@$(PY_ENV)/bin/python -c "import sys, os, xml.etree.ElementTree as ET; root = ET.Element('testsuites'); [root.append(s) for f in sys.argv[2:] if os.path.exists(f) for s in ET.parse(f).getroot()]; ET.ElementTree(root).write(sys.argv[1], xml_declaration=True, encoding='UTF-8')" $(JUNIT_ALL) $(JUNIT_ZDS) $(JUNIT_ZJB) $(JUNIT_ZUSF)
+	@$(PY_ENV)/bin/python -c "import sys, os, xml.etree.ElementTree as ET; root = ET.Element('testsuites'); [root.append(s) for f in sys.argv[2:] if os.path.exists(f) for s in ET.parse(f).getroot()]; ET.ElementTree(root).write(sys.argv[1], xml_declaration=True, encoding='UTF-8')" $(JUNIT_ALL) $(JUNIT_ZDS) $(JUNIT_ZJB) $(JUNIT_ZUSF) $(JUNIT_ZKR) $(JUNIT_SWIG)
 
 # Utility targets
 setup:
@@ -65,7 +80,7 @@ teardown:
 	@rm -rf __pycache__ venv requirements_utf8.txt
 
 clean: teardown
-	@rm -f test_results*.txt $(JUNIT_ZDS) $(JUNIT_ZJB) $(JUNIT_ZUSF) $(JUNIT_ALL) $(TEST_ZDS_UTF8) $(TEST_ZJB_UTF8) $(TEST_ZUSF_UTF8)
+	@rm -f test_results*.txt $(JUNIT_ZDS) $(JUNIT_ZJB) $(JUNIT_ZUSF) $(JUNIT_ZKR) $(JUNIT_SWIG) $(JUNIT_ALL) $(TEST_ZDS_UTF8) $(TEST_ZJB_UTF8) $(TEST_ZUSF_UTF8) $(TEST_ZKR_UTF8) $(TEST_SWIG_UTF8)
 
 help:
 	@echo "Available targets:"
@@ -73,9 +88,11 @@ help:
 	@echo "  test-zds    - Run dataset tests only"
 	@echo "  test-zjb    - Run job tests only"
 	@echo "  test-zusf   - Run USS tests only"
+	@echo "  test-zkr    - Run certificate/key ring tests only"
+	@echo "  test-swig   - Run cross-module iterator and result lifetime tests"
 	@echo "  clean       - Remove all test result files"
 	@echo "  setup       - Setup the test environment"
 	@echo "  teardown    - Teardown the test environment"
 	@echo "  help        - Show this help message"
 
-.PHONY: all test-zds test-zjb test-zusf merge-results clean-results help clean setup teardown
+.PHONY: all test-zds test-zjb test-zusf test-zkr test-swig merge-results clean-results help clean setup teardown

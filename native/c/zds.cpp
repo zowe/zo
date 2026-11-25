@@ -1818,19 +1818,10 @@ int zds_validate_etag(ZDS *zds, const std::string &dsn, bool has_encoding)
     return RTNCD_FAILURE;
   }
 
-  const auto given_etag = strtoul(zds->etag, nullptr, 16);
-  const auto new_etag = zut_calc_adler32_checksum(current_contents);
-
-  if (given_etag != new_etag)
+  const std::string actual_etag = zut_etag_digest(current_contents);
+  if (actual_etag != zds->etag)
   {
-    std::ostringstream ss;
-    ss << "Etag mismatch: expected ";
-    ss << std::hex << given_etag << std::dec;
-    ss << ", actual ";
-    ss << std::hex << new_etag << std::dec;
-
-    const auto error_msg = ss.str();
-    ZDIAG_SET_MSG(&zds->diag, "%s", error_msg.c_str());
+    ZDIAG_SET_MSG(&zds->diag, "Etag mismatch: expected %s, actual %s", zds->etag, actual_etag.c_str());
     return RTNCD_FAILURE;
   }
 
@@ -1986,9 +1977,7 @@ int zds_write(const ZDSWriteOpts &opts, const std::string &data)
     return RTNCD_FAILURE;
   }
 
-  std::stringstream etag_stream;
-  etag_stream << std::hex << zut_calc_adler32_checksum(saved_contents);
-  strcpy(zds->etag, etag_stream.str().c_str());
+  strcpy(zds->etag, zut_etag_digest(saved_contents).c_str());
 
   return rc;
 }
@@ -2132,9 +2121,7 @@ int zds_write_streamed(const ZDSWriteOpts &opts, const std::string &pipe, size_t
     return RTNCD_FAILURE;
   }
 
-  std::stringstream etag_stream;
-  etag_stream << std::hex << zut_calc_adler32_checksum(saved_contents);
-  strcpy(zds->etag, etag_stream.str().c_str());
+  strcpy(zds->etag, zut_etag_digest(saved_contents).c_str());
 
   return rc;
 }
@@ -2754,24 +2741,26 @@ int zds_list_members(ZDS *zds, std::string dsn, std::vector<ZDSMem> &members, co
 
   while (fread(&rec, sizeof(rec), 1, fp))
   {
-    if (rec.count > RECLEN)
+    if (rec.count == 0)
+      continue; // unused directory block
+    constexpr int count_size = sizeof(rec.count);
+    constexpr int block_size = sizeof(rec);
+    if ((rec.count < count_size || rec.count > block_size) && !corrupt_directory_block)
     {
-      if (!corrupt_directory_block)
-      {
-        ZDIAG_SET_MSG(&zds->diag, "Corrupt PDS directory block encountered for '%s': used-count %hu exceeds %d bytes; results may be incomplete", dsn.c_str(), rec.count, RECLEN);
-        zds->diag.detail_rc = ZDS_RSNCD_TRUNCATION_WARNING;
-        corrupt_directory_block = true;
-      }
-      rec.count = RECLEN;
+      ZDIAG_SET_MSG(&zds->diag, "Corrupt PDS directory block encountered for '%s': used-count %hu outside %d..%d bytes; results may be incomplete", dsn.c_str(), rec.count, count_size, block_size);
+      zds->diag.detail_rc = ZDS_RSNCD_TRUNCATION_WARNING;
+      corrupt_directory_block = true;
     }
 
+    // The on-disk count includes its own two-byte field.
+    const int data_length = std::clamp<int>(rec.count, count_size, block_size) - count_size;
     unsigned char *data = nullptr;
     data = (unsigned char *)&rec;
     data += sizeof(rec.count); // increment past halfword length
     int len = sizeof(RECORD_ENTRY);
-    for (int i = 0; i < rec.count; i = i + len)
+    for (int i = 0; i < data_length; i = i + len)
     {
-      if (i + (int)sizeof(RECORD_ENTRY) > rec.count)
+      if (i + (int)sizeof(RECORD_ENTRY) > data_length)
       {
         break;
       }
@@ -2827,7 +2816,7 @@ int zds_list_members(ZDS *zds, std::string dsn, std::vector<ZDSMem> &members, co
           int user_data_len = info * 2; // convert halfwords to bytes
 
           if (show_attributes && user_data_len >= (int)sizeof(ISPF_STATS) &&
-              i + (int)sizeof(entry) + user_data_len <= rec.count)
+              i + (int)sizeof(entry) + user_data_len <= data_length)
           {
             const ISPF_STATS *stats = reinterpret_cast<const ISPF_STATS *>(data + sizeof(entry));
             mem.stats_valid = is_valid_ispf_stats(stats, user_data_len);
@@ -2865,7 +2854,7 @@ int zds_list_members(ZDS *zds, std::string dsn, std::vector<ZDSMem> &members, co
         data += sizeof(entry) + info * 2;
         len = sizeof(entry) + info * 2;
 
-        int remainder = rec.count - (i + len);
+        int remainder = data_length - (i + len);
         if (remainder < sizeof(entry))
           break;
       }
@@ -3945,7 +3934,7 @@ int zds_list_data_sets(ZDS *zds, std::string dsn, std::vector<ZDSEntry> &dataset
  *
  * @return RTNCD_SUCCESS on success, RTNCD_FAILURE on failure
  */
-int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *content_len, uint32_t *etag_checksum)
+int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *content_len, std::string *etag)
 {
   const int vrc = zds_validate_read_opts(opts, "zds_read_streamed");
   if (vrc != RTNCD_SUCCESS)
@@ -3961,8 +3950,12 @@ int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *
     return RTNCD_FAILURE;
   }
 
-  // Initialize incremental Adler32 state for etag computation
-  Adler32State adler_state;
+  // Digest the content as it streams so the etag needs no second read
+  std::optional<EtagHasher> hasher;
+  if (etag)
+  {
+    hasher.emplace();
+  }
 
   const std::string dsname = zds_resolve_dsname(opts);
   const auto is_dd = !opts.ddname.empty();
@@ -4073,8 +4066,8 @@ int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *
       }
 
       *content_len += chunk_len;
-      if (etag_checksum)
-        zut_adler32_update(adler_state, chunk, chunk_len);
+      if (hasher)
+        hasher->update(chunk, chunk_len);
       temp_encoded = zbase64::encode(chunk, chunk_len, &left_over);
       fwrite(&temp_encoded[0], 1, temp_encoded.size(), fout);
     }
@@ -4102,8 +4095,8 @@ int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *
       }
 
       *content_len += chunk_len;
-      if (etag_checksum)
-        zut_adler32_update(adler_state, chunk, chunk_len);
+      if (hasher)
+        hasher->update(chunk, chunk_len);
       temp_encoded = zbase64::encode(chunk, chunk_len, &left_over);
       fwrite(&temp_encoded[0], 1, temp_encoded.size(), fout);
     }
@@ -4141,8 +4134,8 @@ int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *
       }
 
       *content_len += chunk_len;
-      if (etag_checksum)
-        zut_adler32_update(adler_state, chunk, chunk_len);
+      if (hasher)
+        hasher->update(chunk, chunk_len);
       temp_encoded = zbase64::encode(chunk, chunk_len, &left_over);
       fwrite(&temp_encoded[0], 1, temp_encoded.size(), fout);
     }
@@ -4163,8 +4156,8 @@ int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *
       if (!flush_buffer.empty())
       {
         *content_len += flush_buffer.size();
-        if (etag_checksum)
-          zut_adler32_update(adler_state, &flush_buffer[0], flush_buffer.size());
+        if (hasher)
+          hasher->update(&flush_buffer[0], flush_buffer.size());
         temp_encoded = zbase64::encode(&flush_buffer[0], flush_buffer.size(), &left_over);
         fwrite(&temp_encoded[0], 1, temp_encoded.size(), fout);
       }
@@ -4184,8 +4177,8 @@ int zds_read_streamed(const ZDSReadOpts &opts, const std::string &pipe, size_t *
 
   fflush(fout);
 
-  if (etag_checksum)
-    *etag_checksum = zut_adler32_finalize(adler_state);
+  if (hasher)
+    *etag = hasher->hex_digest();
 
   return RTNCD_SUCCESS;
 }

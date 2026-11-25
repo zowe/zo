@@ -37,6 +37,7 @@
 #include <ios>
 #include "zuttype.h"
 #include <vector>
+#include <stdexcept>
 #include <array>
 #include <spawn.h>
 #include <sys/wait.h>
@@ -591,15 +592,6 @@ int zut_bpxwdyn_rtdsn(const std::string &parm, unsigned int *code, std::string &
   return zut_bpxwdyn_common(parm, code, resp, ddname, dsname);
 }
 
-std::string zut_build_etag(const size_t mtime, const size_t byte_size)
-{
-  std::stringstream ss;
-  ss << std::hex << mtime;
-  ss << "-";
-  ss << std::hex << byte_size;
-  return ss.str();
-}
-
 int zut_get_current_user(std::string &struser)
 {
   int rc = 0;
@@ -818,49 +810,115 @@ char zut_get_hex_char(int num)
   return "0123456789ABCDEF"[num & 0xF];
 }
 
-// built from pseudocode in https://en.wikipedia.org/wiki/Adler-32#Calculation
-void zut_adler32_update(Adler32State &state, const char *data, size_t len)
+namespace
 {
-  const uint32_t MOD_ADLER = 65521u;
-  const size_t block_size = 16;
-  size_t i = 0;
+// KIMD/KLMD function codes (z/Architecture Principles of Operation, message-security assist)
+constexpr uint64_t CPACF_QUERY = 0;
+constexpr uint64_t CPACF_SHA_512 = 3;
+constexpr size_t SHA_512_BLOCK_SIZE = 128;
+// Small updates (e.g. one record at a time) are buffered so each Metal C call digests a large span
+constexpr size_t ETAG_HASHER_BUFFER_SIZE = 256 * SHA_512_BLOCK_SIZE;
 
-  // Process data in blocks of 16 bytes
-  while (i + block_size <= len)
+// SHA-512/256 initial hash value (FIPS 180-4, 5.3.6.2); KIMD-SHA-512 continues from any chaining value
+constexpr uint64_t SHA_512_256_IV[8] = {0x22312194FC2BF72CULL, 0x9F555FA3C84C64C2ULL, 0x2393B86B6F53B151ULL,
+                                        0x963877195940EABDULL, 0x96283EE2A88EFFE3ULL, 0xBE5E1E2553863992ULL,
+                                        0x2B0199FC2C85B8AAULL, 0x0EB72DDC81C52CA2ULL};
+
+bool cpacf_sha_512_installed()
+{
+  unsigned char kimd_status[16] = {0};
+  unsigned char klmd_status[16] = {0};
+  ZUTM_DIGEST_REQ kimd_query = {CPACF_QUERY, kimd_status, nullptr, 0};
+  ZUTM_DIGEST_REQ klmd_query = {CPACF_QUERY, klmd_status, nullptr, 0};
+  ZUTMKIMD(&kimd_query);
+  ZUTMKLMD(&klmd_query);
+
+  const unsigned char mask = 0x80 >> (CPACF_SHA_512 % 8);
+  return (kimd_status[CPACF_SHA_512 / 8] & mask) != 0 && (klmd_status[CPACF_SHA_512 / 8] & mask) != 0;
+}
+} // namespace
+
+EtagHasher::EtagHasher()
+    : m_param(), m_total_len(0)
+{
+  static const bool sha_512_installed = cpacf_sha_512_installed();
+  if (!sha_512_installed)
   {
-    for (size_t j = 0; j < block_size; j++)
+    throw std::runtime_error("CPACF SHA-512 (KIMD/KLMD function code 3) is not available");
+  }
+  memcpy(m_param.chaining_value, SHA_512_256_IV, sizeof(m_param.chaining_value));
+  m_pending.reserve(ETAG_HASHER_BUFFER_SIZE);
+}
+
+void EtagHasher::digest_blocks(const char *data, size_t len)
+{
+  ZUTM_DIGEST_REQ req = {CPACF_SHA_512, &m_param, data, len};
+  ZUTMKIMD(&req);
+}
+
+void EtagHasher::update(const char *data, size_t len)
+{
+  if (!m_digest.empty())
+  {
+    throw std::logic_error("EtagHasher::update called after hex_digest");
+  }
+  m_total_len += len;
+
+  if (!m_pending.empty())
+  {
+    const size_t take = std::min(len, ETAG_HASHER_BUFFER_SIZE - m_pending.size());
+    m_pending.insert(m_pending.end(), data, data + take);
+    data += take;
+    len -= take;
+    if (m_pending.size() < ETAG_HASHER_BUFFER_SIZE)
     {
-      state.a += static_cast<uint8_t>(data[i + j]);
-      state.b += state.a;
+      return;
     }
-
-    state.a %= MOD_ADLER;
-    state.b %= MOD_ADLER;
-    i += block_size;
+    digest_blocks(m_pending.data(), m_pending.size());
+    m_pending.clear();
   }
 
-  // Process remaining bytes
-  while (i < len)
+  if (len >= ETAG_HASHER_BUFFER_SIZE)
   {
-    state.a += static_cast<uint8_t>(data[i]);
-    state.b += state.a;
-    i++;
+    const size_t whole_blocks = len / SHA_512_BLOCK_SIZE * SHA_512_BLOCK_SIZE;
+    digest_blocks(data, whole_blocks);
+    data += whole_blocks;
+    len -= whole_blocks;
+  }
+  m_pending.insert(m_pending.end(), data, data + len);
+}
+
+std::string EtagHasher::hex_digest()
+{
+  if (!m_digest.empty())
+  {
+    return m_digest;
   }
 
-  state.a %= MOD_ADLER;
-  state.b %= MOD_ADLER;
+  // KLMD pads and digests the tail; the message length is a 128-bit count of bits
+  m_param.message_bits_high = m_total_len >> 61;
+  m_param.message_bits_low = m_total_len << 3;
+  ZUTM_DIGEST_REQ req = {CPACF_SHA_512, &m_param, m_pending.data(), m_pending.size()};
+  ZUTMKLMD(&req);
+  m_pending.clear();
+
+  // SHA-512/256 is the leading 256 bits of the (big-endian) chaining value
+  static const char digits[] = "0123456789abcdef";
+  const auto *bytes = reinterpret_cast<const unsigned char *>(m_param.chaining_value);
+  m_digest.reserve(64);
+  for (size_t i = 0; i < 32; i++)
+  {
+    m_digest += digits[bytes[i] >> 4];
+    m_digest += digits[bytes[i] & 0x0f];
+  }
+  return m_digest;
 }
 
-uint32_t zut_adler32_finalize(const Adler32State &state)
+std::string zut_etag_digest(const std::string &input)
 {
-  return (state.b << 16) | state.a;
-}
-
-uint32_t zut_calc_adler32_checksum(const std::string &input)
-{
-  Adler32State state;
-  zut_adler32_update(state, input.data(), input.length());
-  return zut_adler32_finalize(state);
+  EtagHasher hasher;
+  hasher.update(input.data(), input.size());
+  return hasher.hex_digest();
 }
 
 /**

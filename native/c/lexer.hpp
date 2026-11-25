@@ -939,6 +939,12 @@ public:
     lexer.lex_all();
     return lexer.m_tokens;
   }
+  static size_t quoted_value_end(const std::string &value)
+  {
+    Src src = Src::from_string(value, "<quoted>");
+    Lexer lexer(src);
+    return lexer.lex_string(0).get_span().end;
+  }
 
 private:
   // private constructor - only used internally by the static tokenize method

@@ -239,35 +239,48 @@ void zut_print_string_as_bytes(std::string &input, std::ostream *out_stream = nu
 std::vector<uint8_t> zut_get_contents_as_bytes(const std::string &hex_string);
 
 /**
- * @brief State for incremental Adler-32 checksum computation
+ * @brief Incremental SHA-512/256 digest computed with CPACF (KIMD/KLMD), used to build content etags
  */
-struct Adler32State
+class EtagHasher
 {
-  uint32_t a = 1u;
-  uint32_t b = 0u;
+public:
+  EtagHasher();
+
+  /**
+   * @brief Add data to the digest
+   * @param data Pointer to the data
+   * @param len Length of the data
+   */
+  void update(const char *data, size_t len);
+
+  /**
+   * @brief Finish the digest; later calls return the same value
+   * @return The digest as 64 lowercase hexadecimal characters
+   */
+  std::string hex_digest();
+
+private:
+  struct ParameterBlock
+  {
+    uint64_t chaining_value[8];
+    uint64_t message_bits_high;
+    uint64_t message_bits_low;
+  };
+
+  void digest_blocks(const char *data, size_t len);
+
+  ParameterBlock m_param;
+  uint64_t m_total_len;
+  std::vector<char> m_pending;
+  std::string m_digest;
 };
 
 /**
- * @brief Update Adler-32 state with new data incrementally
- * @param state The current Adler-32 state
- * @param data Pointer to the data
- * @param len Length of the data
- */
-void zut_adler32_update(Adler32State &state, const char *data, size_t len);
-
-/**
- * @brief Finalize the Adler-32 checksum from the given state
- * @param state The Adler-32 state
- * @return The final Adler-32 checksum
- */
-uint32_t zut_adler32_finalize(const Adler32State &state);
-
-/**
- * @brief Calculate the Adler-32 checksum of a string
+ * @brief Calculate the content etag (SHA-512/256 digest in hex) of a string
  * @param input The input string
- * @return The Adler-32 checksum
+ * @return The digest as 64 lowercase hexadecimal characters
  */
-uint32_t zut_calc_adler32_checksum(const std::string &input);
+std::string zut_etag_digest(const std::string &input);
 
 /**
  * @brief Perform character set conversion using iconv
@@ -286,14 +299,6 @@ size_t zut_iconv(iconv_t cd, ZConvData &data, ZDIAG &diag, bool flush_state = tr
  * @return Vector containing the flushed bytes (empty on error)
  */
 std::vector<char> zut_iconv_flush(iconv_t cd, ZDIAG &diag);
-
-/**
- * @brief Build an ETag string from file modification time and size
- * @param mtime Modification time
- * @param byte_size File size in bytes
- * @return Generated ETag string
- */
-std::string zut_build_etag(const size_t mtime, const size_t byte_size);
 
 /**
  * @brief Encode a string from one character set to another

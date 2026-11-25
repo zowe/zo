@@ -13,6 +13,20 @@
 #include <unistd.h>
 #include <stdexcept>
 
+namespace
+{
+void set_encoding_opts(ZDS &zds, const std::string &codepage)
+{
+  if (codepage.empty())
+    return;
+
+  zds.encoding_opts.data_type = codepage == "binary" ? eDataTypeBinary : eDataTypeText;
+  std::string encoded = codepage;
+  a2e_inplace(encoded);
+  strncpy(zds.encoding_opts.codepage, encoded.c_str(), sizeof(zds.encoding_opts.codepage) - 1);
+}
+} // namespace
+
 /**
  * Dataset Functions
  */
@@ -78,11 +92,7 @@ std::string read_data_set(std::string dsn, std::string codepage)
 {
   ZDS zds{};
 
-  if (!codepage.empty())
-  {
-    zds.encoding_opts.data_type = codepage == "binary" ? eDataTypeBinary : eDataTypeText;
-    strncpy(zds.encoding_opts.codepage, codepage.c_str(), sizeof(zds.encoding_opts.codepage) - 1);
-  }
+  set_encoding_opts(zds, codepage);
 
   a2e_inplace(dsn);
   ZDSReadOpts read_opts{.zds = &zds, .dsname = dsn};
@@ -98,7 +108,8 @@ std::string read_data_set(std::string dsn, std::string codepage)
     throw std::runtime_error(diag);
   }
 
-  e2a_inplace(response);
+  if (codepage.empty())
+    e2a_inplace(response);
   return response;
 }
 
@@ -106,19 +117,18 @@ std::string write_data_set(std::string dsn, std::string data, std::string codepa
 {
   ZDS zds = {0};
 
-  if (!codepage.empty())
-  {
-    zds.encoding_opts.data_type = codepage == "binary" ? eDataTypeBinary : eDataTypeText;
-    strncpy(zds.encoding_opts.codepage, codepage.c_str(), sizeof(zds.encoding_opts.codepage) - 1);
-  }
+  set_encoding_opts(zds, codepage);
 
   if (!etag.empty())
   {
-    strncpy(zds.etag, etag.c_str(), sizeof(zds.etag) - 1);
+    std::string encoded_etag = etag;
+    a2e_inplace(encoded_etag);
+    strncpy(zds.etag, encoded_etag.c_str(), sizeof(zds.etag) - 1);
   }
 
   a2e_inplace(dsn);
-  a2e_inplace(data);
+  if (codepage.empty())
+    a2e_inplace(data);
   int rc = zds_write({.zds = &zds, .dsname = dsn}, data);
 
   if (rc != 0)

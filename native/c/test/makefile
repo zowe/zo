@@ -118,6 +118,7 @@ build-out/zds.o \
 build-out/zdsm.o \
 build-out/zkr.test.o \
 build-out/zkr.o \
+build-out/zkrio.o \
 build-out/zam.o \
 build-out/zam24.o \
 build-out/zjb.test.o \
@@ -145,6 +146,8 @@ build-out/zo.tso.test.o \
 build-out/zo.plugin.test.o \
 build-out/zoa.console.test.o \
 build-out/zutils.o \
+build-out/censor.o \
+build-out/censor.test.o \
 build-out/parser.test.o \
 build-out/result_table.test.o \
 build-out/zlogger.test.o \
@@ -191,6 +194,9 @@ build-out/zdsm.o:
 build-out/zkr.o:
 	ln -sf ../../build-out/zkr.o build-out/zkr.o
 
+build-out/zkrio.o:
+	ln -sf ../../build-out/zkrio.o build-out/zkrio.o
+
 build-out/zam.o:
 	ln -sf ../../build-out/zam.o build-out/zam.o
 
@@ -214,6 +220,9 @@ build-out/zcnm31.o:
 
 build-out/zusf.o:
 	ln -sf ../../build-out/zusf.o build-out/zusf.o
+
+build-out/censor.o:
+	ln -sf ../../build-out/censor.o build-out/censor.o
 
 build-out/server_validator.o:
 	ln -sf ../../build-out/server/validator.o build-out/server_validator.o
@@ -321,6 +330,9 @@ build-out/zmetal.metal.test.o: build-out/zmetal.metal.test.s
 	$(ASM) $(ASM_FLAGS) $(ASM_LIST_FLAG) $(MACLIBS) -o $@ $^
 
 build-out/zusf.test.o: zusf.test.cpp
+	$(CXX) $(CXXFLAGS) $(CPP_LIST_FLAG) -c $^ -o $@
+
+build-out/censor.test.o: censor.test.cpp
 	$(CXX) $(CXXFLAGS) $(CPP_LIST_FLAG) -c $^ -o $@
 
 build-out/parser.test.o: parser.test.cpp

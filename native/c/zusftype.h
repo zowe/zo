@@ -40,7 +40,7 @@ typedef struct
   char file_name[1024]; // filename
 
   ZEncode encoding_opts;
-  char etag[34]; // Two 64-bit hex values, separator, and null terminator
+  char etag[128]; // inode-ctime.usec-size in hex, plus "-" and a SHA-512/256 digest when ctime lacks microseconds
 
   ZDIAG diag;
 
