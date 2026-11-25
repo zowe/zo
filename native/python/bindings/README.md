@@ -142,9 +142,8 @@ You can also select the installation for one invocation:
 ZPY_PYTHON_ROOT=/path/to/build-python/installation npm run z:python:wheel
 ```
 
-The former `--allow-missing-runtimes` flag is unnecessary: other Python versions
-are never required for the build. A missing baseline interpreter, unsupported Python,
-or failed runtime probe still fails the build.
+A missing build interpreter, unsupported Python, or failed runtime probe still
+fails the build.
 
 If `PIP_INDEX_URL` is set locally, it is passed through SSH input to pip without
 putting its credentials in command arguments; otherwise the remote profile's
