@@ -4,7 +4,7 @@ All notable changes to the native code for "zowex" are documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## Recent Changes
+## `1.2.0`
 
 - `c`: Censor sensitive CLI argument values when logging. [#1234](https://github.com/zowe/zo/pull/1234)
 - `python`: Preserve certificate data set password checks and failed-write cleanup in the shared I/O helpers. [#1181](https://github.com/zowe/zowex/pull/1181)
