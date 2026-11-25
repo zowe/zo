@@ -1147,7 +1147,7 @@ void zut_tests()
         }
         const std::string escaped = zut_escape_control_chars(input);
         const bool has_control = std::any_of(escaped.begin(), escaped.end(), [](char ch)
-                                             { return iscntrl(static_cast<unsigned char>(ch)) != 0; });
+        { return iscntrl(static_cast<unsigned char>(ch)) != 0; });
         expect(has_control).ToBe(false);
       });
     });

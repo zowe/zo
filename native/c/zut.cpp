@@ -1194,7 +1194,7 @@ std::string &zut_trim(std::string &s, const char *t)
 static bool zut_csv_needs_quotes(const std::string &field)
 {
   return std::any_of(field.begin(), field.end(), [](char ch)
-                     { return ch == ',' || ch == '"' || iscntrl(static_cast<unsigned char>(ch)); });
+  { return ch == ',' || ch == '"' || iscntrl(static_cast<unsigned char>(ch)); });
 }
 
 std::string zut_format_as_csv(std::vector<std::string> &fields)
