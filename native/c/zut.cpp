@@ -1238,23 +1238,25 @@ std::string zut_escape_control_chars(const std::string &input)
     switch (ch)
     {
     case '\\':
-      escaped += "\\\\";
+      escaped += R"(\\)";
       break;
     case '\n':
-      escaped += "\\n";
+      escaped += R"(\n)";
       break;
     case '\r':
-      escaped += "\\r";
+      escaped += R"(\r)";
       break;
     case '\t':
-      escaped += "\\t";
+      escaped += R"(\t)";
       break;
     default:
       if (iscntrl(static_cast<unsigned char>(ch)))
       {
-        char octal[5];
-        snprintf(octal, sizeof(octal), "\\%03o", static_cast<unsigned int>(static_cast<unsigned char>(ch)));
-        escaped += octal;
+        const auto byte = static_cast<unsigned char>(ch);
+        escaped += '\\';
+        escaped += static_cast<char>('0' + ((byte >> 6) & 07));
+        escaped += static_cast<char>('0' + ((byte >> 3) & 07));
+        escaped += static_cast<char>('0' + (byte & 07));
       }
       else
       {
