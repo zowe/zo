@@ -330,10 +330,27 @@ std::vector<char> zut_encode(const char *input_str, const size_t input_size, ico
 
 /**
  * @brief Format a vector of strings as a CSV line
- * @param fields Vector of fields
+ *
+ * Each field is trimmed of surrounding spaces. A field containing a comma, a
+ * double quote, or a control character (including line breaks) is enclosed in
+ * double quotes with any embedded double quotes doubled, per RFC 4180.
+ *
+ * @param fields Vector of fields (trimmed in place)
  * @return CSV-formatted string
  */
 std::string zut_format_as_csv(std::vector<std::string> &fields);
+
+/**
+ * @brief Escape control characters so a string displays on a single line
+ *
+ * Newline, carriage return, and tab become `\n`, `\r`, and `\t`; any other
+ * control character becomes a three-digit octal escape such as `\001`. A
+ * backslash becomes `\\` so escaped output stays unambiguous.
+ *
+ * @param input String to escape
+ * @return Escaped copy of the string
+ */
+std::string zut_escape_control_chars(const std::string &input);
 
 /**
  * @brief Convert an integer to an uppercase hexadecimal string

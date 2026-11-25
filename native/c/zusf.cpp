@@ -1108,7 +1108,7 @@ int zusf_move_uss_file_or_dir(ZUSF *zusf, const std::string &source, const std::
  * @param zusf pointer to a ZUSF object
  * @param file_stats stat structure for the file
  * @param file_path full path to the file (for CCSID lookup)
- * @param display_name name to display in the listing
+ * @param display_name name to display in the listing (control characters are escaped in the text output)
  * @param options listing options (all_files, long_format)
  * @param use_csv_format whether to use CSV format or ls-style format
  *
@@ -1133,9 +1133,11 @@ std::string zusf_format_file_entry(ZUSF *zusf, const struct stat &file_stats, co
     entries->push_back(entry);
   }
 
+  const std::string name = zut_escape_control_chars(display_name);
+
   if (!options.long_format)
   {
-    return display_name + "\n";
+    return name + "\n";
   }
 
   const std::string mode = zusf_build_mode_string(file_stats.st_mode);
@@ -1154,7 +1156,7 @@ std::string zusf_format_file_entry(ZUSF *zusf, const struct stat &file_stats, co
     fields.push_back(std::to_string(file_stats.st_size));
     fields.push_back(ccsid);
     fields.push_back(time_str);
-    fields.push_back(display_name);
+    fields.push_back(name);
     return zut_format_as_csv(fields) + "\n";
   }
   else
@@ -1174,7 +1176,7 @@ std::string zusf_format_file_entry(ZUSF *zusf, const struct stat &file_stats, co
        << " " << std::setw(8) << zusf_get_group_from_gid(file_stats.st_gid)
        << " " << std::right << std::setw(8) << file_stats.st_size
        << " " << time_str
-       << " " << display_name << "\n";
+       << " " << name << "\n";
     return ss.str();
   }
 }

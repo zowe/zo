@@ -9,6 +9,8 @@
  *
  */
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -1053,6 +1055,100 @@ void zut_tests()
         expect(offset).ToBe(data.size());
         expect(hasher.hex_digest()).ToBe("14271b3d36ca983ae2da2693d995fe68412c0bd5394ec2f05b763586db6e24fd");
         expect(zut_etag_digest(data)).ToBe("14271b3d36ca983ae2da2693d995fe68412c0bd5394ec2f05b763586db6e24fd");
+      });
+    });
+
+    describe("zut_format_as_csv", []() -> void
+    {
+      it("should join plain fields with commas", []() -> void
+      {
+        std::vector<std::string> fields = {"-rw-r--r--", "1", "IBMUSER", "file.txt"};
+        expect(zut_format_as_csv(fields)).ToBe("-rw-r--r--,1,IBMUSER,file.txt");
+      });
+
+      it("should trim surrounding spaces from each field", []() -> void
+      {
+        std::vector<std::string> fields = {"JOB00042  ", "  IBMUSER"};
+        expect(zut_format_as_csv(fields)).ToBe("JOB00042,IBMUSER");
+      });
+
+      it("should keep empty fields", []() -> void
+      {
+        std::vector<std::string> fields = {"", "A", ""};
+        expect(zut_format_as_csv(fields)).ToBe(",A,");
+      });
+
+      it("should quote a field containing a comma", []() -> void
+      {
+        std::vector<std::string> fields = {"a,b", "c"};
+        expect(zut_format_as_csv(fields)).ToBe("\"a,b\",c");
+      });
+
+      it("should quote a field containing a double quote and double the embedded quotes", []() -> void
+      {
+        std::vector<std::string> fields = {"say \"hi\"", "\"", "x"};
+        expect(zut_format_as_csv(fields)).ToBe("\"say \"\"hi\"\"\",\"\"\"\",x");
+      });
+
+      it("should quote a field containing a line break", []() -> void
+      {
+        std::vector<std::string> fields = {"line1\nline2", "line3\r", "x"};
+        expect(zut_format_as_csv(fields)).ToBe("\"line1\nline2\",\"line3\r\",x");
+      });
+
+      it("should quote a field containing another control character", []() -> void
+      {
+        std::vector<std::string> fields = {"a\tb", std::string("c\x01") + "d"};
+        expect(zut_format_as_csv(fields)).ToBe(std::string("\"a\tb\",\"c\x01") + "d\"");
+      });
+
+      it("should quote after trimming so padding stays outside the quotes", []() -> void
+      {
+        std::vector<std::string> fields = {"  a,b  ", "c"};
+        expect(zut_format_as_csv(fields)).ToBe("\"a,b\",c");
+      });
+    });
+
+    describe("zut_escape_control_chars", []() -> void
+    {
+      it("should leave printable text unchanged", []() -> void
+      {
+        const std::string input = "dir/file name, \"quoted\" 'x'.txt";
+        expect(zut_escape_control_chars(input)).ToBe(input);
+      });
+
+      it("should return an empty string for empty input", []() -> void
+      {
+        expect(zut_escape_control_chars("")).ToBe("");
+      });
+
+      it("should escape newline, carriage return, and tab", []() -> void
+      {
+        expect(zut_escape_control_chars("a\nb\rc\td")).ToBe("a\\nb\\rc\\td");
+      });
+
+      it("should escape other control characters as three-digit octal", []() -> void
+      {
+        expect(zut_escape_control_chars(std::string("a\x01") + "b\x1f")).ToBe("a\\001b\\037");
+      });
+
+      it("should escape backslashes so escaped and literal names differ", []() -> void
+      {
+        expect(zut_escape_control_chars("a\\nb")).ToBe("a\\\\nb");
+        expect(zut_escape_control_chars("a\\nb")).Not().ToBe(zut_escape_control_chars("a\nb"));
+      });
+
+      it("should leave no control characters in the output for any input", []() -> void
+      {
+        std::string input;
+        for (int byte = 1; byte < 256; byte++)
+        {
+          input += static_cast<char>(byte);
+        }
+        const std::string escaped = zut_escape_control_chars(input);
+        const bool has_control = std::any_of(escaped.begin(), escaped.end(), [](char ch)
+        { return iscntrl(static_cast<unsigned char>(ch)) != 0; });
+        expect(has_control).ToBe(false);
       });
     });
 
